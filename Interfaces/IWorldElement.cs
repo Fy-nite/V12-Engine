@@ -82,6 +82,11 @@ namespace V12.Interfaces
             return (T)Components.Find(c => c is T);
         }
 
+        public T GetComponent<T>(string name) where T : IComponent
+        {
+            return (T)Components.Find(c => c is T && c.Name == name);
+        }
+
 
         }
 }

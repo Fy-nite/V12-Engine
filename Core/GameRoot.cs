@@ -25,7 +25,7 @@ namespace V12.Core
             {
 #if DEBUG
                 Console.WriteLine($"Initializing world: {World.WorldName}");
-#endif
+#endif 
             }
         }
 
