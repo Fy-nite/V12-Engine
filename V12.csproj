@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-	  <OutputType>Library</OutputType>
+	<OutputType>library</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -9,7 +9,11 @@
 
   <ItemGroup>
     <Folder Include="Components\" />
-    <Folder Include="Worlds\" />
+    <Folder Include="Properties\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\libs\ObjectIR.net\ObjectIR.net\ObjectIR.net.csproj" />
   </ItemGroup>
 
 </Project>
