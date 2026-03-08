@@ -33,7 +33,12 @@ namespace V12.Core
         {
             foreach (var World in Worlds)
             {
+                try
+                {
+
                 World.Update(deltaTime);
+                }
+                catch { }
             }
         }
 

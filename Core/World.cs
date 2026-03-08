@@ -19,7 +19,11 @@ namespace V12.Core
         {
             foreach (var element in Root)
             {
+                try
+                {
                 element.Components.ForEach(component => component.Update(deltaTime));
+                }
+                catch { }
             }
         }
     }
