@@ -7,10 +7,10 @@ namespace V12.Core.Registry
     public class RegistryController
     {
         public string Name { get; set; }
+
         public List<RegistryService> RegisteredServices;
         public RegistryController() { RegisteredServices = new List<RegistryService>(); }
         public RegistryController(string name) { Name = name; RegisteredServices = new List<RegistryService>(); }
-
 
         public RegistryService Get(string ServiceName)
         {
@@ -24,6 +24,11 @@ namespace V12.Core.Registry
         {
             if (RegisteredServices.Where(x => x.name == service.name).FirstOrDefault() != null) return false;
             RegisteredServices.Add(service);
+            return true;
+        }
+        public bool Unregister(RegistryService service) {
+            if (RegisteredServices.Where(x => x.name == service.name).FirstOrDefault() == null) return false;
+            RegisteredServices.Remove(service);
             return true;
         }
 
