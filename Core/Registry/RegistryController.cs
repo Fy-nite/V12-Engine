@@ -20,7 +20,6 @@ namespace V12.Core.Registry
         {
             return RegisteredServices;
         }
-
         public bool Register(RegistryService service)
         {
             if (RegisteredServices.Where(x => x.name == service.name).FirstOrDefault() != null) return false;
