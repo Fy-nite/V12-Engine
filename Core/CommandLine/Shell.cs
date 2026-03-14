@@ -7,7 +7,6 @@ namespace V12.Core.CommandLine
     [IRClassBinding("Shell")]
     public interface Shell
     {
-        [IRMethodBinding]
-        void Run(bool IsAllWorldsClosed);
+        bool Run(bool IsAllWorldsClosed);
     }
 }

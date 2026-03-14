@@ -11,36 +11,64 @@ namespace V12.Core
     public class GameRoot
     {
         public List<World> Worlds = new List<World>();
+        /// <summary>
+        /// The currently selected or focused world. When set, only this world will be updated by Update().
+        /// </summary>
+        public World? SelectedWorld { get; private set; }
+            World UserSpace = new World("UserSpace"); // always open and active no matter what, contains the UI for being able to control the game and select worlds, etc. This world is not meant to be used for actual game content, but rather for the user interface and control of the game.
+            World HomeWorld = new World("HomeWorld");
         
         public GameRoot() { 
-            World UserSpace = new World("UserSpace");
-            World HomeWorld = new World("HomeWorld");
             Worlds.Add(UserSpace);
             Worlds.Add(HomeWorld);
+            // Default to the first created world as the focused world
+            SelectedWorld = HomeWorld;
         }
         
         public void Initialize()
         {
+#if DEBUG
             foreach (var World in Worlds)
             {
-#if DEBUG
                 Console.WriteLine($"Initializing world: {World.WorldName}");
-#endif 
+                World.Generate();
             }
+#endif 
         }
 
         public void Update(float deltaTime)
         {
-            foreach (var World in Worlds)
+            if (SelectedWorld != null)
             {
                 try
                 {
-
-                World.Update(deltaTime);
+                    SelectedWorld.Update(deltaTime);
                 }
                 catch { }
+                return;
             }
+            UserSpace.Update(deltaTime);
         }
+
+        public void SelectWorld(World world)
+        {
+            if (world == null) return;
+            if (!Worlds.Contains(world)) return;
+            SelectedWorld = world;
+        }
+
+        public bool SelectWorldByName(string name)
+        {
+            var found = Worlds.Find(w => w.WorldName == name);
+            if (found != null)
+            {
+                SelectedWorld = found;
+                return true;
+            }
+            return false;
+        }
+
+        public void DeselectWorld() => SelectedWorld = null;
 
         
 

@@ -1,0 +1,42 @@
+using System;
+using V12.Interfaces;
+
+namespace V12.Components
+{
+    /// <summary>
+    /// Common base implementation for non-Godot components.
+    /// Provides id generation, dirty event wiring and default lifecycle methods.
+    /// </summary>
+    public abstract class ComponentBase : IComponent
+    {
+        public event Action<IComponent>? OnDirty;
+
+        public long Id { get; protected set; }
+        public long? EntityId { get; set; }
+
+        public abstract string Name { get; }
+        public virtual string Description => string.Empty;
+
+        protected ComponentBase()
+        {
+            Id = GenerateId();
+        }
+
+        public virtual void Update(float deltaTime) { }
+        public virtual void OnAttach(V12.Interfaces.IWorldElement worldElement) { }
+        public virtual void OnDetach(V12.Interfaces.IWorldElement worldElement) { }
+        public virtual void OnUpdate() { }
+        public virtual void OnDestroy() { }
+
+        /// <summary>
+        /// Mark component as dirty so DirtyTracker can pick it up.
+        /// </summary>
+        protected void MarkDirty()
+        {
+            try { OnDirty?.Invoke(this); } catch { }
+        }
+
+        private static long _nextId = 1;
+        private static long GenerateId() => System.Threading.Interlocked.Increment(ref _nextId);
+    }
+}

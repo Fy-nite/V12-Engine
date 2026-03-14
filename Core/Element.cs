@@ -7,6 +7,8 @@ namespace V12.Core
 {
     public class Element : IWorldElement
     {
+        public event Action<IWorldElement>? OnDirty;
+
         public string? Name { get; set; }
         public string? Description { get; set; }
         public IWorldElement? Parent { get; set; }
@@ -17,6 +19,11 @@ namespace V12.Core
             Name = name;
             Description = description;
             Parent = parent;
+        }
+
+        public void MarkDirty()
+        {
+            OnDirty?.Invoke(this);
         }
     }
 }

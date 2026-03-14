@@ -14,6 +14,10 @@ namespace V12.Interfaces
     public interface IComponent
     {
         /// <summary>
+        /// Event raised when the component's state has changed and should be synchronized over the network.
+        /// </summary>
+        event Action<IComponent>? OnDirty;
+        /// <summary>
         /// The ID used to describe the component, which is used to identify the component in the system. This ID should be unique across all components.
         /// </summary>
         long Id { get; }

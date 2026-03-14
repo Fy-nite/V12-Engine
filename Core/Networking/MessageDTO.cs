@@ -7,12 +7,14 @@ namespace V12.Core.Networking
 {
     public class MessageDTO
     {
+        /// <summary>
+        /// BSON encoded message.
+        /// </summary>
         public Byte[] Message;
-        public String Sender;
+        public Uri Sender;
         public MessageType MessageType;
-
         public MessageDTO() { }
-        public MessageDTO(Byte[] message) { Message = message; }
-        // Base64 encoded byte array of the message content
+        public MessageDTO(Uri sender, Byte[] message) { Sender = sender; Message = message; }
+
     }
 }

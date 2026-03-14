@@ -2,10 +2,16 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Linq;
+using V12.Core.NetworkCable;
 namespace V12.Interfaces
 {
     public interface IWorldElement
     {
+        /// <summary>
+        /// Event raised when this world element or its components have changed and should be synchronized over the network.
+        /// </summary>
+        event Action<IWorldElement>? OnDirty;
+
         /// <summary>
         /// Gets or sets the name associated with the entity.
         /// </summary>
@@ -42,8 +48,10 @@ namespace V12.Interfaces
         /// <param name="component">The component to be added to the collection. This component must not be null.</param>
         public void AddComponent(IComponent component)
         {
+
             component.OnAttach(this);
             Components.Add(component);
+            component.MarkDirty(); // mark the component as dirty after attaching to ensure it is updated in the next cycle
         }
 
         /// <summary>
@@ -56,6 +64,7 @@ namespace V12.Interfaces
         {
             component.OnDetach(this); // always call detach before removing, to ensure proper cleanup
             Components.Remove(component);
+            component.MarkDirty(); // mark the component as dirty after detaching to ensure it is updated in the next cycle
         }
 
         /// <summary>
