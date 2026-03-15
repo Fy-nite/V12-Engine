@@ -46,7 +46,7 @@ namespace V12.Core.NetworkCable
             _client = new TcpClient();
 
             Console.WriteLine($"[NetworkClient] Connecting to {_host}:{_port}...");
-            await _client.ConnectAsync(_host, _port);
+            await _client.ConnectAsync(_host, _port, _cts.Token);
             Console.WriteLine($"[NetworkClient] Connected to {_host}:{_port}");
 
             // Subscribe to outgoing messages

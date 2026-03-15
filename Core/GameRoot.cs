@@ -2,8 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Xml.Linq;
-using System.Reflection;
-using System.IO;
+
 namespace V12.Core
 {
     /// <summary>
@@ -25,27 +24,9 @@ namespace V12.Core
             // Default to the first created world as the focused world
             SelectedWorld = HomeWorld;
         }
-        public string ReadResource(string name)
-        {
-            using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(name))
-            {
-                if (stream == null)
-                {
-                    Console.WriteLine($"Resource '{name}' not found.");
-                    return "";
-                }
-                using (StreamReader reader = new StreamReader(stream))
-                {
-                    string result = reader.ReadToEnd();
-                    return result;
-                }
-            }
-        }
         
         public void Initialize()
         {
-            UserSpace = new WorldML.WorldMLParser().Parse(ReadResource("V12.Core.Resources.UserSpace.xml")) ?? new World("UserSpace");
-            HomeWorld = new WorldML.WorldMLParser().Parse(ReadResource("V12.Core.Resources.HomeWorld.xml")) ?? new World("HomeWorld");
 #if DEBUG
             foreach (var World in Worlds)
             {

@@ -14,8 +14,8 @@ namespace V12.Core.Networking
     public class DirtyTracker
     {
         private readonly NetworkCables _cables;
-        private readonly ConcurrentDictionary<long, IComponent> _dirtyComponents = new ConcurrentDictionary<long, IComponent>();
-        private readonly ConcurrentDictionary<IWorldElement, byte> _dirtyElements = new ConcurrentDictionary<IWorldElement, byte>();
+        private readonly ConcurrentDictionary<long, IComponent> _dirtyComponents = new();
+        private readonly ConcurrentDictionary<IWorldElement, byte> _dirtyElements = new();
         private readonly Uri _senderUri;
 
         /// <summary>
@@ -247,7 +247,7 @@ namespace V12.Core.Networking
     /// </summary>
     public class ComponentBatchDTO
     {
-        public List<IComponent> Components { get; set; } = new List<IComponent>();
+        public List<IComponent> Components { get; set; } = new();
         public DateTime Timestamp { get; set; }
     }
 
@@ -256,7 +256,7 @@ namespace V12.Core.Networking
     /// </summary>
     public class ElementBatchDTO
     {
-        public List<IWorldElement> Elements { get; set; } = new List<IWorldElement>();
+        public List<IWorldElement> Elements { get; set; } = new();
         public DateTime Timestamp { get; set; }
     }
 }

@@ -31,28 +31,5 @@ namespace V12.Core.NetworkCable
 
             transport.SendData(dto);
         }
-
-        ///// <summary>
-        ///// Overload that accepts a string sender (e.g. "http://mygame/room1" or "mygamehost") and parses it to a Uri.
-        ///// If the string lacks a scheme, it will default to http://<value>.
-        ///// </summary>
-        //public static void MarkDirty(this object obj, NetworkCables? cables = null, string? sender = null, MessageType messageType = MessageType.Event)
-        //{
-        //    if (obj is null) throw new ArgumentNullException(nameof(obj));
-
-        //    var transport = cables ?? NetworkCables.Default;
-        //    if (transport is null) return;
-
-        //    var uri = NetworkCables.CreateUriFromString(sender);
-
-        //    var dto = new MessageDTO
-        //    {
-        //        Sender = uri,
-        //        MessageType = messageType,
-        //        Message = AncientCompressor.Compress(obj)
-        //    };
-
-        //    transport.SendData(dto);
-        //}
     }
 }
