@@ -62,7 +62,7 @@ namespace V12.Core.NetworkCable
             {
                 try
                 {
-                    var client = await _listener.AcceptTcpClientAsync(token);
+                    var client = await _listener.AcceptTcpClientAsync();
                     _clients.Add(client);
                     Console.WriteLine($"[NetworkHost] Client connected. Total clients: {_clients.Count}");
 

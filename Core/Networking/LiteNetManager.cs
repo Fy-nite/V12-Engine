@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Net;
 using System.Text.Json;
 using LiteNetLib;
 using LiteNetLib.Utils;
@@ -15,7 +16,18 @@ namespace V12.Core.Networking
         private NetManager net;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<int, NetPeer> peers = new System.Collections.Concurrent.ConcurrentDictionary<int, NetPeer>();
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> clientMap = new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
-        public record RemoteMessage(int PeerId, MessageDTO Message, System.Net.IPEndPoint? EndPoint);
+        public class RemoteMessage
+        {
+            public int PeerId { get; }
+            public MessageDTO Message { get; }
+            public IPEndPoint EndPoint { get; }
+            public RemoteMessage(int peerId, MessageDTO message, System.Net.IPEndPoint endPoint)
+            {
+                PeerId = peerId;
+                Message = message;
+                EndPoint = endPoint;
+            }
+        }
         private readonly BlockingCollection<RemoteMessage> receiveQueue = new BlockingCollection<RemoteMessage>();
         private readonly string connectKey = "v12";
 

@@ -45,6 +45,37 @@ namespace V12.Core.NetworkCable
         }
 
         /// <summary>
+        /// Create a Uri from a user-supplied sender string. If the string already contains a scheme
+        /// (contains "://") it will be used as-is when valid. If no scheme is present, defaults to http://.
+        /// If the input is null or invalid, falls back to networkcables://localhost.
+        /// </summary>
+        public static Uri CreateUriFromString(string? sender)
+        {
+            if (string.IsNullOrWhiteSpace(sender)) return new Uri("networkcables://localhost");
+
+            // If the caller provided a scheme already, try to use it
+            if (sender.Contains("://"))
+            {
+                try { return new Uri(sender); }
+                catch { /* fall through to try http */ }
+            }
+
+            // No scheme provided; default to http to support http:// style names
+            try { return new Uri("http://" + sender); }
+            catch { return new Uri("networkcables://localhost"); }
+        }
+
+        /// <summary>
+        /// Convenience: send raw bytes with a string sender (parsed to Uri).
+        /// </summary>
+        public static void Send(string sender, byte[] message, MessageType messageType = MessageType.Event)
+        {
+            var uri = CreateUriFromString(sender);
+            var dto = new MessageDTO(uri, message) { MessageType = messageType };
+            Default?.SendData(dto);
+        }
+
+        /// <summary>
         /// Enqueue a message to be sent.
         /// </summary>
         public void SendData(MessageDTO message)

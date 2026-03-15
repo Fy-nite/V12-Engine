@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WorldML.xsd
+  XML Schema for the WorldML format used by WorldMLParser.cs
+
+  Notes:
+  - The parser treats any element node as a world element. Nodes named "Component" or those whose
+    names end with "Component" are treated as components. XSD cannot easily express "ends-with",
+    so this schema allows named Component elements and also permits arbitrary element names (lax).
+  - Component nodes may include attributes (mapped to component properties) and/or nested <Property/>
+    child elements with attributes `name` and `value`.
+  - Element nodes may be nested recursively.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified" attributeFormDefault="unqualified">
+
+  <xs:annotation>
+    <xs:documentation>WorldML schema for use with WorldMLParser (V12/WorldML/WorldMLParser.cs)</xs:documentation>
+  </xs:annotation>
+
+  <!-- Property used to assign a single property on a component -->
+  <xs:complexType name="PropertyType">
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="value" type="xs:string" use="optional"/>
+    <xs:attribute name="type" type="xs:string" use="optional"/>
+    <xs:anyAttribute processContents="lax"/>
+  </xs:complexType>
+
+  <!-- Generic component description. Parser will either use `type` attribute or the element name to locate a component type. -->
+  <xs:complexType name="ComponentType">
+    <xs:sequence>
+      <xs:element name="Property" type="PropertyType" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:any processContents="lax" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="type" type="xs:string" use="optional"/>
+    <xs:anyAttribute processContents="lax"/>
+  </xs:complexType>
+
+  <!-- Recursive Element type: may contain nested elements and components. -->
+  <xs:complexType name="ElementType">
+    <xs:sequence>
+      <xs:choice minOccurs="0" maxOccurs="unbounded">
+        <!-- Named element for explicit Element tags -->
+        <xs:element name="Element" type="ElementType"/>
+        <!-- Explicit Component tag -->
+        <xs:element name="Component" type="ComponentType"/>
+        <!-- Allow other element names (including TransformComponent, HealthComponent, etc.) -->
+        <xs:any processContents="lax" namespace="##any"/>
+      </xs:choice>
+    </xs:sequence>
+    <xs:attribute name="name" type="xs:string" use="optional"/>
+    <xs:attribute name="description" type="xs:string" use="optional"/>
+    <xs:anyAttribute processContents="lax"/>
+  </xs:complexType>
+
+  <!-- Root World element -->
+  <xs:element name="World">
+    <xs:complexType>
+      <xs:sequence>
+        <!-- Allow zero or more child elements; parser accepts any element names as world elements -->
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+          <xs:element name="Element" type="ElementType"/>
+          <xs:any processContents="lax" namespace="##any"/>
+        </xs:choice>
+      </xs:sequence>
+      <xs:attribute name="name" type="xs:string" use="optional"/>
+      <xs:anyAttribute processContents="lax"/>
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>

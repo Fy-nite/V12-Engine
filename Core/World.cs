@@ -1,4 +1,5 @@
-﻿using V12.Core.Core.Interfaces;
+﻿using System.Collections.Generic;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Core
 {

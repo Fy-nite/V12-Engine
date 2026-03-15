@@ -2,24 +2,51 @@
 
   <PropertyGroup>
 	<OutputType>library</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <TargetFramework>netstandard2.1</TargetFramework>
+
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Properties\" />
-    <Folder Include="Tests\" />
+    <None Remove="Core\Resources\HomeWorld.xml" />
   </ItemGroup>
 
+
   <ItemGroup>
-    <ProjectReference Include="..\libs\ObjectIR.net\ObjectIR.net\ObjectIR.net.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
-    <ProjectReference Include="..\V12.Core\V12.Core.csproj" />
-    <ProjectReference Include="..\V12.WorldML\V12.WorldML.csproj" />
+    <Folder Include="Properties\" />
+    <Folder Include="Tests\" />
+    <Folder Include="WorldML\Worlds\" />
   </ItemGroup>
+
+
 
   <ItemGroup>
     <PackageReference Include="LiteNetLib" Version="0.9.7" />
+  </ItemGroup>
+
+
+
+  <ItemGroup>
+    <!--<ProjectReference Include="..\..\..\VBlank\libs\Adamantite\Adamantite.CSharp.Bindings\Adamantite.CSharp.Bindings.csproj" />-->
+    <!--<ProjectReference Include="..\libs\ObjectIR.net\libs\lattice\Lattice.csproj" />
+    <ProjectReference Include="..\libs\ObjectIR.net\libs\lattice\libs\ObjectIR.Core\ObjectIR.Core.csproj" />
+    <ProjectReference Include="..\libs\ObjectIR.net\ObjectIR.net\ObjectIR.net.csproj" />-->
+  </ItemGroup>
+
+
+
+  <ItemGroup>
+    <EmbeddedResource Include="Core\Resources\HomeWorld.xml" />
+    <EmbeddedResource Include="Core\Resources\UserSpace.xml">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </EmbeddedResource>
+  </ItemGroup>
+
+
+
+  <ItemGroup>
+    <PackageReference Include="MongoDB.Bson" Version="3.7.0" />
+    <PackageReference Include="System.Text.Json" Version="10.0.5" />
   </ItemGroup>
 
 </Project>
