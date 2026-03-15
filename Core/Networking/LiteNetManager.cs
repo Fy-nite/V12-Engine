@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using LiteNetLib;
 using LiteNetLib.Utils;
-using V12.Interfaces;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Core.Networking
 {

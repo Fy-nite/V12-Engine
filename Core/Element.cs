@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-using V12.Interfaces;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Core
 {

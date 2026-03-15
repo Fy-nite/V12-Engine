@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using System.Text;
 using System.Text.Json;
 using V12.Core.Networking;
-using V12.Interfaces;
+using V12.Core.Core.Interfaces;
 namespace V12.Core.Networking
 {
     /// <summary>

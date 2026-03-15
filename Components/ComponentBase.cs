@@ -1,5 +1,5 @@
 using System;
-using V12.Interfaces;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Components
 {
@@ -23,8 +23,8 @@ namespace V12.Components
         }
 
         public virtual void Update(float deltaTime) { }
-        public virtual void OnAttach(V12.Interfaces.IWorldElement worldElement) { }
-        public virtual void OnDetach(V12.Interfaces.IWorldElement worldElement) { }
+        public virtual void OnAttach(IWorldElement worldElement) { }
+        public virtual void OnDetach(IWorldElement worldElement) { }
         public virtual void OnUpdate() { }
         public virtual void OnDestroy() { }
 

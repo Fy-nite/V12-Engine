@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace V12.Interfaces
+namespace V12.Core.Core.Interfaces
 {
     /// <summary>
     /// Defines the contract for a component that exposes a name and description, and provides methods for updating and

@@ -31,7 +31,7 @@ namespace V12.Core
             foreach (var World in Worlds)
             {
                 Console.WriteLine($"Initializing world: {World.WorldName}");
-                World.Generate();
+
             }
 #endif 
         }

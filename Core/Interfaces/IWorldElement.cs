@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Linq;
 using V12.Core.NetworkCable;
-namespace V12.Interfaces
+namespace V12.Core.Core.Interfaces
 {
     public interface IWorldElement
     {
