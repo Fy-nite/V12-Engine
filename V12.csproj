@@ -13,13 +13,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\libs\ObjectIR.net\ObjectIR.net\ObjectIR.net.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
-    <ProjectReference Include="..\V12.Core\V12.Core.csproj" />
-    <ProjectReference Include="..\V12.WorldML\V12.WorldML.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="LiteNetLib" Version="0.9.7" />
+    <PackageReference Include="MongoDB.Bson" Version="2.25.0" />
   </ItemGroup>
 
 </Project>

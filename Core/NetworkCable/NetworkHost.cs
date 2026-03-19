@@ -25,6 +25,11 @@ namespace V12.Core.NetworkCable
         public int ClientCount => _clients.Count;
 
         /// <summary>
+        /// Raised on the accept loop thread when a new client connects.
+        /// </summary>
+        public event Action? OnClientConnected;
+
+        /// <summary>
         /// Create a new network host.
         /// </summary>
         /// <param name="port">Port to listen on.</param>
@@ -65,6 +70,7 @@ namespace V12.Core.NetworkCable
                     var client = await _listener.AcceptTcpClientAsync(token);
                     _clients.Add(client);
                     Console.WriteLine($"[NetworkHost] Client connected. Total clients: {_clients.Count}");
+                    OnClientConnected?.Invoke();
 
                     // Start handling this client
                     _ = Task.Run(async () => await HandleClientAsync(client, token), token);

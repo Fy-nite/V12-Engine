@@ -25,5 +25,10 @@ namespace V12.Core
         {
             OnDirty?.Invoke(this);
         }
+
+        internal void AddComponent(IComponent comp)
+        {
+            Components.Add(comp);
+        }
     }
 }

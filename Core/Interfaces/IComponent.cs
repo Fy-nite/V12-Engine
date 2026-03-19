@@ -70,6 +70,14 @@ namespace V12.Core.Core.Interfaces
         void OnUpdate();
 
         /// <summary>
+        /// Copy the serializable state from <paramref name="other"/> into this component.
+        /// Called by the networking layer after deserialising an incoming component snapshot
+        /// so the live component reflects the latest server values.
+        /// Implement this in each concrete component to copy its own data fields.
+        /// </summary>
+        void CopyFrom(IComponent other) { }
+
+        /// <summary>
         /// Releases all resources used by the current instance and performs cleanup operations.
         /// </summary>
         /// <remarks>This method should be called when the instance is no longer needed to ensure proper

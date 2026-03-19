@@ -178,9 +178,17 @@ namespace V12.Core.Networking
             {
                 var dto = new ComponentBatchDTO
                 {
-                    Components = components,
                     Timestamp = DateTime.UtcNow
                 };
+
+                foreach (var c in components)
+                {
+                    dto.Components.Add(new ComponentSnapshot
+                    {
+                        Id = c.Id,
+                        Name = c.Name
+                    });
+                }
 
                 _cables.SendData(new MessageDTO
                 {
@@ -203,9 +211,20 @@ namespace V12.Core.Networking
             {
                 var dto = new ElementBatchDTO
                 {
-                    Elements = elements,
                     Timestamp = DateTime.UtcNow
                 };
+
+                foreach (var e in elements)
+                {
+                    var es = new ElementSnapshot
+                    {
+                        Name = e.Name,
+                        Description = e.Description
+                    };
+                    foreach (var c in e.Components)
+                        es.ComponentIds.Add(c.Id);
+                    dto.Elements.Add(es);
+                }
 
                 _cables.SendData(new MessageDTO
                 {
@@ -245,18 +264,35 @@ namespace V12.Core.Networking
     /// <summary>
     /// DTO for batching multiple component updates.
     /// </summary>
-    public class ComponentBatchDTO
-    {
-        public List<IComponent> Components { get; set; } = new();
-        public DateTime Timestamp { get; set; }
-    }
+        // Serializable DTOs used on the wire. These contain only primitive fields
+        // so they can be BSON-serialized without class-mapping for polymorphic types.
+        public class ComponentBatchDTO
+        {
+            public List<ComponentSnapshot> Components { get; set; } = new();
+            public DateTime Timestamp { get; set; }
+        }
 
-    /// <summary>
-    /// DTO for batching multiple element updates.
-    /// </summary>
-    public class ElementBatchDTO
-    {
-        public List<IWorldElement> Elements { get; set; } = new();
-        public DateTime Timestamp { get; set; }
-    }
+        public class ComponentSnapshot
+        {
+            public long Id { get; set; }
+            public string? Name { get; set; }
+            // Future: include a payload blob for full state
+            public byte[]? Payload { get; set; }
+        }
+
+        /// <summary>
+        /// DTO for batching multiple element updates.
+        /// </summary>
+        public class ElementBatchDTO
+        {
+            public List<ElementSnapshot> Elements { get; set; } = new();
+            public DateTime Timestamp { get; set; }
+        }
+
+        public class ElementSnapshot
+        {
+            public string? Name { get; set; }
+            public string? Description { get; set; }
+            public List<long> ComponentIds { get; set; } = new();
+        }
 }
