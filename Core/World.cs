@@ -6,6 +6,13 @@ namespace V12.Core
     {
         public List<IWorldElement> Root { get; set; }
         public string WorldName { get; set; }
+
+        /// <summary>Raised on the calling thread when an element is added via <see cref="AddElement"/>.</summary>
+        public event Action<IWorldElement>? ElementAdded;
+
+        /// <summary>Raised on the calling thread when an element is removed via <see cref="RemoveElement"/>.</summary>
+        public event Action<IWorldElement>? ElementRemoved;
+
         public World() { 
             WorldName = "DefaultWorld";
             Root = new List<IWorldElement>();
@@ -16,9 +23,18 @@ namespace V12.Core
             WorldName = Name;
             Root = new List<IWorldElement>();
         }
+
         public void AddElement(IWorldElement element)
         {
             Root.Add(element);
+            ElementAdded?.Invoke(element);
+        }
+
+        /// <summary>Remove an element from the world and fire <see cref="ElementRemoved"/>.</summary>
+        public void RemoveElement(IWorldElement element)
+        {
+            if (Root.Remove(element))
+                ElementRemoved?.Invoke(element);
         }
         public void GenerateWorld()
         {

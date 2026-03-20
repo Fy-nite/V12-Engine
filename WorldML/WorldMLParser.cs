@@ -26,10 +26,19 @@ namespace V12.WorldML
             {
                 doc.LoadXml(xml);
             }
-            catch (XmlException ex)
+            catch (XmlException)
             {
-                var preview = xml.Length > 200 ? xml.Substring(0, 200) + "..." : xml;
-                throw new XmlException($"Failed to parse XML input. Preview: {preview}", ex);
+                // The input might be a fragment (multiple root elements, no <World> wrapper).
+                // Try wrapping it and parsing again before giving up.
+                try
+                {
+                    doc.LoadXml($"<World>{xml}</World>");
+                }
+                catch (XmlException ex2)
+                {
+                    var preview = xml.Length > 200 ? xml.Substring(0, 200) + "..." : xml;
+                    throw new XmlException($"Failed to parse XML input. Preview: {preview}", ex2);
+                }
             }
 
             var root = doc.DocumentElement;
@@ -118,7 +127,8 @@ namespace V12.WorldML
             object? instance = null;
             try { instance = Activator.CreateInstance(compType); } catch { return null; }
 
-            if (instance.GetType() != typeof(IComponent)) return null;
+            // Activator returns object; verify it really implements IComponent before proceeding.
+            if (instance is not IComponent component) return null;
 
             // Set simple properties from child <Property name="X" value="Y"/> or direct attributes on the component node
             // 1) attributes
@@ -127,7 +137,7 @@ namespace V12.WorldML
                 foreach (XmlAttribute attr in node.Attributes)
                 {
                     if (string.Equals(attr.Name, "type", StringComparison.OrdinalIgnoreCase)) continue;
-                    SetPropertyIfExists((IComponent)instance, attr.Name, attr.Value);
+                    SetPropertyIfExists(instance, attr.Name, attr.Value);
                 }
             }
 
@@ -140,10 +150,10 @@ namespace V12.WorldML
                 var propName = child.Attributes?["name"]?.Value;
                 var propValue = child.Attributes?["value"]?.Value ?? child.InnerText;
                 if (string.IsNullOrEmpty(propName)) continue;
-                SetPropertyIfExists((IComponent)instance, propName, propValue);
+                SetPropertyIfExists(instance, propName, propValue);
             }
 
-            return (IComponent)instance;
+            return component;
         }
 
         private void SetPropertyIfExists(object target, string propName, string? value)
