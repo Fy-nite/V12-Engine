@@ -1,0 +1,1134 @@
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ─────────────────────────────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{tcolorbox}
+\tcbuselibrary{breakable, skins}
+
+% ── Colours ───────────────────────────────────────────────────────────────────
+\definecolor{xmlbg}{HTML}{F7F7F7}
+\definecolor{xmlkw}{HTML}{0057AE}
+\definecolor{xmlval}{HTML}{B05A00}
+\definecolor{xmlcom}{HTML}{5C8A00}
+\definecolor{xmlstr}{HTML}{800080}
+\definecolor{noteblue}{HTML}{EAF3FF}
+\definecolor{noteborder}{HTML}{3D7DCA}
+\definecolor{warnbg}{HTML}{FFF8E1}
+\definecolor{warnborder}{HTML}{E6A817}
+\definecolor{headergray}{HTML}{4A4A4A}
+
+% ── XML listing style ─────────────────────────────────────────────────────────
+\lstdefinelanguage{WorldML}{
+  morestring=[b]",
+  morecomment=[s]{<!--}{-->},
+  stringstyle=\color{xmlval},
+  commentstyle=\color{xmlcom}\itshape,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{xmlkw}\bfseries,
+  morekeywords={World, Element, Component, Property,
+    TransformComponent, ScaleComponent,
+    MeshComponent, MaterialComponent,
+    PointLightComponent, SpotLightComponent, DirectionalLightComponent,
+    CameraComponent, CameraCaptureComponent,
+    ColliderComponent, RigidBodyComponent, VelocityComponent,
+    AudioSourceComponent,
+    ParticleEmitterComponent, FogComponent, EnvironmentComponent,
+    HealthComponent, TagComponent,
+    UILabelComponent, UIPanelComponent,
+    ButtonControlComponent, SliderControlComponent,
+    CheckboxControlComponent, ProgressBarComponent,
+    TextInputControlComponent,
+    DesktopPlayerComponent},
+  backgroundcolor=\color{xmlbg},
+  breaklines=true,
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{gray!40},
+  showstringspaces=false,
+  tabsize=2,
+  captionpos=b,
+  numbers=none
+}
+\lstset{language=WorldML}
+
+% ── Callout boxes ─────────────────────────────────────────────────────────────
+\newtcolorbox{notebox}{
+  colback=noteblue, colframe=noteborder,
+  boxrule=0.6pt, arc=3pt, left=6pt, right=6pt, top=4pt, bottom=4pt,
+  breakable
+}
+\newtcolorbox{warnbox}{
+  colback=warnbg, colframe=warnborder,
+  boxrule=0.6pt, arc=3pt, left=6pt, right=6pt, top=4pt, bottom=4pt,
+  breakable
+}
+
+% ── Section formatting ────────────────────────────────────────────────────────
+\titleformat{\section}{\large\bfseries\color{headergray}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries\color{headergray}}{}{0em}{}
+\titleformat{\subsubsection}{\normalsize\itshape}{}{0em}{}
+
+% ── Header / footer ───────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\texttt{WorldML} Reference}
+\rhead{V12 Engine}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ── Table column types ────────────────────────────────────────────────────────
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+% ── Metadata ─────────────────────────────────────────────────────────────────
+\hypersetup{
+  pdftitle={WorldML Reference},
+  pdfauthor={V12 Engine},
+  pdfsubject={WorldML XML world description format},
+  colorlinks=true,
+  linkcolor=noteborder,
+  urlcolor=noteborder
+}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{3cm}
+  {\Huge\bfseries WorldML Reference\par}
+  \vspace{0.5cm}
+  {\large\itshape V12 Engine --- World Description Format\par}
+  \vspace{2cm}
+  {\normalsize
+    WorldML is the XML-based declarative format used by the V12 engine to
+    describe worlds, their elements, and the components that define how each
+    element looks, behaves, and interacts at runtime.
+  \par}
+  \vfill
+  {\small\texttt{V12\textbackslash WorldML\textbackslash WorldMLParser.cs}\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Overview}
+
+WorldML (\textit{World Markup Language}) is a thin XML dialect parsed by
+\texttt{WorldMLParser} into a live \texttt{World} object that the V12 engine
+and its Godot renderer consume at runtime.  The key design goals are:
+
+\begin{itemize}[nosep]
+  \item \textbf{Declarative} --- describe a world without writing C\#.
+  \item \textbf{Composable} --- any element can carry any combination of
+        components and nest child elements arbitrarily deep.
+  \item \textbf{Extensible} --- adding a new C\# \texttt{ComponentBase}
+        subclass immediately makes it available as an XML tag without parser
+        changes.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Document Structure}
+
+\subsection{Root \texttt{<World>} node}
+
+Every WorldML file must have a single \texttt{<World>} root element.
+
+\begin{lstlisting}
+<World name="MyWorld">
+  <!-- elements go here -->
+</World>
+\end{lstlisting}
+
+\begin{longtable}{P{3cm} P{2.5cm} P{7.5cm}}
+  \toprule
+  \textbf{Attribute} & \textbf{Type} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Attribute} & \textbf{Type} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{name} & \texttt{string} & Logical name of the world. Defaults to
+    \texttt{"World"} if omitted. \\
+  \bottomrule
+\end{longtable}
+
+\begin{notebox}
+  \textbf{Fragment input:} if the XML string has no \texttt{<World>} wrapper
+  (e.g.\ a bare list of \texttt{<Element>} nodes), the parser will
+  automatically wrap it in \texttt{<World>} before parsing.
+\end{notebox}
+
+\subsection{\texttt{<Element>} nodes}
+
+An element is any object that exists in the world --- a mesh, a light, a
+player, a UI panel, etc.  Elements are hierarchical: an element may contain
+both \textbf{components} and \textbf{child elements} in any order.
+
+\begin{lstlisting}
+<Element name="Player" description="The local player entity">
+  <TransformComponent x="0" y="1" z="0" />
+  <MeshComponent Shape="Capsule" Width="0.5" Height="1.8" />
+  <Element name="Head">
+    <CameraComponent isCurrent="true" />
+  </Element>
+</Element>
+\end{lstlisting}
+
+\begin{longtable}{P{3cm} P{2.5cm} P{7.5cm}}
+  \toprule
+  \textbf{Attribute} & \textbf{Type} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Attribute} & \textbf{Type} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{name} & \texttt{string} & Human-readable identifier. Optional. \\
+  \texttt{description} & \texttt{string} & Free-text description. Optional. \\
+  \texttt{type} & \texttt{string} & Informational type hint (not processed by
+    the parser). Optional. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{Component nodes}
+
+A component node is recognised by the parser if its tag name \emph{ends with}
+\texttt{Component} (case-insensitive) or is exactly \texttt{Component} with a
+\texttt{type} attribute.
+
+\subsubsection{Inline attribute syntax}
+Properties are set directly as XML attributes:
+\begin{lstlisting}
+<TransformComponent x="0" y="1.5" z="0" rotation="90" />
+\end{lstlisting}
+
+\subsubsection{Generic \texttt{<Component>} syntax}
+When the tag name itself should not be the type:
+\begin{lstlisting}
+<Component type="CameraComponent" isCurrent="true" fov="90" />
+\end{lstlisting}
+
+\subsubsection{\texttt{<Property>} child syntax}
+Properties can also be expressed as child nodes, useful for long string values:
+\begin{lstlisting}
+<AudioSourceComponent>
+  <Property name="ResourcePath" value="res://Sounds/theme.ogg" />
+  <Property name="Autoplay" value="true" />
+</AudioSourceComponent>
+\end{lstlisting}
+
+\begin{notebox}
+  All three syntaxes can be combined freely.  Attribute values are applied
+  first; \texttt{<Property>} children are applied after and will override.
+\end{notebox}
+
+\subsubsection{Type resolution}
+
+The parser scans all loaded assemblies for a non-abstract class whose
+\texttt{Name} (or \texttt{FullName}) matches the tag/type value
+case-insensitively and that implements \texttt{IComponent}.  A matching class
+is instantiated with its default constructor and then populated.
+
+\begin{warnbox}
+  If the assembly containing a component is not loaded at parse time the
+  component is silently skipped.  Ensure all component assemblies are
+  referenced before calling \texttt{WorldMLParser.Parse()}.
+\end{warnbox}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Component Reference}
+
+Each subsection covers one component type. The \textbf{Tag} column shows the
+XML element name. All numeric values default to the values shown in the
+\textbf{Default} column. Colour channels are normalised floats in
+\texttt{[0, 1]} unless otherwise noted.
+
+% ── 3.1 Transform ─────────────────────────────────────────────────────────────
+\subsection{TransformComponent}
+
+Position and Y-axis rotation of an element in 3D world space.
+
+\begin{lstlisting}
+<TransformComponent x="0" y="1" z="0" rotation="45" />
+\end{lstlisting}
+
+\begin{longtable}{P{3cm} P{2cm} P{2.5cm} P{5.5cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{X} & float & \texttt{0} & World-space X position. \\
+  \texttt{Y} & float & \texttt{0} & World-space Y position (height). \\
+  \texttt{Z} & float & \texttt{0} & World-space Z position. \\
+  \texttt{Rotation} & float & \texttt{0} & Y-axis rotation in degrees. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.2 Scale ─────────────────────────────────────────────────────────────────
+\subsection{ScaleComponent}
+
+Non-uniform scale applied to the element's visual representation.
+
+\begin{lstlisting}
+<ScaleComponent scaleX="2" scaleY="1" scaleZ="2" />
+\end{lstlisting}
+
+\begin{longtable}{P{3cm} P{2cm} P{2.5cm} P{5.5cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{ScaleX} & float & \texttt{1} & Scale along X axis. \\
+  \texttt{ScaleY} & float & \texttt{1} & Scale along Y axis. \\
+  \texttt{ScaleZ} & float & \texttt{1} & Scale along Z axis. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.3 Mesh ──────────────────────────────────────────────────────────────────
+\subsection{MeshComponent}
+
+Controls the rendered primitive shape of an element. Requires no extra Godot
+scene node beyond the automatic \texttt{MeshInstance3D} created by
+\texttt{V12ElementNode}.
+
+\begin{lstlisting}
+<MeshComponent Shape="Box" Width="2" Height="0.2" Depth="2" />
+\end{lstlisting}
+
+\begin{longtable}{P{3cm} P{2cm} P{2.5cm} P{5.5cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Shape} & \texttt{MeshShape} & \texttt{Box} &
+    One of \texttt{Box}, \texttt{Sphere}, \texttt{Capsule},
+    \texttt{Cylinder}, \texttt{Plane}. \\
+  \texttt{Width} & float & \texttt{1} &
+    Width (X). For Sphere/Capsule used as diameter. \\
+  \texttt{Height} & float & \texttt{1} & Height (Y). \\
+  \texttt{Depth} & float & \texttt{1} & Depth (Z). \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.4 Material ──────────────────────────────────────────────────────────────
+\subsection{MaterialComponent}
+
+Surface colour and PBR properties.
+
+\begin{lstlisting}
+<MaterialComponent R="0.8" G="0.2" B="0.2" Metallic="0" Roughness="0.4" />
+\end{lstlisting}
+
+\begin{longtable}{P{3cm} P{2cm} P{2.5cm} P{5.5cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{R} & float [0,1] & \texttt{1} & Red channel. \\
+  \texttt{G} & float [0,1] & \texttt{1} & Green channel. \\
+  \texttt{B} & float [0,1] & \texttt{1} & Blue channel. \\
+  \texttt{A} & float [0,1] & \texttt{1} & Alpha (opacity). \\
+  \texttt{Metallic} & float [0,1] & \texttt{0} & PBR metallic factor. \\
+  \texttt{Roughness} & float [0,1] & \texttt{0.5} & PBR roughness factor. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.5 Lights ────────────────────────────────────────────────────────────────
+\subsection{PointLightComponent}
+
+Omnidirectional light emitting in all directions from a single point.
+
+\begin{lstlisting}
+<PointLightComponent colorR="1" colorG="0.9" colorB="0.7"
+                     range="15" energy="1.5" />
+\end{lstlisting}
+
+\begin{longtable}{P{3cm} P{2cm} P{2.5cm} P{5.5cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{ColorR} & float [0,1] & \texttt{1} & Red channel. \\
+  \texttt{ColorG} & float [0,1] & \texttt{1} & Green channel. \\
+  \texttt{ColorB} & float [0,1] & \texttt{1} & Blue channel. \\
+  \texttt{Range} & float & \texttt{10} & Light reach in world units. \\
+  \texttt{Energy} & float & \texttt{1} & Brightness multiplier. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{SpotLightComponent}
+
+Directional cone-shaped spotlight.
+
+\begin{lstlisting}
+<SpotLightComponent colorR="1" colorG="1" colorB="0.8"
+                    range="20" energy="2" angle="30" spotSoftness="0.3" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.2cm} P{2cm} P{2.3cm} P{5.5cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{ColorR} & float [0,1] & \texttt{1} & Red channel. \\
+  \texttt{ColorG} & float [0,1] & \texttt{1} & Green channel. \\
+  \texttt{ColorB} & float [0,1] & \texttt{1} & Blue channel. \\
+  \texttt{Range} & float & \texttt{15} & Cone reach in world units. \\
+  \texttt{Energy} & float & \texttt{1} & Brightness multiplier. \\
+  \texttt{Angle} & float [0,90] & \texttt{45} & Half-angle of the cone in degrees. \\
+  \texttt{SpotSoftness} & float [0,1] & \texttt{0.5} &
+    Edge softness. \texttt{0} = hard edge, \texttt{1} = very soft. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{DirectionalLightComponent}
+
+Infinite directional light simulating a sun or moon. Direction is controlled
+by the element's rotation.
+
+\begin{lstlisting}
+<DirectionalLightComponent colorR="1" colorG="0.95" colorB="0.85"
+                           energy="1" shadowEnabled="true" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.5cm} P{2cm} P{2.2cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{ColorR} & float [0,1] & \texttt{1} & Red channel. \\
+  \texttt{ColorG} & float [0,1] & \texttt{1} & Green channel. \\
+  \texttt{ColorB} & float [0,1] & \texttt{1} & Blue channel. \\
+  \texttt{Energy} & float & \texttt{1} & Brightness multiplier. \\
+  \texttt{ShadowEnabled} & bool & \texttt{true} & Whether the light casts shadows. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.8 Camera ────────────────────────────────────────────────────────────────
+\subsection{CameraComponent}
+
+Attaches a scene camera to the element.
+
+\begin{lstlisting}
+<CameraComponent fov="75" nearClip="0.05" farClip="1000"
+                 projection="Perspective" isCurrent="true" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.2cm} P{2.2cm} P{2.5cm} P{5.1cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Projection} & \texttt{CameraProjection} & \texttt{Perspective} &
+    \texttt{Perspective} or \texttt{Orthographic}. \\
+  \texttt{Fov} & float [1,179] & \texttt{75} &
+    Vertical field-of-view in degrees (perspective only). \\
+  \texttt{NearClip} & float & \texttt{0.05} & Near clip plane distance. \\
+  \texttt{FarClip} & float & \texttt{1000} & Far clip plane distance. \\
+  \texttt{OrthoSize} & float & \texttt{5} &
+    Half-size in world units (orthographic only). \\
+  \texttt{IsCurrent} & bool & \texttt{false} &
+    If \texttt{true}, this camera becomes active when the element enters the scene. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{CameraCaptureComponent}
+
+Render-to-texture camera. Captures the scene to a named viewport texture
+that other systems can sample.
+
+\begin{lstlisting}
+<CameraCaptureComponent textureWidth="512" textureHeight="512"
+                        textureName="SecurityCam1" fov="90" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.5cm} P{2cm} P{2.2cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Fov} & float [1,179] & \texttt{75} & Camera field-of-view in degrees. \\
+  \texttt{Near} & float & \texttt{0.05} & Near clip plane. \\
+  \texttt{Far} & float & \texttt{1000} & Far clip plane. \\
+  \texttt{TextureWidth} & int & \texttt{512} & Capture texture width in pixels. \\
+  \texttt{TextureHeight} & int & \texttt{512} & Capture texture height in pixels. \\
+  \texttt{TextureName} & string & \texttt{""} &
+    Logical name by which other systems reference this texture. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.10 Physics ──────────────────────────────────────────────────────────────
+\subsection{ColliderComponent}
+
+Defines a physics collision shape. Use \texttt{IsTrigger} for overlap-only
+detection without a physics response.
+
+\begin{lstlisting}
+<ColliderComponent Shape="Box" Width="1" Height="1" Depth="1"
+                   isTrigger="false" />
+\end{lstlisting}
+
+\begin{longtable}{P{3cm} P{2.2cm} P{2.5cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Shape} & \texttt{MeshShape} & \texttt{Box} &
+    Collision shape primitive. Same values as \texttt{MeshComponent.Shape}. \\
+  \texttt{Width} & float & \texttt{1} & X extent of the shape. \\
+  \texttt{Height} & float & \texttt{1} & Y extent of the shape. \\
+  \texttt{Depth} & float & \texttt{1} & Z extent of the shape. \\
+  \texttt{IsTrigger} & bool & \texttt{false} &
+    Trigger zones fire overlap events but have no physical response. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{RigidBodyComponent}
+
+Physics simulation parameters for a dynamic body. Pure-data --- actual
+simulation runs in Godot.
+
+\begin{lstlisting}
+<RigidBodyComponent mass="5" gravityScale="1" isKinematic="false" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.5cm} P{2cm} P{2.2cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Mass} & float & \texttt{1} & Body mass in kg. \\
+  \texttt{GravityScale} & float & \texttt{1} &
+    Multiplier on world gravity. \texttt{0} = no gravity, \texttt{-1} = inverse. \\
+  \texttt{LinearDamping} & float & \texttt{0} & Linear drag. \\
+  \texttt{AngularDamping} & float & \texttt{0} & Angular drag. \\
+  \texttt{IsKinematic} & bool & \texttt{false} &
+    If \texttt{true}, body is moved by code only, not forces. \\
+  \texttt{CanSleep} & bool & \texttt{true} &
+    Allow the engine to sleep stationary bodies. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{VelocityComponent}
+
+Linear and angular velocity. Used by physics/movement systems.  Pure-data.
+
+\begin{lstlisting}
+<VelocityComponent velX="0" velY="0" velZ="5" angY="90" />
+\end{lstlisting}
+
+\begin{longtable}{P{3cm} P{2cm} P{2.5cm} P{5.5cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{VelX} & float & \texttt{0} & Linear velocity X. \\
+  \texttt{VelY} & float & \texttt{0} & Linear velocity Y. \\
+  \texttt{VelZ} & float & \texttt{0} & Linear velocity Z. \\
+  \texttt{AngX} & float & \texttt{0} & Angular velocity X (degrees/sec). \\
+  \texttt{AngY} & float & \texttt{0} & Angular velocity Y (degrees/sec). \\
+  \texttt{AngZ} & float & \texttt{0} & Angular velocity Z (degrees/sec). \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.13 Audio ────────────────────────────────────────────────────────────────
+\subsection{AudioSourceComponent}
+
+Positional 3D audio source.
+
+\begin{lstlisting}
+<AudioSourceComponent>
+  <Property name="ResourcePath" value="res://Sounds/ambient.ogg" />
+  <Property name="Loop"     value="true" />
+  <Property name="Autoplay" value="true" />
+  <Property name="Volume"   value="-6" />
+</AudioSourceComponent>
+\end{lstlisting}
+
+\begin{longtable}{P{3.2cm} P{2cm} P{2.5cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{ResourcePath} & string & \texttt{""} &
+    Godot \texttt{res://} path to an \texttt{AudioStream} asset. \\
+  \texttt{Volume} & float & \texttt{0} &
+    Volume in dB. \texttt{0} = full, negative = quieter. \\
+  \texttt{Pitch} & float & \texttt{1} & Pitch scale multiplier. \\
+  \texttt{Loop} & bool & \texttt{false} & Whether playback loops. \\
+  \texttt{Autoplay} & bool & \texttt{false} & Begin playing when the element enters the scene. \\
+  \texttt{MaxDistance} & float & \texttt{40} &
+    World-unit distance at which audio becomes inaudible. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.14 Particles ────────────────────────────────────────────────────────────
+\subsection{ParticleEmitterComponent}
+
+GPU particle emitter.
+
+\begin{lstlisting}
+<ParticleEmitterComponent amount="64" lifetime="2"
+                          dirY="1" spreadAngle="30"
+                          speedMin="2" speedMax="5"
+                          emitting="true" oneShot="false" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.5cm} P{2cm} P{2.2cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Amount} & int & \texttt{32} & Total number of live particles. \\
+  \texttt{Lifetime} & float & \texttt{2} & Particle lifetime in seconds. \\
+  \texttt{EmissionRadius} & float & \texttt{0} &
+    Sphere radius from which particles are emitted. \\
+  \texttt{SpeedMin} & float & \texttt{1} & Minimum initial speed. \\
+  \texttt{SpeedMax} & float & \texttt{3} & Maximum initial speed. \\
+  \texttt{DirX} & float & \texttt{0} & Emission direction X component. \\
+  \texttt{DirY} & float & \texttt{1} & Emission direction Y component. \\
+  \texttt{DirZ} & float & \texttt{0} & Emission direction Z component. \\
+  \texttt{SpreadAngle} & float [0,180] & \texttt{45} &
+    Random cone spread angle around the direction. \\
+  \texttt{Emitting} & bool & \texttt{true} & Whether the emitter is active. \\
+  \texttt{OneShot} & bool & \texttt{false} &
+    If \texttt{true}, emits one burst then stops. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.15 Fog ──────────────────────────────────────────────────────────────────
+\subsection{FogComponent}
+
+Local volumetric fog region.
+
+\begin{lstlisting}
+<FogComponent colorR="0.8" colorG="0.8" colorB="0.9"
+              density="0.05" fogHeight="8" heightFalloff="1" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.2cm} P{2cm} P{2.5cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{ColorR} & float [0,1] & \texttt{0.8} & Red channel of fog colour. \\
+  \texttt{ColorG} & float [0,1] & \texttt{0.8} & Green channel. \\
+  \texttt{ColorB} & float [0,1] & \texttt{0.8} & Blue channel. \\
+  \texttt{Density} & float [0,1] & \texttt{0.1} &
+    Opacity of the fog. \texttt{0} = invisible, \texttt{1} = fully opaque. \\
+  \texttt{FogHeight} & float & \texttt{10} &
+    World-unit height of the fog volume above the element origin. \\
+  \texttt{HeightFalloff} & float & \texttt{1} &
+    Controls how sharply fog thins with altitude. Higher = sharper edge. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.16 Environment ──────────────────────────────────────────────────────────
+\subsection{EnvironmentComponent}
+
+Scene-wide sky and ambient lighting settings. Typically placed on a top-level
+element or the world root element.
+
+\begin{lstlisting}
+<EnvironmentComponent mode="SolidColor"
+                      skyR="0.5" skyG="0.6" skyB="0.8"
+                      ambientR="0.2" ambientG="0.2" ambientB="0.25"
+                      ambientEnergy="1" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.5cm} P{2.2cm} P{2.2cm} P{5.1cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Mode} & \texttt{BackgroundMode} & \texttt{SolidColor} &
+    \texttt{SolidColor} or \texttt{Skybox}. \\
+  \texttt{SkyR} & float [0,1] & \texttt{0.5} & Sky/background red channel. \\
+  \texttt{SkyG} & float [0,1] & \texttt{0.6} & Sky/background green channel. \\
+  \texttt{SkyB} & float [0,1] & \texttt{0.8} & Sky/background blue channel. \\
+  \texttt{AmbientR} & float [0,1] & \texttt{0.2} & Ambient light red channel. \\
+  \texttt{AmbientG} & float [0,1] & \texttt{0.2} & Ambient light green channel. \\
+  \texttt{AmbientB} & float [0,1] & \texttt{0.25} & Ambient light blue channel. \\
+  \texttt{AmbientEnergy} & float & \texttt{1} & Ambient brightness multiplier. \\
+  \texttt{SkyboxPath} & string & \texttt{""} &
+    Optional path to a skybox resource when \texttt{Mode} is \texttt{Skybox}. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.17 Gameplay ─────────────────────────────────────────────────────────────
+\subsection{HealthComponent}
+
+Health points. Pure-data; damage/heal logic lives in game systems.
+
+\begin{lstlisting}
+<HealthComponent maxHealth="100" currentHealth="100" isInvincible="false" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.5cm} P{2cm} P{2.2cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{MaxHealth} & float & \texttt{100} & Maximum health. \\
+  \texttt{CurrentHealth} & float & \texttt{MaxHealth} &
+    Starting health. Clamped to \texttt{[0, MaxHealth]}. \\
+  \texttt{IsInvincible} & bool & \texttt{false} &
+    If \texttt{true}, damage calls have no effect. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{TagComponent}
+
+Comma-separated string tags for querying and filtering elements.
+
+\begin{lstlisting}
+<TagComponent tags="player,local,team1" />
+\end{lstlisting}
+
+\begin{longtable}{P{3cm} P{2cm} P{2.5cm} P{5.5cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Tags} & string & \texttt{""} &
+    Comma-separated list of tag strings. Whitespace around commas is trimmed. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.19 UI ───────────────────────────────────────────────────────────────────
+\subsection{UILabelComponent}
+
+World-space 3D text label rendered as a \texttt{Label3D} Godot node.
+
+\begin{lstlisting}
+<UILabelComponent text="Hello World" fontSize="48" pixelSize="0.005"
+                  billboard="YAxis" offsetY="1.5"
+                  colorR="1" colorG="1" colorB="1" colorA="1" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.2cm} P{2.2cm} P{2.5cm} P{5.1cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Text} & string & \texttt{""} & Text content. \\
+  \texttt{FontSize} & float & \texttt{48} &
+    Font size in pixels. Controls sharpness. \\
+  \texttt{PixelSize} & float & \texttt{0.005} &
+    World-space size per pixel. World height = \texttt{FontSize × PixelSize}. \\
+  \texttt{ColorR/G/B/A} & float [0,1] & \texttt{1} & Text colour and opacity. \\
+  \texttt{Billboard} & \texttt{UIBillboardMode} & \texttt{YAxis} &
+    \texttt{Disabled}, \texttt{Enabled} (full), or \texttt{YAxis}. \\
+  \texttt{OffsetY} & float & \texttt{1.5} &
+    Vertical offset above element origin in world units. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{UIPanelComponent}
+
+World-space 2D panel rendered onto a \texttt{QuadMesh} via a
+\texttt{SubViewport}.  Supports a title and body text.
+
+\begin{lstlisting}
+<UIPanelComponent title="Status" body="All systems normal."
+                  width="1" height="0.5" offsetY="1"
+                  backgroundR="0.08" backgroundG="0.08" backgroundB="0.12"
+                  backgroundA="0.9" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.8cm} P{2cm} P{2cm} P{5.2cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Title} & string & \texttt{""} & Bold header text. \\
+  \texttt{Body} & string & \texttt{""} & Word-wrapped body text. \\
+  \texttt{Width} & float & \texttt{1} & Panel width in world units. \\
+  \texttt{Height} & float & \texttt{0.5} & Panel height in world units. \\
+  \texttt{OffsetY} & float & \texttt{1} & Vertical offset above element origin. \\
+  \texttt{BackgroundR/G/B/A} & float [0,1] &
+    \texttt{0.08/0.08/0.12/0.9} & Background colour. \\
+  \texttt{TextR/G/B/A} & float [0,1] & \texttt{1/1/1/1} & Text colour. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.21 Desktop controls ─────────────────────────────────────────────────────
+\subsection{ButtonControlComponent}
+
+Interactive world-space button rendered in a \texttt{SubViewport}.
+
+\begin{lstlisting}
+<ButtonControlComponent label="Launch" width="0.4" height="0.1"
+                        offsetX="0" offsetY="0" offsetZ="0"
+                        bgR="0.2" bgG="0.4" bgB="0.8" bgA="1"
+                        textR="1" textG="1" textB="1" textA="1" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.5cm} P{2cm} P{2.2cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Label} & string & \texttt{"Button"} & Button text. \\
+  \texttt{Width} & float & \texttt{0.4} & Width in world units. \\
+  \texttt{Height} & float & \texttt{0.1} & Height in world units. \\
+  \texttt{OffsetX/Y/Z} & float & \texttt{0} & Position offset from element origin. \\
+  \texttt{BgR/G/B/A} & float [0,1] & \texttt{0.2/0.2/0.2/1} & Background colour. \\
+  \texttt{TextR/G/B/A} & float [0,1] & \texttt{1/1/1/1} & Label colour. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{SliderControlComponent}
+
+Interactive world-space horizontal slider.
+
+\begin{lstlisting}
+<SliderControlComponent label="Volume" minValue="0" maxValue="1"
+                        value="0.5" step="0.01"
+                        width="0.5" height="0.1"
+                        offsetY="0.2" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.2cm} P{2cm} P{2.5cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Label} & string & \texttt{"Slider"} & Header label above the slider. \\
+  \texttt{MinValue} & float & \texttt{0} & Minimum value. \\
+  \texttt{MaxValue} & float & \texttt{1} & Maximum value. \\
+  \texttt{Value} & float & \texttt{0} & Current value (clamped to range). \\
+  \texttt{Step} & float & \texttt{0.01} & Snap increment. \\
+  \texttt{Width} & float & \texttt{0.5} & Width in world units. \\
+  \texttt{Height} & float & \texttt{0.1} & Height in world units. \\
+  \texttt{OffsetX/Y/Z} & float & \texttt{0} & Position offset. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{CheckboxControlComponent}
+
+Interactive world-space toggleable checkbox.
+
+\begin{lstlisting}
+<CheckboxControlComponent label="Enable shadows" checked="false"
+                          width="0.4" height="0.1" offsetY="0.1" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.2cm} P{2cm} P{2.5cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Label} & string & \texttt{"Checkbox"} & Checkbox label text. \\
+  \texttt{Checked} & bool & \texttt{false} & Initial toggle state. \\
+  \texttt{Width} & float & \texttt{0.4} & Width in world units. \\
+  \texttt{Height} & float & \texttt{0.1} & Height in world units. \\
+  \texttt{OffsetX/Y/Z} & float & \texttt{0} & Position offset. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{ProgressBarComponent}
+
+Read-only world-space progress bar.
+
+\begin{lstlisting}
+<ProgressBarComponent label="Health" value="0.75"
+                      showPercentage="true"
+                      fillR="0.2" fillG="0.8" fillB="0.3"
+                      width="0.5" height="0.1" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.5cm} P{2cm} P{2.2cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Label} & string & \texttt{""} & Optional header label. \\
+  \texttt{Value} & float [0,1] & \texttt{0} & Normalised fill amount. \\
+  \texttt{ShowPercentage} & bool & \texttt{true} & Show percentage text overlay. \\
+  \texttt{FillR/G/B/A} & float [0,1] &
+    \texttt{0.2/0.8/0.3/1} & Fill bar colour (default green). \\
+  \texttt{BgR/G/B/A} & float [0,1] &
+    \texttt{0.15/0.15/0.15/1} & Background colour (default dark grey). \\
+  \texttt{Width} & float & \texttt{0.5} & Width in world units. \\
+  \texttt{Height} & float & \texttt{0.1} & Height in world units. \\
+  \texttt{OffsetX/Y/Z} & float & \texttt{0} & Position offset. \\
+  \bottomrule
+\end{longtable}
+
+\subsection{TextInputControlComponent}
+
+Interactive world-space single-line text input. Keyboard focus is managed
+automatically by \texttt{V12ElementNode} when clicked.
+
+\begin{lstlisting}
+<TextInputControlComponent label="Username" placeholder="Enter name..."
+                           text="" width="0.5" height="0.13"
+                           offsetY="0.05" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.2cm} P{2cm} P{2.5cm} P{5.3cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{Label} & string & \texttt{""} & Optional header label above the field. \\
+  \texttt{Text} & string & \texttt{""} & Pre-filled text content. \\
+  \texttt{Placeholder} & string & \texttt{""} & Greyed hint shown when empty. \\
+  \texttt{Width} & float & \texttt{0.5} & Width in world units. \\
+  \texttt{Height} & float & \texttt{0.13} & Height in world units. \\
+  \texttt{OffsetX/Y/Z} & float & \texttt{0} & Position offset. \\
+  \bottomrule
+\end{longtable}
+
+% ── 3.27 Desktop player ───────────────────────────────────────────────────────
+\subsection{DesktopPlayerComponent}
+
+Keyboard and mouse player settings. Attach to the root element of a player
+entity. A \texttt{DesktopPlayerController} Godot node is expected to read
+these values and apply them.
+
+\begin{lstlisting}
+<DesktopPlayerComponent isLocalControlled="true"
+                        moveSpeed="4" sprintMultiplier="1.9"
+                        jumpStrength="6" lookSensitivity="1.2"
+                        canJump="true" />
+\end{lstlisting}
+
+\begin{longtable}{P{3.8cm} P{2cm} P{2.2cm} P{5.0cm}}
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Property} & \textbf{Type} & \textbf{Default} & \textbf{Description} \\
+  \midrule
+  \endhead
+  \texttt{IsLocalControlled} & bool & \texttt{true} &
+    If \texttt{true}, accepts local keyboard/mouse input. \\
+  \texttt{MoveSpeed} & float & \texttt{4} & Base movement speed (units/sec). \\
+  \texttt{SprintMultiplier} & float & \texttt{1.9} &
+    Speed multiplier while sprinting. Minimum \texttt{1}. \\
+  \texttt{JumpStrength} & float & \texttt{6} & Jump impulse magnitude. \\
+  \texttt{LookSensitivity} & float & \texttt{1.2} & Mouse look sensitivity multiplier. \\
+  \texttt{CanJump} & bool & \texttt{true} & Whether jumping is allowed. \\
+  \bottomrule
+\end{longtable}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Mixed Children Example}
+
+The following shows components and nested elements combined freely inside a
+single \texttt{<Element>}.
+
+\begin{lstlisting}
+<World name="Demo">
+  <Element name="Scene">
+    <!-- Environment for the whole scene -->
+    <EnvironmentComponent mode="SolidColor"
+                          skyR="0.2" skyG="0.3" skyB="0.5" />
+    <DirectionalLightComponent colorR="1" colorG="0.95" colorB="0.85"
+                               energy="1.2" shadowEnabled="true" />
+
+    <!-- Static floor -->
+    <Element name="Floor">
+      <TransformComponent x="0" y="0" z="0" />
+      <MeshComponent Shape="Box" Width="40" Height="0.2" Depth="40" />
+      <MaterialComponent R="0.4" G="0.4" B="0.4" Roughness="0.8" />
+      <ColliderComponent Shape="Box" Width="40" Height="0.2" Depth="40" />
+    </Element>
+
+    <!-- Player with nested camera head -->
+    <Element name="Player">
+      <TransformComponent x="0" y="1" z="0" />
+      <MeshComponent Shape="Capsule" Width="0.5" Height="1.8" />
+      <MaterialComponent R="0.2" G="0.6" B="1" />
+      <ColliderComponent Shape="Capsule" Width="0.5" Height="1.8" />
+      <HealthComponent maxHealth="100" />
+      <TagComponent tags="player,local" />
+      <DesktopPlayerComponent moveSpeed="5" sprintMultiplier="2" />
+
+      <!-- Camera mounted on the head -->
+      <Element name="Head">
+        <TransformComponent x="0" y="0.85" z="0" />
+        <CameraComponent fov="80" isCurrent="true" />
+      </Element>
+
+      <!-- HUD panel floating above player -->
+      <Element name="HUD">
+        <UIPanelComponent title="Player" body="HP: 100"
+                          width="0.8" height="0.3" offsetY="2.2" />
+        <ProgressBarComponent label="HP" value="1"
+                              width="0.8" height="0.08" offsetY="2.6" />
+      </Element>
+    </Element>
+
+    <!-- Ambient sound -->
+    <Element name="Ambience">
+      <AudioSourceComponent>
+        <Property name="ResourcePath" value="res://Sounds/wind.ogg" />
+        <Property name="Loop"     value="true" />
+        <Property name="Autoplay" value="true" />
+        <Property name="Volume"   value="-12" />
+      </AudioSourceComponent>
+    </Element>
+
+  </Element>
+</World>
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Parser Behaviour Notes}
+
+\begin{description}[leftmargin=3cm, style=nextline]
+  \item[Type lookup]
+    The parser scans \emph{all loaded assemblies} at parse time.  If a
+    component assembly has not been loaded into the AppDomain the corresponding
+    tags will be silently skipped.
+
+  \item[Case insensitivity]
+    Both tag names and property names are matched case-insensitively.
+    \texttt{<transformcomponent X="1"/>} is equivalent to
+    \texttt{<TransformComponent X="1"/>}.
+
+  \item[Property precedence]
+    XML attributes on the component node are applied first.
+    \texttt{<Property>} child nodes are applied afterwards and will override
+    attribute values if both are present.
+
+  \item[Nested elements as children]
+    Any child node whose name does \emph{not} end with \texttt{Component} is
+    treated as a nested \texttt{<Element>} and parsed recursively.  The
+    \texttt{parent} reference is set automatically.
+
+  \item[World.Root population]
+    Every element (at any depth) is added to \texttt{World.Root} immediately
+    upon creation, before its children are processed.  This means systems that
+    iterate \texttt{Root} will see all elements regardless of nesting depth.
+
+  \item[Fragment tolerance]
+    If the input lacks a root \texttt{<World>} wrapper the parser wraps it
+    automatically.  The world name will default to \texttt{"World"}.
+
+  \item[Error handling]
+    Parse errors on individual components or properties are swallowed silently.
+    A malformed \texttt{<Property>} will not abort parsing of the surrounding
+    element.
+\end{description}
+
+\end{document}

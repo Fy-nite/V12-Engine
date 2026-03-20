@@ -8,6 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Docs\WorldML.aux" />
+    <None Remove="Docs\WorldML.log" />
+    <None Remove="Docs\WorldML.out" />
+    <None Remove="Docs\WorldML.pdf" />
+    <None Remove="Docs\WorldML.synctex.gz" />
+    <None Remove="Docs\WorldML.toc" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Glue\" />
     <Folder Include="Properties\" />
     <Folder Include="Tests\" />
