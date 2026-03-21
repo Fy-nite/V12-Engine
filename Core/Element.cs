@@ -10,6 +10,7 @@ namespace V12.Core
         public event Action<IWorldElement>? OnDirty;
 
         public string? Name { get; set; }
+        public long ID { get; set; }
         public string? Description { get; set; }
         public IWorldElement? Parent { get; set; }
         public List<IComponent> Components { get; set; } = new List<IComponent>();
