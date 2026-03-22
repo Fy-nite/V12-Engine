@@ -2,8 +2,9 @@
 
 namespace V12.Core
 {
-    public class World
+    public class World 
     {
+
         public List<IWorldElement> Root { get; set; }
         public string WorldName { get; set; }
 

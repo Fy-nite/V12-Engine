@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-
 namespace V12.Core.Core.Interfaces
 {
     public interface IWorld
