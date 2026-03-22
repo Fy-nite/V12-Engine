@@ -11,7 +11,7 @@ namespace V12.Core.Networking
     /// <summary>
     /// Tracks dirty components and world elements, batches them, and sends network updates.
     /// </summary>
-    public class DirtyTracker
+    public class DirtyTracker : IGameService
     {
         private readonly NetworkCables _cables;
         private readonly ConcurrentDictionary<long, IComponent> _dirtyComponents = new();
@@ -35,6 +35,8 @@ namespace V12.Core.Networking
             _cables = cables ?? NetworkCables.Default;
             _senderUri = new Uri(senderUri ?? "networkcables://dirtytracker");
         }
+
+        public void Initialize() { }
 
         /// <summary>
         /// Subscribe to a component's dirty events.
