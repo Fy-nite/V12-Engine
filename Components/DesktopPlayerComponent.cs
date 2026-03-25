@@ -1,14 +1,15 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
 {
     /// <summary>
     /// Settings for a desktop (keyboard+mouse) player attached to an element.
-    /// This is a pure-data component; a Godot controller should read these values
-    /// and apply them on the main thread.
+    /// This is a pure-data component; a Godot controller reads these values
+    /// and applies them on the main thread.
     /// </summary>
-    public class DesktopPlayerComponent : ComponentBase
+    public class DesktopPlayerComponent : ComponentBase, IPlayerControlComponent
     {
         private bool  _isLocalControlled = true;
         private float _moveSpeed         = 4f;   // meters per second
@@ -36,6 +37,10 @@ namespace V12.Components
         public float LookSensitivity { get => _lookSensitivity; set { if (Math.Abs(_lookSensitivity - value) > 0.0001f) { _lookSensitivity = MathF.Max(0f, value); MarkDirty(); } } }
 
         public bool CanJump { get => _canJump; set { if (_canJump != value) { _canJump = value; MarkDirty(); } } }
+
+        // ── IPlayerControlComponent ───────────────────────────────────────────
+        public InputMethods RequiredInputMethod => InputMethods.Desktop;
+        // IsLocalControlled is already declared above; it satisfies the interface.
 
         public DesktopPlayerComponent() { }
 
