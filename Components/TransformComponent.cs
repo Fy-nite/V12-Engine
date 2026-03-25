@@ -12,6 +12,11 @@ namespace V12.Components
         private float _y;
         private float _z;
         private float _rotation;
+        // Optional per-axis rotation (degrees). Nullable so parser can leave them
+        // unset when only legacy `rotation` is present.
+        private float? _rotationX;
+        private float? _rotationY;
+        private float? _rotationZ;
 
         public override string Name => "Transform";
         public override string Description => "Position and rotation in 3D space";
@@ -63,6 +68,48 @@ namespace V12.Components
                 if (Math.Abs(_rotation - value) > 0.001f)
                 {
                     _rotation = value;
+                    MarkDirty();
+                }
+            }
+        }
+
+        /// <summary>Optional X (pitch) rotation in degrees. Null when not provided by XML.</summary>
+        public float? RotationX
+        {
+            get => _rotationX;
+            set
+            {
+                if ((_rotationX.HasValue != value.HasValue) || (value.HasValue && Math.Abs(_rotationX!.Value - value.Value) > 0.001f))
+                {
+                    _rotationX = value;
+                    MarkDirty();
+                }
+            }
+        }
+
+        /// <summary>Optional Y (yaw) rotation in degrees. Null when not provided by XML.</summary>
+        public float? RotationY
+        {
+            get => _rotationY;
+            set
+            {
+                if ((_rotationY.HasValue != value.HasValue) || (value.HasValue && Math.Abs(_rotationY!.Value - value.Value) > 0.001f))
+                {
+                    _rotationY = value;
+                    MarkDirty();
+                }
+            }
+        }
+
+        /// <summary>Optional Z (roll) rotation in degrees. Null when not provided by XML.</summary>
+        public float? RotationZ
+        {
+            get => _rotationZ;
+            set
+            {
+                if ((_rotationZ.HasValue != value.HasValue) || (value.HasValue && Math.Abs(_rotationZ!.Value - value.Value) > 0.001f))
+                {
+                    _rotationZ = value;
                     MarkDirty();
                 }
             }
