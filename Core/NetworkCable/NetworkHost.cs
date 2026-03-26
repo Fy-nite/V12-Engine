@@ -67,7 +67,12 @@ namespace V12.Core.NetworkCable
             {
                 try
                 {
-                    var client = await _listener.AcceptTcpClientAsync(token);
+                    var acceptTask = _listener.AcceptTcpClientAsync();
+                    var cancelTask = System.Threading.Tasks.Task.Delay(-1, token);
+                    var finished = await System.Threading.Tasks.Task.WhenAny(acceptTask, cancelTask);
+                    if (finished == cancelTask)
+                        throw new OperationCanceledException(token);
+                    var client = await acceptTask;
                     _clients.Add(client);
                     Console.WriteLine($"[NetworkHost] Client connected. Total clients: {_clients.Count}");
                     OnClientConnected?.Invoke();

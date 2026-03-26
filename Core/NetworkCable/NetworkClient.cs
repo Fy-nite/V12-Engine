@@ -46,7 +46,12 @@ namespace V12.Core.NetworkCable
             _client = new TcpClient();
 
             Console.WriteLine($"[NetworkClient] Connecting to {_host}:{_port}...");
-            await _client.ConnectAsync(_host, _port, _cts.Token);
+            var connectTask = _client.ConnectAsync(_host, _port);
+            var cancelTask = System.Threading.Tasks.Task.Delay(-1, _cts.Token);
+            var finished = await System.Threading.Tasks.Task.WhenAny(connectTask, cancelTask);
+            if (finished != connectTask)
+                throw new OperationCanceledException(_cts.Token);
+            await connectTask;
             Console.WriteLine($"[NetworkClient] Connected to {_host}:{_port}");
 
             // Subscribe to outgoing messages

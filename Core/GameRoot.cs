@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Xml.Linq;
+using System.IO;
 using V12.Core.Core.Interfaces;
 using V12.Core.NetworkCable;
 using V12.Core.Networking;
