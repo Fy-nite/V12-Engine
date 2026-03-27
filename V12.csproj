@@ -10,12 +10,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Docs\WorldML.aux" />
-    <None Remove="Docs\WorldML.log" />
-    <None Remove="Docs\WorldML.out" />
-    <None Remove="Docs\WorldML.pdf" />
-    <None Remove="Docs\WorldML.synctex.gz" />
-    <None Remove="Docs\WorldML.toc" />
+    <None Remove="Docs\*.aux" />
+    <None Remove="Docs\*.log" />
+    <None Remove="Docs\*.out" />
+    <None Remove="Docs\*.pdf" />
+    <None Remove="Docs\*.synctex.gz" />
+    <None Remove="Docs\*.toc" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,11 +25,13 @@
   </ItemGroup>
 
   <ItemGroup>
-  <PackageReference Include="LiteNetLib" Version="0.9.7" />
+  <PackageReference Include="LiteNetLib" Version="1.1.0" />
   <PackageReference Include="MongoDB.Bson" Version="2.25.0" />
   <PackageReference Include="System.Text.Json" Version="7.0.2" />
-  <!-- <PackageReference Include="NETStandard.Library.Ref" Version="2.1.0" PrivateAssets="All" /> -->
   </ItemGroup>
-
+  <!-- Post build task to copy files to V12.UnityEngine/Assets/Libs/*.dll -->
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="..\V12.UnityEngine\Assets\Libs\" />
+  </Target>
 </Project>
  
