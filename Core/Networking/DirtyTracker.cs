@@ -220,6 +220,7 @@ namespace V12.Core.Networking
                 {
                     var es = new ElementSnapshot
                     {
+                        Id = e.Id,
                         Name = e.Name,
                         Description = e.Description
                     };
@@ -293,6 +294,7 @@ namespace V12.Core.Networking
 
         public class ElementSnapshot
         {
+            public long Id { get; set; }
             public string? Name { get; set; }
             public string? Description { get; set; }
             public List<long> ComponentIds { get; set; } = new();

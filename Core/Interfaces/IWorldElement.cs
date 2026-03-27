@@ -13,6 +13,12 @@ namespace V12.Core.Core.Interfaces
         event Action<IWorldElement>? OnDirty;
 
         /// <summary>
+        /// A stable numeric identifier for this element. Useful for networking
+        /// and referencing elements without relying on mutable names.
+        /// </summary>
+        long Id { get; set; }
+
+        /// <summary>
         /// Gets or sets the name associated with the entity.
         /// </summary>
         /// <remarks>The name can be null, indicating that no name has been assigned. It is recommended to
