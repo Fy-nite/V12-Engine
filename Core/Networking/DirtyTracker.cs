@@ -172,6 +172,16 @@ namespace V12.Core.Networking
                     SendElementBatch(batch);
                 }
             }
+
+            // Also flush any SyncValue-based dirty state via SyncManager
+            try
+            {
+                SyncManager.FlushDirty();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DirtyTracker] Error flushing SyncManager: {ex.Message}");
+            }
         }
 
         private void SendComponentBatch(List<IComponent> components)

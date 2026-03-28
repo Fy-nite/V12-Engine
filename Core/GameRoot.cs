@@ -126,6 +126,18 @@ namespace V12.Core
 
             Registry.Register("DirtyTracker", dirtyTracker);
             Console.WriteLine("[GameRoot] DirtyTracker registered.");
+
+            // Wire SyncManager to the NetworkCables used by this GameRoot so SyncValues are transported
+            try
+            {
+                var syncBridge = new V12.Core.Networking.SyncNetworkBridge(Cables, "networkcables://gameroot");
+                Registry.Register("SyncNetworkBridge", syncBridge);
+                Console.WriteLine("[GameRoot] SyncNetworkBridge registered.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GameRoot] Failed to create SyncNetworkBridge: {ex.Message}");
+            }
         }
 
         /// <summary>
