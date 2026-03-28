@@ -49,6 +49,9 @@ namespace V12.Core
             Templates["Gridspace"] = (name) => new V12.WorldML.WorldMLParser().Parse("<World name=\"Gridspace\"><Element></Element></World>");
 
             Registry.Register("NetworkCables", Cables);
+            // Register a core InspectorService so glue code can render engine-agnostic UI
+            var inspector = new V12.Core.UI.InspectorService(this);
+            Registry.Register("InspectorService", inspector);
         }
         public string ReadResource(string name)
         {
