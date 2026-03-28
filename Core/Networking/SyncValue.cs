@@ -14,6 +14,8 @@ public class SyncValue<T> : ISyncValue
     private bool _isDirty;
 
     public string Key { get; }
+    // alias for external code that expects a "Path" property
+    public string Path => Key;
 
     public Type ValueType => typeof(T);
 

@@ -52,6 +52,9 @@ namespace V12.Core
             // Register a core InspectorService so glue code can render engine-agnostic UI
             var inspector = new V12.Core.UI.InspectorService(this);
             Registry.Register("InspectorService", inspector);
+            // Register core InputService so glue code can forward platform input
+            var inputService = new V12.Core.Input.InputService();
+            Registry.Register("InputService", inputService);
         }
         public string ReadResource(string name)
         {
