@@ -8,7 +8,8 @@ namespace V12.Core.Input
         PointerMove,
         Text,
         TouchStart,
-        TouchEnd
+        TouchEnd,
+        Char
     }
 }
 

@@ -17,6 +17,7 @@ namespace V12.Core
         public string? Description { get; set; }
         public IWorldElement? Parent { get; set; }
         public List<IComponent> Components { get; set; } = new List<IComponent>();
+        public List<IWorldElement> Children { get; } = new List<IWorldElement>();
 
         private static long _nextElementId = 0;
 
@@ -33,6 +34,21 @@ namespace V12.Core
         public void MarkDirty()
         {
             OnDirty?.Invoke(this);
+        }
+
+        public void AddChild(IWorldElement child)
+        {
+            if (child == null) return;
+            child.Parent = this;
+            if (!Children.Contains(child))
+                Children.Add(child);
+        }
+
+        public void RemoveChild(IWorldElement child)
+        {
+            if (child == null) return;
+            if (Children.Remove(child))
+                child.Parent = null;
         }
 
         internal void AddComponent(IComponent comp)

@@ -102,6 +102,63 @@ namespace V12.Core.Core.Interfaces
             return (T)Components.Find(c => c is T && c.Name == name);
         }
 
+        /// <summary>
+        /// The direct children of this element in the world hierarchy.
+        /// </summary>
+        List<IWorldElement> Children { get; }
 
+        /// <summary>
+        /// Adds a child element, setting its <see cref="Parent"/> to this element.
+        /// </summary>
+        public void AddChild(IWorldElement child)
+        {
+            if (child == null) return;
+            child.Parent = this;
+            if (!Children.Contains(child))
+                Children.Add(child);
+        }
+
+        /// <summary>
+        /// Removes a child element and clears its parent reference.
+        /// </summary>
+        public void RemoveChild(IWorldElement child)
+        {
+            if (child == null) return;
+            if (Children.Remove(child))
+                child.Parent = null;
+        }
+
+        /// <summary>
+        /// Finds the first direct child whose name matches (case-sensitive).
+        /// </summary>
+        public IWorldElement FindChildByName(string name)
+            => Children.Find(c => c.Name == name);
+
+        /// <summary>
+        /// Recursively searches this element and all descendants for a child
+        /// matching the given name. Returns null if not found.
+        /// </summary>
+        public IWorldElement FindChildByNameRecursive(string name)
+        {
+            foreach (var child in Children)
+            {
+                if (child.Name == name) return child;
+                var found = child.FindChildByNameRecursive(name);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Walks up the parent chain and returns the root element
+        /// (the element whose Parent is null).
+        /// </summary>
+        public IWorldElement GetRoot()
+        {
+            IWorldElement current = this;
+            while (current.Parent != null)
+                current = current.Parent;
+            return current;
+        }
     }
 }

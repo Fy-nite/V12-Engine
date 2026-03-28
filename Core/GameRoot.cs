@@ -9,6 +9,9 @@ using V12.Core.Core.Interfaces;
 using V12.Core.NetworkCable;
 using V12.Core.Networking;
 using V12.Core.Registry;
+using V12.Core.Input;
+using V12.Core.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Core
 {
@@ -38,6 +41,9 @@ namespace V12.Core
 
         private Thread? _networkingThread;
         private CancellationTokenSource? _networkingCts;
+        // Core-managed desktop dashboard (frontend-agnostic)
+        private IDashboard? _dashboard;
+        private IInputHandler? _dashboardHandler;
 
         public GameRoot() {
             Worlds.Add(UserSpace);
@@ -55,7 +61,18 @@ namespace V12.Core
             // Register core InputService so glue code can forward platform input
             var inputService = new V12.Core.Input.InputService();
             Registry.Register("InputService", inputService);
+            // Register a default in-engine UIBuilder so dashboards can build
+            // UI as world elements which frontends will sync and render.
+            try
+            {
+                var uiBuilder = new UIBuilder();
+                Registry.Register("UIBuilder", uiBuilder);
+            }
+            catch { }
+  
+            
         }
+
         public string ReadResource(string name)
         {
             using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(name))
@@ -84,8 +101,33 @@ namespace V12.Core
                 service.Initialize();
 
             StartNetworkingThread();
+            SetupUI();
         }
 
+        private void SetupUI()
+        {
+            var input = Registry.Get<InputService>();
+
+            // If a dashboard implementation is already registered in the
+            // registry (key: "Dashboard" or by type), adopt it so the host
+            // can supply its own implementation at any time.
+            try
+            {
+                // Prefer named registration
+                var named = Registry.Get<IDashboard>("Dashboard");
+                if (named != null) _dashboard = named;
+                // Fallback: first registered IDashboard instance
+                if (_dashboard == null) _dashboard = Registry.Get<IDashboard>();
+
+                if (input != null && _dashboard != null && _dashboardHandler == null)
+                {
+                    _dashboardHandler = new DashboardInputHandler(_dashboard);
+                    input.RegisterHandler(_dashboardHandler);
+                }
+            }
+            catch { }
+            
+        }
         /// <summary>
         /// Configure networking for this game instance. Call before <see cref="Initialize"/>.
         /// Registers <see cref="NetworkHost"/> or <see cref="NetworkClient"/> and a <see cref="DirtyTracker"/>
@@ -193,6 +235,47 @@ namespace V12.Core
 
         public void Update(float deltaTime)
         {
+            // If a dashboard implementation appears later in the registry,
+            // pick it up lazily so frontends may register on demand.
+            try
+            {
+                if (_dashboard == null)
+                {
+                    var named = Registry.Get<IDashboard>("Dashboard");
+                    if (named != null) _dashboard = named;
+                    if (_dashboard == null) _dashboard = Registry.Get<IDashboard>();
+
+                    // If still null, but a core IUIBuilder exists, create the default dashboard.
+                    if (_dashboard == null)
+                    {
+                        try
+                        {
+                            var uiBuilder = Registry.Get<V12.Core.UI.IUIBuilder>("UIBuilder");
+                            if (uiBuilder == null) uiBuilder = Registry.Get<V12.Core.UI.IUIBuilder>();
+                            if (uiBuilder != null)
+                            {
+                                var d = new V12.Core.UI.DefaultDashboard();
+                                d.Initialize(uiBuilder);
+                                _dashboard = d;
+                                // register so future lookups find it
+                                Registry.Register("Dashboard", _dashboard);
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (_dashboard != null)
+                    {
+                        var input = Registry.Get<InputService>();
+                        if (input != null && _dashboardHandler == null)
+                        {
+                            _dashboardHandler = new DashboardInputHandler(_dashboard);
+                            input.RegisterHandler(_dashboardHandler);
+                        }
+                    }
+                }
+            }
+            catch { }
             if (SelectedWorld != null)
             {
                 try
@@ -206,7 +289,36 @@ namespace V12.Core
                 UserSpace.Update(deltaTime);
             }
 
+            // Let the dashboard update first (if present) so UI values are
+            // refreshed from the current world state before services run.
+            try { _dashboard?.Update(deltaTime); } catch { }
+
             Registry.Update(deltaTime);
+        }
+
+        // Simple input handler that toggles the core Dashboard on Escape.
+        class DashboardInputHandler : IInputHandler
+        {
+            private readonly IDashboard _dash;
+
+            public DashboardInputHandler(IDashboard dash) { _dash = dash; }
+
+            public void OnInputEvent(InputEvent evt)
+            {
+                if (evt == null) return;
+                try
+                {
+                    if (evt.Type == InputEventType.ButtonDown && evt.Name == "Escape")
+                    {
+                        // Toggle visibility
+                        if (_dash.IsOpen)
+                            _dash.Close();
+                        else
+                            _dash.Open();
+                    }
+                }
+                catch { }
+            }
         }
 
         public void SelectWorld(World world)
