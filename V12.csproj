@@ -29,9 +29,9 @@
   <PackageReference Include="MongoDB.Bson" Version="2.25.0" />
   <PackageReference Include="System.Text.Json" Version="7.0.2" />
   </ItemGroup>
-  <!-- Post build task to copy files to V12.UnityEngine/Assets/Libs/*.dll -->
+  <!-- Post build task to copy files to V12.UnityEngine/Assets/Libs/*.dll and override when newer-->
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="..\V12.UnityEngine\Assets\Libs\" />
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="..\V12.UnityEngine\Assets\Libs\" SkipUnchangedFiles="false" />
   </Target>
 </Project>
  
