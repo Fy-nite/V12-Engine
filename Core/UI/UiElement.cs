@@ -70,4 +70,77 @@ namespace V12.Core.UI
         public int          SelectedIndex  { get; set; }
         public Action<int>? OnSelectionChanged { get; set; }
     }
+
+    // Additional common UI elements
+
+    /// <summary>
+    /// Generic rectangular region useful for plain backgrounds, spacers, or
+    /// layout hinting. Frontends may honour Width/Height or use flex rules.
+    /// </summary>
+    public sealed class RectElement : UiElement
+    {
+        public float Width  { get; set; } = 0f; // 0 = auto
+        public float Height { get; set; } = 0f; // 0 = auto
+        /// <summary>CSS-like colour string (e.g. "#RRGGBB" or named token) for frontends that support it.</summary>
+        public string? BackgroundColor { get; set; }
+        public float CornerRadius { get; set; } = 0f;
+    }
+
+    public sealed class ImageElement : UiElement
+    {
+        /// <summary>Path or resource identifier understood by the frontend.</summary>
+        public string Source { get; set; } = string.Empty;
+        public bool   PreserveAspect { get; set; } = true;
+        /// <summary>Optional tint colour (frontend specific format).</summary>
+        public string? Tint { get; set; }
+    }
+
+    public sealed class ToggleElement : UiElement
+    {
+        public string Label { get; set; } = string.Empty;
+        public bool IsOn { get; set; }
+        public Action<bool>? OnToggled { get; set; }
+    }
+
+    public sealed class CheckboxElement : UiElement
+    {
+        public string Label { get; set; } = string.Empty;
+        public bool Checked { get; set; }
+        public Action<bool>? OnChanged { get; set; }
+    }
+
+    public sealed class SliderElement : UiElement
+    {
+        public float Value { get; set; }
+        public float Min { get; set; } = 0f;
+        public float Max { get; set; } = 1f;
+        public float Step { get; set; } = 0f; // 0 = continuous
+        public Action<float>? OnChanged { get; set; }
+    }
+
+    public sealed class ProgressBarElement : UiElement
+    {
+        /// <summary>Progress between 0 and 1.</summary>
+        public float Value { get; set; }
+        public bool Indeterminate { get; set; }
+    }
+
+    public sealed class IconElement : UiElement
+    {
+        /// <summary>Name or id of the icon glyph expected by the frontend.
+        /// Frontends may map this to a sprite or font glyph.</summary>
+        public string Icon { get; set; } = string.Empty;
+        public float Size { get; set; } = 16f;
+    }
+
+    /// <summary>
+    /// Alias for a single-line text field; kept for convenience alongside TextFieldElement.
+    /// </summary>
+    public sealed class InputFieldElement : UiElement
+    {
+        public string Text { get; set; } = string.Empty;
+        public string Placeholder { get; set; } = string.Empty;
+        public Action<string>? OnCommit { get; set; }
+        public Func<string>? LiveValue { get; set; }
+    }
 }

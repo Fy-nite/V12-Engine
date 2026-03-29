@@ -21,5 +21,13 @@ namespace V12.Core.UI
         IWorldElement Button(IWorldElement parent, string name, Action onClick);
         IWorldElement Label(IWorldElement parent, string name, string text);
         IWorldElement TextInput(IWorldElement parent, string name, string placeholder = "");
+        IWorldElement Rect(IWorldElement parent, string name, float width = 0f, float height = 0f, string backgroundColor = "");
+        IWorldElement Image(IWorldElement parent, string name, string source, bool preserveAspect = true);
+        IWorldElement Toggle(IWorldElement parent, string name, string label, bool initialState, Action<bool> onToggled);
+        IWorldElement Checkbox(IWorldElement parent, string name, string label, bool initialState, Action<bool> onChanged);
+        IWorldElement Slider(IWorldElement parent, string name, float min, float max, float value, Action<float> onChanged);
+        IWorldElement ProgressBar(IWorldElement parent, string name, float value, bool indeterminate = false);
+        IWorldElement Icon(IWorldElement parent, string name, string iconId, float size = 16f);
+        IWorldElement InputField(IWorldElement parent, string name, string placeholder = "");
     }
 }

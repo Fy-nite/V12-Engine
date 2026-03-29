@@ -19,7 +19,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Components\UI\" />
     <Folder Include="Glue\" />
     <Folder Include="Properties\" />
     <Folder Include="Tests\" />
