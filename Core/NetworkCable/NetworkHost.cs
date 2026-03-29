@@ -41,24 +41,41 @@ namespace V12.Core.NetworkCable
         }
 
         /// <summary>
+        /// Raised when the host fails to bind/listen (e.g. port already in use).
+        /// </summary>
+        public event Action<Exception>? OnStartFailed;
+
+        /// <summary>
         /// Start the host and begin accepting connections.
         /// </summary>
         public async Task StartAsync(CancellationToken token = default)
         {
             if (IsRunning) return;
 
-            _cts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            _listener = new TcpListener(IPAddress.Any, _port);
-            _listener.Start();
-            IsRunning = true;
+            try
+            {
+                _cts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                _listener = new TcpListener(IPAddress.Any, _port);
+                _listener.Start();
+                IsRunning = true;
 
-            Console.WriteLine($"[NetworkHost] Listening on port {_port}");
+                Console.WriteLine($"[NetworkHost] Listening on port {_port}");
 
-            // Subscribe to outgoing messages
-            _cables.OnMessageSending += BroadcastMessage;
+                // Subscribe to outgoing messages
+                _cables.OnMessageSending += BroadcastMessage;
 
-            // Accept clients loop
-            _ = Task.Run(async () => await AcceptClientsAsync(_cts.Token), _cts.Token);
+                // Accept clients loop
+                _ = Task.Run(async () => await AcceptClientsAsync(_cts.Token), _cts.Token);
+            }
+            catch (Exception ex)
+            {
+                IsRunning = false;
+                Console.WriteLine($"[NetworkHost] FAILED to start on port {_port}: {ex.GetType().Name}: {ex.Message}");
+                Console.WriteLine($"[NetworkHost] Is another process already using port {_port}? Try: ss -tlnp | grep {_port}");
+                try { OnStartFailed?.Invoke(ex); } catch { }
+            }
+
+            await System.Threading.Tasks.Task.CompletedTask; // keep async signature
         }
 
         private async Task AcceptClientsAsync(CancellationToken token)
@@ -73,9 +90,11 @@ namespace V12.Core.NetworkCable
                     if (finished == cancelTask)
                         throw new OperationCanceledException(token);
                     var client = await acceptTask;
+                    // Capture remote endpoint (may be null on some platforms)
+                    var remoteEndpoint = client?.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
                     _clients.Add(client);
-                    Console.WriteLine($"[NetworkHost] Client connected. Total clients: {_clients.Count}");
-                    OnClientConnected?.Invoke();
+                    Console.WriteLine($"[NetworkHost] Client connected from {remoteEndpoint}. Total clients: {_clients.Count}");
+                    try { OnClientConnected?.Invoke(); } catch { }
 
                     // Start handling this client
                     _ = Task.Run(async () => await HandleClientAsync(client, token), token);
@@ -86,7 +105,7 @@ namespace V12.Core.NetworkCable
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[NetworkHost] Error accepting client: {ex.Message}");
+                    Console.WriteLine($"[NetworkHost] Error accepting client: {ex.GetType().Name}: {ex.Message}");
                 }
             }
         }
@@ -136,7 +155,7 @@ namespace V12.Core.NetworkCable
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[NetworkHost] Error deserializing message: {ex.Message}");
+                        Console.WriteLine($"[NetworkHost] Error deserializing message: {ex.GetType().Name}: {ex.Message}");
                     }
                 }
             }
@@ -146,12 +165,13 @@ namespace V12.Core.NetworkCable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[NetworkHost] Client handler error: {ex.Message}");
+                Console.WriteLine($"[NetworkHost] Client handler error: {ex.GetType().Name}: {ex.Message}");
             }
             finally
             {
-                client.Close();
-                Console.WriteLine($"[NetworkHost] Client disconnected. Total clients: {_clients.Count}");
+                var remote = client?.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
+                try { client.Close(); } catch { }
+                Console.WriteLine($"[NetworkHost] Client disconnected from {remote}. Total clients: {_clients.Count}");
             }
         }
 
@@ -173,7 +193,8 @@ namespace V12.Core.NetworkCable
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[NetworkHost] Error sending to client: {ex.Message}");
+                    var rem = client?.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
+                    Console.WriteLine($"[NetworkHost] Error sending to client {rem}: {ex.GetType().Name}: {ex.Message}");
                 }
             }
         }

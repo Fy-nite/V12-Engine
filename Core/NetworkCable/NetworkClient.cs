@@ -18,9 +18,32 @@ namespace V12.Core.NetworkCable
         private TcpClient? _client;
         private CancellationTokenSource? _cts;
 
-        public bool IsConnected => _client?.Connected ?? false;
+        public bool IsConnected
+        {
+            get
+            {
+                try
+                {
+                    // _client may be null or may have been disposed concurrently; guard against exceptions
+                    return _client != null && _client.Connected;
+                }
+                catch (Exception ex)
+                {
+                    try { Console.WriteLine($"[NetworkClient] IsConnected check failed: {ex.GetType().Name}: {ex.Message}"); } catch { }
+                    return false;
+                }
+            }
+        }
         public string Host => _host;
         public int Port => _port;
+
+        // ── Connection lifecycle events ────────────────────────────────────────
+        /// <summary>Raised when the TCP connection is successfully established.</summary>
+        public event Action? OnConnected;
+        /// <summary>Raised when the connection is closed (gracefully or by server).</summary>
+        public event Action? OnDisconnected;
+        /// <summary>Raised when an outbound connection attempt fails. Argument is the exception.</summary>
+        public event Action<Exception>? OnConnectionFailed;
 
         /// <summary>
         /// Create a new network client.
@@ -37,6 +60,8 @@ namespace V12.Core.NetworkCable
 
         /// <summary>
         /// Connect to the host and start sending/receiving messages.
+        /// Connection failures are surfaced via <see cref="OnConnectionFailed"/> instead of
+        /// propagating as unobserved task exceptions.
         /// </summary>
         public async Task ConnectAsync(CancellationToken token = default)
         {
@@ -46,19 +71,35 @@ namespace V12.Core.NetworkCable
             _client = new TcpClient();
 
             Console.WriteLine($"[NetworkClient] Connecting to {_host}:{_port}...");
-            var connectTask = _client.ConnectAsync(_host, _port);
-            var cancelTask = System.Threading.Tasks.Task.Delay(-1, _cts.Token);
-            var finished = await System.Threading.Tasks.Task.WhenAny(connectTask, cancelTask);
-            if (finished != connectTask)
-                throw new OperationCanceledException(_cts.Token);
-            await connectTask;
-            Console.WriteLine($"[NetworkClient] Connected to {_host}:{_port}");
+            try
+            {
+                var connectTask = _client.ConnectAsync(_host, _port);
+                var cancelTask  = System.Threading.Tasks.Task.Delay(-1, _cts.Token);
+                var finished    = await System.Threading.Tasks.Task.WhenAny(connectTask, cancelTask);
 
-            // Subscribe to outgoing messages
-            _cables.OnMessageSending += SendMessage;
+                if (finished != connectTask)
+                {
+                    Console.WriteLine($"[NetworkClient] Connection to {_host}:{_port} was cancelled.");
+                    return;
+                }
 
-            // Start receive loop
-            _ = Task.Run(async () => await ReceiveLoopAsync(_cts.Token), _cts.Token);
+                await connectTask; // re-throws if the TCP connect failed
+
+                Console.WriteLine($"[NetworkClient] Connected to {_host}:{_port}");
+                _cables.OnMessageSending += SendMessage;
+                OnConnected?.Invoke();
+
+                _ = Task.Run(async () => await ReceiveLoopAsync(_cts.Token), _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine($"[NetworkClient] Connection to {_host}:{_port} cancelled.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[NetworkClient] Failed to connect to {_host}:{_port}: {ex.GetType().Name}: {ex.Message}");
+                try { OnConnectionFailed?.Invoke(ex); } catch { }
+            }
         }
 
         private async Task ReceiveLoopAsync(CancellationToken token)
@@ -95,7 +136,7 @@ namespace V12.Core.NetworkCable
 
                     if (totalRead < messageLength)
                     {
-                        Console.WriteLine($"[NetworkClient] Incomplete message received");
+                        Console.WriteLine($"[NetworkClient] Incomplete message received ({totalRead}/{messageLength} bytes)");
                         break;
                     }
 
@@ -111,10 +152,7 @@ namespace V12.Core.NetworkCable
                     }
                 }
             }
-            catch (OperationCanceledException)
-            {
-                // Normal shutdown
-            }
+            catch (OperationCanceledException) { /* Normal shutdown */ }
             catch (Exception ex)
             {
                 Console.WriteLine($"[NetworkClient] Receive error: {ex.Message}");
@@ -122,6 +160,8 @@ namespace V12.Core.NetworkCable
             finally
             {
                 Console.WriteLine($"[NetworkClient] Disconnected from {_host}:{_port}");
+                _cables.OnMessageSending -= SendMessage;
+                try { OnDisconnected?.Invoke(); } catch { }
             }
         }
 
@@ -147,13 +187,21 @@ namespace V12.Core.NetworkCable
 
         public void Disconnect()
         {
-            if (!IsConnected) return;
+            bool connected = false;
+            try { connected = IsConnected; } catch { connected = false; }
+            if (!connected)
+            {
+                // Ensure we still clean up resources even if not connected
+                try { _cts?.Cancel(); } catch { }
+                try { _cables.OnMessageSending -= SendMessage; } catch { }
+                try { _client?.Close(); } catch { }
+                return;
+            }
 
             Console.WriteLine($"[NetworkClient] Disconnecting from {_host}:{_port}...");
-            _cts?.Cancel();
-            _cables.OnMessageSending -= SendMessage;
-            _client?.Close();
-            Console.WriteLine($"[NetworkClient] Disconnected.");
+            try { _cts?.Cancel(); } catch { }
+            try { _cables.OnMessageSending -= SendMessage; } catch { }
+            try { _client?.Close(); } catch { }
         }
 
         public void Dispose()

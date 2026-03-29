@@ -195,10 +195,20 @@ namespace V12.Core.Networking
 
                 foreach (var c in components)
                 {
+                    byte[]? payload = null;
+                    try
+                    {
+                        var csDto = AncientCompressor.CompressComponent(c);
+                        if (csDto != null)
+                            payload = AncientCompressor.Compress(csDto);
+                    }
+                    catch { /* non-serializable component: skip payload */ }
+
                     dto.Components.Add(new ComponentSnapshot
                     {
-                        Id = c.Id,
-                        Name = c.Name
+                        Id      = c.Id,
+                        Name    = c.Name,
+                        Payload = payload
                     });
                 }
 

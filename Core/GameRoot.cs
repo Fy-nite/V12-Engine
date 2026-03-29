@@ -20,6 +20,12 @@ namespace V12.Core
     /// </summary>
     public class GameRoot
     {
+        /// <summary>
+        /// Raised when a NetworkClient instance is registered via SetupNetworking.
+        /// Handlers receive the registered NetworkClient.
+        /// </summary>
+        public event Action<V12.Core.NetworkCable.NetworkClient?>? OnNetworkClientRegistered;
+
         public List<World> Worlds = new List<World>();
 
         /// <summary>
@@ -144,14 +150,26 @@ namespace V12.Core
                 host.OnClientConnected += () =>
                 {
                     var world = SelectedWorld;
-                    if (world == null) return;
-                    Console.WriteLine($"[GameRoot] New client connected, sending WorldSync: {world.WorldName}");
-                    Cables.SendData(new MessageDTO
+                    if (world == null)
                     {
-                        Sender = new Uri("networkcables://server"),
-                        MessageType = MessageType.WorldSync,
-                        Message = AncientCompressor.Compress(world)
-                    });
+                        Console.WriteLine("[GameRoot] Client connected but SelectedWorld is null – no WorldSync sent.");
+                        return;
+                    }
+                    Console.WriteLine($"[GameRoot] Client connected → sending WorldSync '{world.WorldName}' ({world.Root.Count} elements)");
+                    try
+                    {
+                        Cables.SendData(new MessageDTO
+                        {
+                            Sender = new Uri("networkcables://server"),
+                            MessageType = MessageType.WorldSync,
+                            Message = AncientCompressor.Compress(world)
+                        });
+                        Console.WriteLine($"[GameRoot] WorldSync queued for send.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[GameRoot] ERROR serialising WorldSync: {ex.GetType().Name}: {ex.Message}");
+                    }
                 };
                 Registry.Register("NetworkHost", host);
                 Console.WriteLine($"[GameRoot] NetworkHost registered on port {port}.");
@@ -161,6 +179,7 @@ namespace V12.Core
                 var client = new NetworkClient(connectHost, port, Cables);
                 Registry.Register("NetworkClient", client);
                 Console.WriteLine($"[GameRoot] NetworkClient registered, targeting {connectHost}:{port}.");
+                try { OnNetworkClientRegistered?.Invoke(client); } catch { }
             }
 
             var dirtyTracker = new DirtyTracker(Cables, "networkcables://gameroot")
