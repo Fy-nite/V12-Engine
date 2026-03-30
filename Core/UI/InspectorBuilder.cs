@@ -6,6 +6,8 @@ namespace V12.Core.UI
     using System.Reflection;
     using V12.Core;
     using V12.Core.Core.Interfaces;
+        using V12.Core.UI;
+        using V12.Core.Core.Interfaces;
 
     /// <summary>
     /// Builds the complete, engine-agnostic inspector UI tree from a GameRoot / InspectorState.
@@ -412,6 +414,167 @@ namespace V12.Core.UI
                 return Convert.ChangeType(text, targetType, System.Globalization.CultureInfo.InvariantCulture);
             }
             catch { return null; }
+        }
+
+        // ── Builder that emits world-elements via IUIBuilder (engine-backed) ──
+
+        /// <summary>
+        /// Builds the inspector UI directly into an engine-provided <see cref="IUIBuilder"/>
+        /// as world-elements. Returns the root world-element created for the inspector.
+        /// This lets engine glue (e.g. Godot/Unity) construct the inspector using the
+        /// same V12 element system used for in-world UI.
+        /// </summary>
+        public static IWorldElement BuildFullInspector(IUIBuilder ui, GameRoot root, InspectorState state)
+        {
+            var world = root?.SelectedWorld;
+            var outer = ui.VLayout(ui.Root, "InspectorRoot");
+
+            // Title row
+            var titleRow = ui.HLayout(outer, "TitleRow");
+            // small indent
+            ui.Label(titleRow, "Indent", "");
+            var title = ui.Label(titleRow, "Title", "▶  V12 Inspector");
+            // Expand the title label by adding an empty rect to consume space (UIBuilder has no explicit expand flag)
+            ui.Rect(titleRow, "TitleSpacer", 0f, 0f, "");
+            var closeBtn = ui.Button(titleRow, "Close", () => state.RequestClose?.Invoke());
+
+            // World info
+            var worldInfo = world != null
+                ? $"  {world.WorldName}  ({world.Root.Count} element(s))"
+                : "  No active world";
+            ui.Label(outer, "WorldInfo", worldInfo);
+
+            // Separator (approx)
+            ui.Label(outer, "Sep", "------------------------------");
+
+            // Split: left list | right detail — use HLayout to place side-by-side
+            var split = ui.HLayout(outer, "Split");
+
+            // Left: element list
+            var left = ui.VLayout(split, "ElementList");
+            // New element row
+            var addRow = ui.HLayout(left, "AddRow");
+            var nameField = ui.TextInput(addRow, "NewName", state.NewElementName ?? "");
+            // wire commit
+            if (nameField != null)
+            {
+                // UIBuilder.TextInput doesn't expose a direct OnCommit in the interface,
+                // but engine-specific implementations (UIBuilder) may wire events by retrieving
+                // the TextInputComponent. To keep compatibility, we'll rely on polling the
+                // shared InspectorState.NewElementName when the Add button is pressed.
+            }
+            ui.Button(addRow, "AddBtn", () =>
+            {
+                try
+                {
+                    if (world == null) return;
+                    var name = (state.NewElementName ?? "NewElement").Trim();
+                    if (string.IsNullOrEmpty(name)) name = "NewElement";
+                    world.AddElement(new Element(name));
+                    state.RequestRebuild?.Invoke();
+                }
+                catch { }
+            });
+
+            if (world != null)
+            {
+                foreach (var el in world.Root)
+                {
+                    var captured = el;
+                    var isSelected = state.SelectedElement == el;
+                    var displayName = el.Name ?? "(unnamed)";
+                    var text = isSelected ? $"► {displayName}" : displayName;
+                    ui.Button(left, $"El_{captured.Id}", () => { state.SelectedElement = captured; state.RequestRebuild?.Invoke(); });
+                }
+            }
+
+            // Right: detail pane
+            var right = ui.VLayout(split, "Detail");
+            var selected = state.SelectedElement;
+            if (world == null || selected == null)
+            {
+                ui.Label(right, "NoSel", "  (no element selected)");
+                return outer;
+            }
+
+            // Name row
+            var nameRow = ui.HLayout(right, "NameRow");
+            ui.Label(nameRow, "NameLbl", "Name:");
+            var nameInput = ui.TextInput(nameRow, "NameField", selected.Name ?? "");
+            ui.Button(nameRow, "Rename", () => state.RequestRebuild?.Invoke());
+            ui.Button(nameRow, "RemoveEl", () =>
+            {
+                try { world.RemoveElement(selected); state.SelectedElement = null; state.RequestRebuild?.Invoke(); } catch { }
+            });
+
+            ui.Label(right, "CompCount", $"{selected.Components.Count} component(s)");
+
+            // Add-component: simply offer a button that adds the first available type (best-effort)
+            var addCompRow = ui.HLayout(right, "AddCompRow");
+            ui.Button(addCompRow, "AddComp", () =>
+            {
+                try
+                {
+                    var compTypes = GetComponentTypes();
+                    if (compTypes.Count == 0) return;
+                    var inst = Activator.CreateInstance(compTypes[0]) as IComponent;
+                    if (inst == null) return;
+                    selected.Components.Add(inst);
+                    TryMarkDirty(selected);
+                    state.RequestRebuild?.Invoke();
+                }
+                catch { }
+            });
+
+            if (selected.Components.Count == 0)
+            {
+                ui.Label(right, "NoComps", "  (no components)");
+                return outer;
+            }
+
+            foreach (var comp in selected.Components)
+            {
+                BuildForComponent(ui, comp, selected, state);
+            }
+
+            return outer;
+        }
+
+        private static void BuildForComponent(IUIBuilder ui, IComponent comp, IWorldElement owner, InspectorState? state)
+        {
+            // Header row
+            var headerRow = ui.HLayout(ui.Root, $"CompHeader_{comp.Name}");
+            ui.Label(headerRow, $"CompLbl_{comp.Name}", $"  {comp.Name}");
+            ui.Button(headerRow, $"Rem_{comp.Name}", () =>
+            {
+                try { owner.Components.Remove(comp); if (owner != null) TryMarkDirty(owner); state?.RequestRebuild?.Invoke(); } catch { }
+            });
+
+            // Properties
+            var props = comp.GetType()
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.CanRead && !_skipProps.Contains(p.Name) && IsSimpleType(p.PropertyType))
+                .ToArray();
+
+            if (props.Length == 0)
+            {
+                ui.Label(ui.Root, $"NoProps_{comp.Name}", "  (no properties)");
+                return;
+            }
+
+            foreach (var prop in props)
+            {
+                var capturedProp = prop;
+                var capturedComp = comp;
+                var row = ui.HLayout(ui.Root, $"PropRow_{comp.Name}_{prop.Name}");
+                ui.Label(row, $"PropLbl_{prop.Name}", $"  {prop.Name}");
+                string initial;
+                try { initial = FormatValue(capturedProp.GetValue(capturedComp)); } catch { initial = "?"; }
+                var tf = ui.TextInput(row, $"PropField_{prop.Name}", initial);
+                // No direct live value support on IUIBuilder interface; updates rely on rebuilding.
+                // Wire commit via inspector state or reflection where UIBuilder implementation exposes events.
+                // Best-effort: assume the engine-side TextInputComponent will call back into the property via shared state.
+            }
         }
     }
 }

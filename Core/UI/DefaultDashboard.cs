@@ -1,4 +1,5 @@
 using System;
+using V12.Components.UI;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Core.UI
@@ -38,7 +39,7 @@ namespace V12.Core.UI
 
                 // Content panel — use a rect as a simple background container
                 _contentPanel = _builder.Rect(_mainContainer, "ContentPanel", width: 0f, height: 0f, backgroundColor: "#101010");
-
+                _contentPanel.AddComponent(new LayoutElementComponent { FlexibleWidth = 1f, FlexibleHeight = 1f });
                 // Tab row at the bottom — place buttons left-to-right
                 _tabRow = _builder.HLayout(_mainContainer, "TabRow", spacing: 8f);
                 _builder.Button(_tabRow, "World",  () => SwitchToTab("World"));
