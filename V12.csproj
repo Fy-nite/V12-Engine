@@ -2,7 +2,7 @@
 
   <PropertyGroup>
 	<OutputType>library</OutputType>
-    <TargetFramework>netstandard2.1</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <!-- <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable> -->
     <LangVersion>10.0</LangVersion>
@@ -29,9 +29,6 @@
   <PackageReference Include="MongoDB.Bson" Version="2.25.0" />
   <PackageReference Include="System.Text.Json" Version="7.0.2" />
   </ItemGroup>
-  <!-- Post build task to copy files to V12.UnityEngine/Assets/Libs/*.dll and override when newer-->
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="..\V12.UnityEngine\Assets\Libs\" SkipUnchangedFiles="false" />
-  </Target>
+
 </Project>
  
