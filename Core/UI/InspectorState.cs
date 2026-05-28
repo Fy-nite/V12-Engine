@@ -14,6 +14,9 @@ namespace V12.Core.UI
         /// <summary>The currently selected world element (right-panel detail target).</summary>
         public IWorldElement? SelectedElement { get; set; }
 
+        /// <summary>IDs of elements that are expanded in the tree view.</summary>
+        public System.Collections.Generic.HashSet<long> ExpandedElements { get; } = new();
+
         /// <summary>Text in the "new element name" field (left panel).</summary>
         public string NewElementName { get; set; } = "NewElement";
 

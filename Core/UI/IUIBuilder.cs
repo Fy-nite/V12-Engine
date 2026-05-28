@@ -13,6 +13,9 @@ namespace V12.Core.UI
         /// <summary>Root canvas element. Add all top-level UI children here.</summary>
         IWorldElement Root { get; }
 
+        /// <summary>Sets the uniform scale of the root canvas.</summary>
+        void SetScale(float scale);
+
         // ── Layout ────────────────────────────────────────────────────────────
         IWorldElement HLayout(IWorldElement parent, string name, float spacing = 4f, float padding = 0f);
         IWorldElement VLayout(IWorldElement parent, string name, float spacing = 4f, float padding = 0f);

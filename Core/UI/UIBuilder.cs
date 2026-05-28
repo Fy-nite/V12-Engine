@@ -15,6 +15,19 @@ namespace V12.Core.UI
             Root.Components.Add(new CanvasComponent());
         }
 
+        public void SetScale(float scale)
+        {
+            var s = Root.GetComponent<V12.Components.ScaleComponent>();
+            if (s == null)
+            {
+                Root.AddComponent(new V12.Components.ScaleComponent(scale));
+            }
+            else
+            {
+                s.ScaleX = s.ScaleY = s.ScaleZ = scale;
+            }
+        }
+
         // ── Layout helpers ─────────────────────────────────────────────────────
 
         /// <summary>

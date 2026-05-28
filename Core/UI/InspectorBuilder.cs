@@ -6,8 +6,7 @@ namespace V12.Core.UI
     using System.Reflection;
     using V12.Core;
     using V12.Core.Core.Interfaces;
-        using V12.Core.UI;
-        using V12.Core.Core.Interfaces;
+    using V12.Components.UI;
 
     /// <summary>
     /// Builds the complete, engine-agnostic inspector UI tree from a GameRoot / InspectorState.
@@ -427,42 +426,40 @@ namespace V12.Core.UI
         public static IWorldElement BuildFullInspector(IUIBuilder ui, GameRoot root, InspectorState state)
         {
             var world = root?.SelectedWorld;
+            
             var outer = ui.VLayout(ui.Root, "InspectorRoot");
+            outer.AddComponent(new LayoutElementComponent { PreferredWidth = 380f });
 
             // Title row
             var titleRow = ui.HLayout(outer, "TitleRow");
-            // small indent
+            titleRow.AddComponent(new UIStyleComponent { StyleHint = "titlebar" });
+            titleRow.AddComponent(new LayoutElementComponent { PreferredHeight = 30f });
+            
             ui.Label(titleRow, "Indent", "");
             var title = ui.Label(titleRow, "Title", "▶  V12 Inspector");
-            // Expand the title label by adding an empty rect to consume space (UIBuilder has no explicit expand flag)
+            title.AddComponent(new UIStyleComponent { StyleHint = "title" });
+            
             ui.Rect(titleRow, "TitleSpacer", 0f, 0f, "");
-            var closeBtn = ui.Button(titleRow, "Close", () => state.RequestClose?.Invoke());
+            ui.Button(titleRow, "Close", () => state.RequestClose?.Invoke());
 
             // World info
             var worldInfo = world != null
                 ? $"  {world.WorldName}  ({world.Root.Count} element(s))"
                 : "  No active world";
-            ui.Label(outer, "WorldInfo", worldInfo);
+            var worldLbl = ui.Label(outer, "WorldInfo", worldInfo);
+            worldLbl.AddComponent(new UIStyleComponent { StyleHint = "accent" });
 
-            // Separator (approx)
-            ui.Label(outer, "Sep", "------------------------------");
-
-            // Split: left list | right detail — use HLayout to place side-by-side
+            // Split: left list | right detail
             var split = ui.HLayout(outer, "Split");
+            split.AddComponent(new LayoutElementComponent { PreferredHeight = 400f });
 
             // Left: element list
             var left = ui.VLayout(split, "ElementList");
+            left.AddComponent(new LayoutElementComponent { PreferredWidth = 120f });
+
             // New element row
             var addRow = ui.HLayout(left, "AddRow");
-            var nameField = ui.TextInput(addRow, "NewName", state.NewElementName ?? "");
-            // wire commit
-            if (nameField != null)
-            {
-                // UIBuilder.TextInput doesn't expose a direct OnCommit in the interface,
-                // but engine-specific implementations (UIBuilder) may wire events by retrieving
-                // the TextInputComponent. To keep compatibility, we'll rely on polling the
-                // shared InspectorState.NewElementName when the Add button is pressed.
-            }
+            ui.TextInput(addRow, "NewName", state.NewElementName ?? "");
             ui.Button(addRow, "AddBtn", () =>
             {
                 try
@@ -480,36 +477,36 @@ namespace V12.Core.UI
             {
                 foreach (var el in world.Root)
                 {
-                    var captured = el;
-                    var isSelected = state.SelectedElement == el;
-                    var displayName = el.Name ?? "(unnamed)";
-                    var text = isSelected ? $"► {displayName}" : displayName;
-                    ui.Button(left, $"El_{captured.Id}", () => { state.SelectedElement = captured; state.RequestRebuild?.Invoke(); });
+                    BuildTreeElement(ui, left, el, state, 0);
                 }
             }
 
             // Right: detail pane
             var right = ui.VLayout(split, "Detail");
+            right.AddComponent(new LayoutElementComponent { PreferredWidth = 250f });
+            
             var selected = state.SelectedElement;
             if (world == null || selected == null)
             {
-                ui.Label(right, "NoSel", "  (no element selected)");
+                var noSel = ui.Label(right, "NoSel", "  (no element selected)");
+                noSel.AddComponent(new UIStyleComponent { StyleHint = "muted" });
                 return outer;
             }
 
             // Name row
             var nameRow = ui.HLayout(right, "NameRow");
             ui.Label(nameRow, "NameLbl", "Name:");
-            var nameInput = ui.TextInput(nameRow, "NameField", selected.Name ?? "");
+            ui.TextInput(nameRow, "NameField", selected.Name ?? "");
             ui.Button(nameRow, "Rename", () => state.RequestRebuild?.Invoke());
             ui.Button(nameRow, "RemoveEl", () =>
             {
                 try { world.RemoveElement(selected); state.SelectedElement = null; state.RequestRebuild?.Invoke(); } catch { }
             });
 
-            ui.Label(right, "CompCount", $"{selected.Components.Count} component(s)");
+            var countLbl = ui.Label(right, "CompCount", $"{selected.Components.Count} component(s)");
+            countLbl.AddComponent(new UIStyleComponent { StyleHint = "muted" });
 
-            // Add-component: simply offer a button that adds the first available type (best-effort)
+            // Add-component row
             var addCompRow = ui.HLayout(right, "AddCompRow");
             ui.Button(addCompRow, "AddComp", () =>
             {
@@ -528,23 +525,84 @@ namespace V12.Core.UI
 
             if (selected.Components.Count == 0)
             {
-                ui.Label(right, "NoComps", "  (no components)");
+                var noComps = ui.Label(right, "NoComps", "  (no components)");
+                noComps.AddComponent(new UIStyleComponent { StyleHint = "muted" });
                 return outer;
             }
 
             foreach (var comp in selected.Components)
             {
-                BuildForComponent(ui, comp, selected, state);
+                BuildForComponent(ui, comp, selected, state, right);
             }
 
             return outer;
         }
 
-        private static void BuildForComponent(IUIBuilder ui, IComponent comp, IWorldElement owner, InspectorState? state)
+        private static void BuildTreeElement(IUIBuilder ui, IWorldElement parent, IWorldElement element, InspectorState state, int depth)
+        {
+            var row = ui.HLayout(parent, $"Row_{element.Id}");
+            row.AddComponent(new LayoutElementComponent { PreferredHeight = 26f });
+
+            // Indent
+            if (depth > 0)
+            {
+                var indent = ui.Label(row, $"Indent_{element.Id}", new string(' ', depth * 2));
+                indent.AddComponent(new LayoutElementComponent { PreferredWidth = depth * 10f });
+            }
+
+            // Expand/Collapse Toggle
+            bool hasChildren = element.Children.Count > 0;
+            bool isExpanded = state.ExpandedElements.Contains(element.Id);
+            
+            if (hasChildren)
+            {
+                string toggleText = isExpanded ? "▼" : "▶";
+                var tglBtn = ui.Button(row, $"Toggle_{element.Id}", () =>
+                {
+                    if (isExpanded) state.ExpandedElements.Remove(element.Id);
+                    else state.ExpandedElements.Add(element.Id);
+                    state.RequestRebuild?.Invoke();
+                });
+                var tglComp = tglBtn.GetComponent<ButtonComponent>();
+                if (tglComp != null) tglComp.Label = toggleText;
+                tglBtn.AddComponent(new LayoutElementComponent { PreferredWidth = 24f, PreferredHeight = 24f });
+            }
+            else
+            {
+                ui.Label(row, $"Empty_{element.Id}", "  ");
+            }
+
+            // Element Name / Selection
+            var isSelected = state.SelectedElement == element;
+            string name = element.Name ?? "(unnamed)";
+            var btn = ui.Button(row, $"Btn_{element.Id}", () =>
+            {
+                state.SelectedElement = element;
+                state.RequestRebuild?.Invoke();
+            });
+            var btnComp = btn.GetComponent<ButtonComponent>();
+            if (btnComp != null) btnComp.Label = name;
+            if (isSelected) btn.AddComponent(new UIStyleComponent { StyleHint = "selected" });
+
+            // Recurse children
+            if (isExpanded)
+            {
+                foreach (var child in element.Children)
+                {
+                    BuildTreeElement(ui, parent, child, state, depth + 1);
+                }
+            }
+        }
+
+        private static void BuildForComponent(IUIBuilder ui, IComponent comp, IWorldElement owner, InspectorState? state, IWorldElement container)
         {
             // Header row
-            var headerRow = ui.HLayout(ui.Root, $"CompHeader_{comp.Name}");
-            ui.Label(headerRow, $"CompLbl_{comp.Name}", $"  {comp.Name}");
+            var headerRow = ui.HLayout(container, $"CompHeader_{comp.Name}");
+            headerRow.AddComponent(new UIStyleComponent { StyleHint = "compheader" });
+            
+            var headerLbl = ui.Label(headerRow, $"CompLbl_{comp.Name}", $"  {comp.Name}");
+            headerLbl.AddComponent(new UIStyleComponent { StyleHint = "accent" });
+            
             ui.Button(headerRow, $"Rem_{comp.Name}", () =>
             {
                 try { owner.Components.Remove(comp); if (owner != null) TryMarkDirty(owner); state?.RequestRebuild?.Invoke(); } catch { }
@@ -558,7 +616,8 @@ namespace V12.Core.UI
 
             if (props.Length == 0)
             {
-                ui.Label(ui.Root, $"NoProps_{comp.Name}", "  (no properties)");
+                var noProps = ui.Label(container, $"NoProps_{comp.Name}", "  (no properties)");
+                noProps.AddComponent(new UIStyleComponent { StyleHint = "muted" });
                 return;
             }
 
@@ -566,14 +625,14 @@ namespace V12.Core.UI
             {
                 var capturedProp = prop;
                 var capturedComp = comp;
-                var row = ui.HLayout(ui.Root, $"PropRow_{comp.Name}_{prop.Name}");
-                ui.Label(row, $"PropLbl_{prop.Name}", $"  {prop.Name}");
+                var row = ui.HLayout(container, $"PropRow_{comp.Name}_{prop.Name}");
+                
+                var propLbl = ui.Label(row, $"PropLbl_{prop.Name}", $"  {prop.Name}");
+                propLbl.AddComponent(new UIStyleComponent { StyleHint = "muted" });
+                
                 string initial;
                 try { initial = FormatValue(capturedProp.GetValue(capturedComp)); } catch { initial = "?"; }
-                var tf = ui.TextInput(row, $"PropField_{prop.Name}", initial);
-                // No direct live value support on IUIBuilder interface; updates rely on rebuilding.
-                // Wire commit via inspector state or reflection where UIBuilder implementation exposes events.
-                // Best-effort: assume the engine-side TextInputComponent will call back into the property via shared state.
+                ui.TextInput(row, $"PropField_{prop.Name}", initial);
             }
         }
     }

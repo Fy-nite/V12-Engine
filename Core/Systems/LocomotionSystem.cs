@@ -30,7 +30,8 @@ namespace V12.Core.Systems
 
         public void Initialize(GameRoot g)
         {
-           
+            _input = g.Registry.Get<InputService>();
+            _input?.RegisterHandler(this);
         }
 
         public void OnInputEvent(InputEvent evt)
