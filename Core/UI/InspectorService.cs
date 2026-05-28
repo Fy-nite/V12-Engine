@@ -34,5 +34,10 @@ namespace V12.Core.UI
         }
 
         public void Dispose() { }
+
+        public void Initialize(GameRoot g)
+        {
+       
+        }
     }
 }

@@ -114,7 +114,7 @@ namespace V12.Core
             }
 #endif
             foreach (var service in Registry.GetAll<IGameService>())
-                service.Initialize();
+                service.Initialize(this);
 
             StartNetworkingThread();
             SetupUI();

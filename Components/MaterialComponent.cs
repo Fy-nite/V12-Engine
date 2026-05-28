@@ -15,9 +15,16 @@ namespace V12.Components
         private float _a        = 1f;
         private float _metallic = 0f;
         private float _roughness = 0.5f;
+        private string? _textureUrl;
 
         public override string Name        => "Material";
         public override string Description => "Surface colour and PBR properties";
+
+        public string? TextureUrl
+        {
+            get => _textureUrl;
+            set { _textureUrl = value; MarkDirty(); }
+        }
 
         public float R
         {

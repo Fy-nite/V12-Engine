@@ -1,9 +1,9 @@
 <World name="Gridspace">
 	<Element name="Gridspace" type="Gridspace">
 		<Element name="Floor" description="Thing">
-			<TransformComponent x="0" y="-1" z="0" rotation="0" />
-			<MeshComponent Shape="Box" Width="30" Height="0.1" Depth="30" />
-			<MaterialComponent R="0.1" G="0.4" B="0.2" Metallic="0.2" Roughness="0.3" />
+			<TransformComponent x="0" y="0" z="0" rotation="0" />
+			<MeshComponent Shape="Box" Width="3" Height="0.1" Depth="3" />
+			<MaterialComponent  TextureUrl="https://www.finite.ovh/images/objectir.png" />
 		</Element>
 	</Element>
 </World>

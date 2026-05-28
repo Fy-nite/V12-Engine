@@ -5,7 +5,7 @@ namespace V12.Core.Core.Interfaces
     /// </summary>
     public interface IGameService
     {
-        void Initialize();
+        void Initialize(GameRoot g);
         void Update(float deltaTime);
     }
 }

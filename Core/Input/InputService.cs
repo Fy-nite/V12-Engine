@@ -35,6 +35,11 @@ namespace V12.Core.Input
                 try { h.OnInputEvent(evt); } catch { }
             }
         }
+
+        public void Initialize(GameRoot g)
+        {
+            
+        }
     }
 }
 

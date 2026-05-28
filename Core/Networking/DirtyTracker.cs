@@ -282,6 +282,11 @@ namespace V12.Core.Networking
             _dirtyComponents.Clear();
             _dirtyElements.Clear();
         }
+
+        public void Initialize(GameRoot g)
+        {
+    
+        }
     }
 
     /// <summary>

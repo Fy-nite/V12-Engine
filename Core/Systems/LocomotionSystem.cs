@@ -28,6 +28,11 @@ namespace V12.Core.Systems
             _input?.RegisterHandler(this);
         }
 
+        public void Initialize(GameRoot g)
+        {
+           
+        }
+
         public void OnInputEvent(InputEvent evt)
         {
             if (evt.Type == InputEventType.Axis)

@@ -160,14 +160,22 @@ namespace V12.WorldML
         {
             if (value == null) return;
             var pi = target.GetType().GetProperty(propName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-            if (pi == null || !pi.CanWrite) return;
+            if (pi == null || !pi.CanWrite) 
+            {
+                Console.WriteLine($"[WorldMLParser] DEBUG: Property '{propName}' NOT FOUND or NOT WRITABLE on {target.GetType().Name}. Available: {string.Join(", ", target.GetType().GetProperties().Select(p => p.Name))}");
+                return;
+            }
 
             try
             {
                 var converted = ConvertToType(value, pi.PropertyType);
                 pi.SetValue(target, converted);
+                Console.WriteLine($"[WorldMLParser] Set {propName} to {value} on {target.GetType().Name}");
             }
-            catch { }
+            catch (Exception ex) 
+            {
+                Console.WriteLine($"[WorldMLParser] Error setting {propName}: {ex.Message}");
+            }
         }
 
         private object? ConvertToType(string value, Type targetType)
