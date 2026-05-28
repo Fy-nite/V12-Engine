@@ -3,7 +3,7 @@
 		<Element name="Floor" description="Thing">
 			<TransformComponent x="0" y="0" z="0" rotation="0" />
 			<MeshComponent Shape="Box" Width="3" Height="0.1" Depth="3" />
-			<MaterialComponent  TextureUrl="https://www.finite.ovh/images/objectir.png" />
+			<MaterialComponent R="0" G="0" B="0" TextureUrl="https://www.finite.ovh/images/objectir.png" />
 		</Element>
 	</Element>
 </World>
