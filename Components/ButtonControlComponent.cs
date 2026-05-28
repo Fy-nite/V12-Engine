@@ -11,7 +11,7 @@ namespace V12.Components
     {
         private string _label   = "Button";
         private float  _width   = 0.5f;
-        private float  _height  = 0.13f;
+        private float  _height  = 0.5f;
         private float  _offsetX = 0f;
         private float  _offsetY = 0f;
         private float  _offsetZ = 0f;

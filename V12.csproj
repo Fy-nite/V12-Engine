@@ -19,6 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Remove="Templates\Gridspace.xml" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Glue\" />
     <Folder Include="Properties\" />
     <Folder Include="Tests\" />
@@ -28,6 +32,12 @@
   <PackageReference Include="LiteNetLib" Version="1.1.0" />
   <PackageReference Include="MongoDB.Bson" Version="2.25.0" />
   <PackageReference Include="System.Text.Json" Version="7.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Templates\Gridspace.xml">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

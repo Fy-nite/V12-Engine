@@ -16,6 +16,8 @@ namespace V12.Components
         private float  _bgR = 0.08f, _bgG = 0.08f, _bgB = 0.12f, _bgA = 0.90f;
         private float  _textR = 1f, _textG = 1f, _textB = 1f, _textA = 1f;
         private float  _offsetY = 1.0f;
+        public System.Numerics.Vector3 Position = new System.Numerics.Vector3(0, 1.0f, 0);
+        public System.Numerics.Quaternion Orientation = System.Numerics.Quaternion.Identity;
 
         public override string Name        => "UIPanel";
         public override string Description => "World-space UI panel";

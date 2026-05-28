@@ -58,16 +58,14 @@ namespace V12.Core
             SelectedWorld = HomeWorld;
             Templates["empty"] = (name) => new World(name);
             Templates["default"] = (name) => new V12.WorldML.WorldMLParser().Parse(ReadResource("V12.Templates.Default.xml"));
-            Templates["Gridspace"] = (name) => new V12.WorldML.WorldMLParser().Parse(@"
-<World name=""Gridspace"">
-	<Element name=""Gridspace"" type=""Gridspace"">
-		<Element name=""Floor"" description=""Thing"">
-			<TransformComponent x=""0"" y=""1"" z=""0"" rotation=""0"" />
-			<MeshComponent Shape=""Box"" Width=""100"" Height=""0.2"" Depth=""0.5"" />
-			<MaterialComponent R=""0.5"" G=""0.5"" B=""0.5"" Metallic=""0.2"" Roughness=""0.3"" />
-		</Element>
-	</Element>
-</World>");
+            Templates["Gridspace"] = (name) => new V12.WorldML.WorldMLParser().Parse(ReadResource("V12.Templates.Gridspace.xml"));
+            Templates["HotReload"] = (name) => {
+                var world = new World(name);
+                var reloader = new V12.Core.Networking.WorldXmlHotReloader(world);
+                reloader.Initialize();
+                Registry.Register($"HotReloader_{name}", reloader);
+                return world;
+            };
 
             Registry.Register("NetworkCables", Cables);
             // Register a core InspectorService so glue code can render engine-agnostic UI
@@ -79,7 +77,6 @@ namespace V12.Core
             
             var vrInput = new V12.Core.Input.VRInputProvider();
             Registry.Register("VRInput", vrInput);
-            
             // Register a default in-engine UIBuilder so dashboards can build
             // UI as world elements which frontends will sync and render.
             try
@@ -313,6 +310,7 @@ namespace V12.Core
                 try
                 {
                     SelectedWorld.Update(deltaTime);
+                    try { _dashboard?.Update(deltaTime); } catch { }
                 }
                 catch { }
             }

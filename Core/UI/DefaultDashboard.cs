@@ -1,6 +1,8 @@
 using System;
+using V12.Components;
 using V12.Components.UI;
 using V12.Core.Core.Interfaces;
+using V12.Core.Input;
 
 namespace V12.Core.UI
 {
@@ -12,20 +14,50 @@ namespace V12.Core.UI
     public class DefaultDashboard : IDashboard
     {
         private IUIBuilder _builder;
+        private GameRoot _gameRoot;
         private bool _isOpen;
         private string _activeTab = "World";
         private V12.Core.Core.Interfaces.IWorldElement? _mainContainer;
         private V12.Core.Core.Interfaces.IWorldElement? _contentPanel;
         private V12.Core.Core.Interfaces.IWorldElement? _tabRow;
+        
         // Pre-built content panels for each tab so we can toggle visibility
         private V12.Core.Core.Interfaces.IWorldElement? _worldPanel;
         private V12.Core.Core.Interfaces.IWorldElement? _playerPanel;
         private V12.Core.Core.Interfaces.IWorldElement? _systemPanel;
 
-        public void Initialize(IUIBuilder builder)
+        private string _lastEvent = "None";
+        
+        // Diagnostic fields
+        private V12.Core.Core.Interfaces.IWorldElement? _fpsLabelEl;
+        private V12.Core.Core.Interfaces.IWorldElement? _objCountLabelEl;
+        private V12.Core.Core.Interfaces.IWorldElement? _inputLabelEl;
+
+        public void Initialize(IUIBuilder builder, GameRoot gameRoot)
         {
             _builder = builder ?? throw new ArgumentNullException(nameof(builder));
+            _gameRoot = gameRoot ?? throw new ArgumentNullException(nameof(gameRoot));
+            
+            var inputService = _gameRoot.Registry.Get<IInputService>();
+            if (inputService != null)
+            {
+                inputService.RegisterHandler(new DashboardInputHandler(this));
+            }
             BuildUI();
+        }
+
+        public void Initialize(IUIBuilder builder) => Initialize(builder, new GameRoot()); // Legacy support
+        
+        public void UpdateUI(InputEvent e)
+        {
+            _lastEvent = $"{e.Name}: {e.Type} ({e.Value:F2})";
+        }
+
+        private class DashboardInputHandler : IInputHandler
+        {
+            private readonly DefaultDashboard _dashboard;
+            public DashboardInputHandler(DefaultDashboard dashboard) => _dashboard = dashboard;
+            public void OnInputEvent(InputEvent evt) => _dashboard.UpdateUI(evt);
         }
 
         void BuildUI()
@@ -49,8 +81,11 @@ namespace V12.Core.UI
                 // Build content for each tab once, then show only the active one.
                 // World tab content
                 _worldPanel = _builder.VLayout(_contentPanel, "WorldContent", spacing: 4f, padding: 4f);
-                _builder.Label(_worldPanel, "WorldTitle", "World");
-                _builder.Label(_worldPanel, "WorldInfo", "Shows world-level information and controls.");
+                _builder.Label(_worldPanel, "WorldTitle", "World Switcher");
+                foreach (var world in _gameRoot.Worlds)
+                {
+                    _builder.Button(_worldPanel, $"Switch to {world.WorldName}", () => _gameRoot.SelectWorld(world));
+                }
 
                 // Player tab content
                 _playerPanel = _builder.VLayout(_contentPanel, "PlayerContent", spacing: 4f, padding: 4f);
@@ -60,8 +95,16 @@ namespace V12.Core.UI
 
                 // System tab content
                 _systemPanel = _builder.VLayout(_contentPanel, "SystemContent", spacing: 4f, padding: 4f);
-                _builder.Label(_systemPanel, "SystemTitle", "System");
-                _builder.Label(_systemPanel, "SystemInfo", "Engine and runtime diagnostics.");
+                _builder.Label(_systemPanel, "SystemTitle", "System Diagnostics");
+                
+                _fpsLabelEl = _builder.Label(_systemPanel, "FPS", "FPS: 0");
+                _fpsLabelEl.AddComponent(new UILabelComponent { Text = "FPS: 0" });
+                
+                _objCountLabelEl = _builder.Label(_systemPanel, "ObjCount", "Objects: 0");
+                _objCountLabelEl.AddComponent(new UILabelComponent { Text = "Objects: 0" });
+                
+                _inputLabelEl = _builder.Label(_systemPanel, "InputEvents", "Last Input: None");
+                _inputLabelEl.AddComponent(new UILabelComponent { Text = "Last Input: None" });
 
                 // Detach all panels except the active one so we only show the active content.
                 if (_contentPanel != null)
@@ -119,7 +162,16 @@ namespace V12.Core.UI
 
         public void Update(double deltaSeconds)
         {
-            // Default dashboard does not need per-frame updates yet.
+            if (!_isOpen) return;
+            Console.WriteLine(IsOpen);
+            if (_fpsLabelEl != null)
+                _fpsLabelEl.GetComponent<UILabelComponent>().Text = $"FPS: {1.0 / deltaSeconds:F1}";
+
+            if (_gameRoot.SelectedWorld != null && _objCountLabelEl != null)
+                _objCountLabelEl.GetComponent<UILabelComponent>().Text = $"Objects: {_gameRoot.SelectedWorld.Root.Count}";
+
+            if (_inputLabelEl != null)
+                _inputLabelEl.GetComponent<UILabelComponent>().Text = $"Last Input: {_lastEvent}";
         }
 
         public bool IsOpen => _isOpen;

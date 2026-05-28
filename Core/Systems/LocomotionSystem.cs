@@ -13,8 +13,9 @@ namespace V12.Core.Systems
         private InputService? _input;
 
         // Input state tracked by handler
-        private float _moveX, _moveY;
+        private float _moveX, _moveY, _rotate;
         private bool _jumpRequested;
+        private float _rotationSpeed = 2.0f; // Multiplier
 
         public LocomotionSystem(GameRoot gameRoot)
         {
@@ -33,6 +34,7 @@ namespace V12.Core.Systems
             {
                 if (evt.Name == "MoveX") _moveX = (float)evt.Value;
                 if (evt.Name == "MoveY") _moveY = -(float)evt.Value;
+                if (evt.Name == "Rotate") _rotate = (float)evt.Value;
             }
             if (evt.Type == InputEventType.ButtonDown && evt.Name == "Jump")
             {
@@ -58,6 +60,13 @@ namespace V12.Core.Systems
                 var loco = element.GetComponent<LocomotionComponent>();
                 var transform = element.GetComponent<TransformComponent>();
                 if (loco == null || transform == null) continue;
+
+                // Apply Rotation
+                if (Math.Abs(_rotate) > 0.05f) // Reduced deadzone
+                {
+                    // Increased speed factor (e.g., from 2.0 to 10.0 or similar)
+                    transform.RotationY = (transform.RotationY ?? 0) + (_rotate * deltaTime * _rotationSpeed * 5.0f);
+                }
 
                 // Move relative to head orientation
                 Vector3 forward = Vector3.UnitZ;
