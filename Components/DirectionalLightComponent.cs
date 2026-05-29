@@ -1,6 +1,6 @@
 using System;
 using V12.Core.Core.Interfaces;
-
+using V12.Core;
 namespace V12.Components
 {
     /// <summary>

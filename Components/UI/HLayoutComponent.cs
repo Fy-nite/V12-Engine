@@ -1,3 +1,6 @@
+using V12.Core;
+using V12.Core.Core.Interfaces;
+
 namespace V12.Components.UI
 {
     /// <summary>
@@ -15,5 +18,9 @@ namespace V12.Components.UI
 
         /// <summary>Uniform padding applied inside all four edges.</summary>
         public float Padding { get; set; } = 0f;
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
     }
 }
