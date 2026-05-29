@@ -88,6 +88,8 @@ namespace V12.Core
             catch { }
             
             Registry.Register("LocomotionSystem", new V12.Core.Systems.LocomotionSystem(this));
+            Registry.Register("PhysicsLocomotionSystem", new V12.Core.Systems.PhysicsLocomotionSystem(this));
+            Registry.Register("PhysicsService", new V12.Core.Systems.PhysicsService());
         }
 
         public string ReadResource(string name)
@@ -416,7 +418,9 @@ namespace V12.Core
             {
                 var player = new Element("DefaultPlayer");
                 player.AddComponent(new V12.Components.PlayerComponent());
-                player.AddComponent(new V12.Components.TransformComponent { X = 0, Y = 0, Z = 0 });
+                player.AddComponent(new V12.Components.TransformComponent { X = 0, Y = -1.0f, Z = 0 });
+                player.AddComponent(new V12.Components.PhysicsBodyComponent { IsKinematic = true });
+                player.AddComponent(new V12.Components.LocomotionComponent());
                 world.AddElement(player);
             }
 

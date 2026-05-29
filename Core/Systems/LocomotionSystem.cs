@@ -38,13 +38,14 @@ namespace V12.Core.Systems
         {
             if (evt.Type == InputEventType.Axis)
             {
-                if (evt.Name == "MoveX") _moveX = (float)evt.Value;
-                if (evt.Name == "MoveY") _moveY = -(float)evt.Value;
-                if (evt.Name == "Rotate") _rotate = (float)evt.Value;
+                if (evt.Name == "MoveX") { _moveX = (float)evt.Value; Console.WriteLine($"Input: MoveX={_moveX}"); }
+                if (evt.Name == "MoveY") { _moveY = -(float)evt.Value; Console.WriteLine($"Input: MoveY={_moveY}"); }
+                if (evt.Name == "Rotate") { _rotate = (float)evt.Value; Console.WriteLine($"Input: Rotate={_rotate}"); }
             }
             if (evt.Type == InputEventType.ButtonDown && evt.Name == "Jump")
             {
                 _jumpRequested = true;
+                Console.WriteLine("Input: JumpRequested");
             }
         }
 
@@ -57,22 +58,16 @@ namespace V12.Core.Systems
 
             foreach (var element in world.Root)
             {
-                var player = element.GetComponent<V12.Components.PlayerComponent>();
-                if (player != null && element.GetComponent<LocomotionComponent>() == null)
-                {
-                    element.AddComponent(new LocomotionComponent());
-                }
-
                 var loco = element.GetComponent<LocomotionComponent>();
                 var transform = element.GetComponent<TransformComponent>();
-                if (loco == null || transform == null) continue;
-
-                // Apply Rotation
-                if (Math.Abs(_rotate) > 0.05f) // Reduced deadzone
+                
+                // Detailed logging for debug
+                if (element.Name.Contains("Player"))
                 {
-                    // Increased speed factor (e.g., from 2.0 to 10.0 or similar)
-                    transform.RotationY = (transform.RotationY ?? 0) + (_rotate * deltaTime * _rotationSpeed * 5.0f);
+                     //Console.WriteLine($"LocomotionSystem: Checking Element {element.Name} - Locomotion={loco != null}, Transform={transform != null}");
                 }
+
+                if (loco == null || transform == null) continue;
 
                 // Move relative to head orientation
                 Vector3 forward = Vector3.UnitZ;
@@ -90,41 +85,10 @@ namespace V12.Core.Systems
                 Vector3 moveDir = (forward * _moveY + right * _moveX) * loco.MoveSpeed;
                 loco.Velocity = new Vector3(moveDir.X, loco.Velocity.Y, moveDir.Z);
 
-                // Apply gravity
-                if (!loco.IsGrounded)
+                if (loco.Velocity.LengthSquared() > 0.001f)
                 {
-                    loco.Velocity -= new Vector3(0, loco.Gravity * deltaTime, 0);
+                    Console.WriteLine($"LocomotionSystem: {element.Name} Velocity set to: {loco.Velocity}");
                 }
-                else
-                {
-                    if (_jumpRequested)
-                    {
-                        loco.Velocity = new Vector3(loco.Velocity.X, loco.JumpStrength, loco.Velocity.Z);
-                        loco.IsGrounded = false;
-                    }
-                    else
-                    {
-                        loco.Velocity = new Vector3(loco.Velocity.X, 0, loco.Velocity.Z);
-                    }
-                }
-                
-                _jumpRequested = false;
-
-                // Integrate
-                Vector3 pos = new Vector3(transform.X, transform.Y, transform.Z);
-                pos += loco.Velocity * deltaTime;
-                
-                // Ground check
-                if (pos.Y < 0)
-                {
-                    pos.Y = 0;
-                    loco.IsGrounded = true;
-                    loco.Velocity = new Vector3(loco.Velocity.X, 0, loco.Velocity.Z);
-                }
-                
-                transform.X = pos.X;
-                transform.Y = pos.Y;
-                transform.Z = pos.Z;
             }
         }
     }

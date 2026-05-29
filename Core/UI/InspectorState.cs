@@ -23,6 +23,18 @@ namespace V12.Core.UI
         /// <summary>Selected index in the "add component" option-picker.</summary>
         public int ComponentPickerIndex { get; set; }
 
+        /// <summary>Current vertical scroll for the hierarchy panel.</summary>
+        public float HierarchyScroll;
+
+        /// <summary>Current vertical scroll for the detail panel.</summary>
+        public float DetailScroll;
+
+        /// <summary>Last measured height of the hierarchy content.</summary>
+        public float HierarchyContentHeight;
+
+        /// <summary>Last measured height of the detail content.</summary>
+        public float DetailContentHeight;
+
         /// <summary>Called by button/field callbacks when the full UI needs to rebuild.</summary>
         public Action? RequestRebuild { get; set; }
 

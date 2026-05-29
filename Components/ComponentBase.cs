@@ -4,7 +4,7 @@ using V12.Core.Core.Interfaces;
 namespace V12.Components
 {
     /// <summary>
-    /// Common base implementation for non-Godot components.
+    /// Common base implementation for components.
     /// Provides id generation, dirty event wiring and default lifecycle methods.
     /// </summary>
     public abstract class ComponentBase : IComponent
@@ -16,6 +16,8 @@ namespace V12.Components
 
         public virtual string Name { get; set; }
         public virtual string Description => string.Empty;
+        public bool IsDirty => OnDirty != null;
+        public bool Active {  get; set; }
 
         protected ComponentBase()
         {

@@ -14,6 +14,16 @@ namespace V12.Core.UI
             Root = new Element("CanvasRoot");
             Root.Components.Add(new CanvasComponent());
         }
+        public UIBuilder(IWorldElement root)
+        {
+            Root = root;
+            Root.Components.Add(new CanvasComponent());
+        }
+        public UIBuilder(IWorldElement root, int x, int y)
+        {
+            Root = root;
+            Root.Components.Add(new CanvasComponent(x,y));
+        }
 
         public void SetScale(float scale)
         {
