@@ -1,43 +1,30 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using V12.Components;
-using V12.Core;
+using System;
 using V12.Core.Core.Interfaces;
 using V12.Core.UI;
 
-namespace V12.StereoKit.DebugItems
+namespace V12.Components
 {
-    public class InspectorComponent : ComponentBase
+    public class InspectorComponent : IComponent
     {
-        public static GameRoot root;
-        public static bool _enabled = true;
-        public IWorldElement rootElement;
-        public static UIBuilder b;
-        public InspectorComponent(GameRoot r) => root = r;
-        //public void BuildUI()
-        //{
-        //    b = new();
-        //    b.Button(b.Root, "meow", () => Console.WriteLine("meow"));
-        //    rootElement = b.Root;
-        //}
-        public override void OnAttach(IWorldElement worldElement)
-        {
-            Console.WriteLine("KASDKJASKDJASDKJASDK \a inspector made");
-            base.OnAttach(worldElement);
-            b = new(worldElement, 800,600);
-            b.Button(b.Root, "meow", () => Console.WriteLine("meow"));
-            worldElement = b.Root; // if this works i am gonna be sad
-            //worldElement.AddComponent(new MeshComponent(MeshShape.Box, 0.2f, 0.2f, 0.2f));
-        }
-        public void Render()
-        {
-          
-        }
+        public event Action<IComponent>? OnDirty;
+        public long Id { get; } = GenerateId();
+        public long? EntityId { get; set; }
+        public string Name { get; set; } = "Inspector";
+        public string Description { get; set; } = "Renders an inspector panel for this entity.";
 
-        public override IWorldElement BuildUI()
-        {
-            return new Element("thing");
-        }
+        public void Update(float deltaTime) { }
+        public void OnAttach(IWorldElement worldElement) { EntityId = worldElement.Id; }
+        public void OnDetach(IWorldElement worldElement) { EntityId = null; }
+        public void OnUpdate() { }
+        public void OnDestroy() { }
+
+        public IWorldElement BuildUI() => throw new NotImplementedException();
+        public void BuildInspector(IInspector inspector) { }
+        public void CopyFrom(IComponent other) { }
+        
+        public void MarkDirty() => OnDirty?.Invoke(this);
+
+        private static long _nextId = 1;
+        private static long GenerateId() => System.Threading.Interlocked.Increment(ref _nextId);
     }
 }

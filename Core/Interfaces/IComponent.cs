@@ -74,6 +74,11 @@ namespace V12.Core.Core.Interfaces
         IWorldElement BuildUI();
 
         /// <summary>
+        /// Describes the inspector UI for this component using the provided inspector interface.
+        /// </summary>
+        void BuildInspector(V12.Core.UI.IInspector inspector) { }
+
+        /// <summary>
         /// Copy the serializable state from <paramref name="other"/> into this component.
         /// Called by the networking layer after deserialising an incoming component snapshot
         /// so the live component reflects the latest server values.

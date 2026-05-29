@@ -12,6 +12,8 @@ using V12.Core.Registry;
 using V12.Core.Input;
 using V12.Core.Core.Interfaces;
 using V12.Core.UI;
+using V12.Components.UI;
+using V12.Components;
 
 namespace V12.Core
 {
@@ -75,7 +77,15 @@ namespace V12.Core
             // Register core InputService so glue code can forward platform input
             var inputService = new V12.Core.Input.InputService();
             Registry.Register("InputService", inputService);
+            InspectorBuilder i = new InspectorBuilder();
+            Element ins = new Element("RootInspectorWindow");
+            ins.AddComponent(new MeshComponent(MeshShape.Box, 0.2f, 0.2f, 0.2f));
+            ins.AddComponent(new CanvasComponent());
+            var rootz = new Element("UIRoot");
             
+            rootz.AddComponent(i.Build());
+            ins.AddChild(rootz);
+            SelectedWorld.AddElement(ins);
             var vrInput = new V12.Core.Input.VRInputProvider();
             Registry.Register("VRInput", vrInput);
             // Register a default in-engine UIBuilder so dashboards can build
@@ -329,7 +339,7 @@ namespace V12.Core
             Registry.Update(deltaTime);
         }
 
-        // Simple input handler that toggles the core Dashboard on Escape.
+        // Input handler that toggles the core Dashboard/Inspector on Escape or Dash.
         class DashboardInputHandler : IInputHandler
         {
             private readonly IDashboard _dash;
@@ -341,9 +351,9 @@ namespace V12.Core
                 if (evt == null) return;
                 try
                 {
-                    if (evt.Type == InputEventType.ButtonDown && evt.Name == "Escape")
+                    // Toggles Dashboard (which serves as the Inspector UI)
+                    if (evt.Type == InputEventType.ButtonDown && (evt.Name == "Escape" || evt.Name == "dash"))
                     {
-                        // Toggle visibility
                         if (_dash.IsOpen)
                             _dash.Close();
                         else

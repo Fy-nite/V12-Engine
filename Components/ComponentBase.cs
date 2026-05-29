@@ -30,6 +30,7 @@ namespace V12.Components
         public virtual void OnUpdate() { }
         public virtual void OnDestroy() { }
         public abstract IWorldElement BuildUI();
+        public virtual void BuildInspector(V12.Core.UI.IInspector inspector) { }
 
         /// <summary>
         /// Mark component as dirty so DirtyTracker can pick it up.
