@@ -15,4 +15,8 @@ public class LayoutElementComponent: ComponentBase
     public float MinHeight { get; set; } = -1f;
     public float PreferredHeight { get; set; } = -1f;
     public float FlexibleHeight { get; set; } = 0f;
+    public override IWorldElement BuildUI()
+    {
+        return new Element();
+    }
 }

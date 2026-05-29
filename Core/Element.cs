@@ -18,6 +18,7 @@ namespace V12.Core
         public IWorldElement? Parent { get; set; }
         public List<IComponent> Components { get; set; } = new List<IComponent>();
         public List<IWorldElement> Children { get; } = new List<IWorldElement>();
+        public bool Active { get; set; } = true;
 
         private static long _nextElementId = 0;
 

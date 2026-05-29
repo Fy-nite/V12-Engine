@@ -14,7 +14,7 @@ namespace V12.Components
         public long Id { get; protected set; }
         public long? EntityId { get; set; }
 
-        public abstract string Name { get; }
+        public virtual string Name { get; set; }
         public virtual string Description => string.Empty;
 
         protected ComponentBase()
@@ -27,6 +27,7 @@ namespace V12.Components
         public virtual void OnDetach(IWorldElement worldElement) { }
         public virtual void OnUpdate() { }
         public virtual void OnDestroy() { }
+        public abstract IWorldElement BuildUI();
 
         /// <summary>
         /// Mark component as dirty so DirtyTracker can pick it up.

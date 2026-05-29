@@ -1,4 +1,6 @@
 using System;
+using V12.Core;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Components
 {
@@ -54,5 +56,9 @@ namespace V12.Components
 
         /// <summary>Called by the Godot binding when the checkbox state changes.</summary>
         public void InvokeToggled(bool state) => OnToggled?.Invoke(state);
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
     }
 }

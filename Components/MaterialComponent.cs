@@ -1,4 +1,5 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -65,7 +66,10 @@ namespace V12.Components
         }
 
         private static float Clamp01(float v) => Math.Max(0f, Math.Min(1f, v));
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() =>
             $"Material(RGBA:{R:F2},{G:F2},{B:F2},{A:F2} M:{Metallic:F2} R:{Roughness:F2})";
     }

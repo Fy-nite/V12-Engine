@@ -1,4 +1,5 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -31,7 +32,10 @@ namespace V12.Components
             _velX = vx; _velY = vy; _velZ = vz;
             _angX = ax; _angY = ay; _angZ = az;
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() =>
             $"Velocity(Lin:{VelX:F2},{VelY:F2},{VelZ:F2} Ang:{AngX:F2},{AngY:F2},{AngZ:F2})";
     }

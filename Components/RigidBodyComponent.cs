@@ -1,4 +1,5 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -58,7 +59,10 @@ namespace V12.Components
         {
             _mass = mass; _gravityScale = gravityScale; _isKinematic = isKinematic;
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() =>
             $"RigidBody(Mass:{Mass:F2} Gravity:{GravityScale:F2} Kinematic:{IsKinematic})";
     }

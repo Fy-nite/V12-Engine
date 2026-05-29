@@ -11,7 +11,7 @@ namespace V12.Core.Core.Interfaces
     /// <remarks>Implementations of this interface should provide specific behavior for the update and destroy
     /// methods to manage the component's lifecycle. The Name and Description properties allow identification and
     /// documentation of the component within a system.</remarks>
-    public interface IComponent
+    public interface IComponent 
     {
         /// <summary>
         /// Event raised when the component's state has changed and should be synchronized over the network.
@@ -68,6 +68,10 @@ namespace V12.Core.Core.Interfaces
         /// On every frame, this method gets updated. This is where the component should perform any necessary updates to its state or behavior based on the current game state or environment. This method is called periodically, typically once per frame, to ensure that the component remains responsive and up-to-date with changes in the game world.
         /// </summary>
         void OnUpdate();
+        /// <summary>
+        /// When prompted to, having this function called will BuildUI for a component.
+        /// </summary>
+        IWorldElement BuildUI();
 
         /// <summary>
         /// Copy the serializable state from <paramref name="other"/> into this component.

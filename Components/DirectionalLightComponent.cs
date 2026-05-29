@@ -53,7 +53,10 @@ namespace V12.Components
         }
 
         private static float Clamp01(float v) => Math.Max(0f, Math.Min(1f, v));
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() =>
             $"DirectionalLight(RGB:{ColorR:F2},{ColorG:F2},{ColorB:F2} Energy:{Energy:F2} Shadow:{ShadowEnabled})";
     }

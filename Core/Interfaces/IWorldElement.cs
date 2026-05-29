@@ -26,6 +26,12 @@ namespace V12.Core.Core.Interfaces
         string? Name { get; set; }
 
         /// <summary>
+        /// Gets or sets the Active state on a component
+        /// </summary>
+        /// <remarks>This MUST be not null, if the bool is false. the component will be skipped over during rendering.</remarks>
+        bool Active { get; set; }
+
+        /// <summary>
         /// The description provides additional information about the entity. It can be used to give context, details, or any relevant information that helps to understand the purpose or characteristics of the entity. Like the name, the description can also be null if no additional information is provided.
         /// </summary>
         string? Description { get; set; } // tis is funny

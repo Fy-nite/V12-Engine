@@ -1,4 +1,5 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -60,7 +61,10 @@ namespace V12.Components
         {
             _fov = fov; _nearClip = nearClip; _farClip = farClip; _isCurrent = isCurrent;
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() =>
             $"Camera(Proj:{Projection} FOV:{Fov:F1} Near:{NearClip:F3} Far:{FarClip:F1} Current:{IsCurrent})";
     }

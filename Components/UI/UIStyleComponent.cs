@@ -1,4 +1,6 @@
 using System;
+using V12.Core;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI
 {
@@ -20,7 +22,10 @@ namespace V12.Components.UI
         /// Whether the element should be rendered "flat" (no background/border).
         /// </summary>
         public bool Flat { get; set; }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         /// <summary>
         /// Custom attributes for frontend-specific logic.
         /// </summary>

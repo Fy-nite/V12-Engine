@@ -59,7 +59,10 @@ namespace V12.Components
             CurrentHealth += actual;
             return actual;
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() =>
             $"Health({CurrentHealth:F1}/{MaxHealth:F1} Invincible:{IsInvincible})";
     }

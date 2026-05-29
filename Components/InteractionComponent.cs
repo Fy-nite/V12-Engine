@@ -1,4 +1,5 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -47,6 +48,10 @@ namespace V12.Components
         {
             get => (_hitNX, _hitNY, _hitNZ);
             set { if (_hitNX != value.x || _hitNY != value.y || _hitNZ != value.z) { _hitNX = value.x; _hitNY = value.y; _hitNZ = value.z; MarkDirty(); } }
+        }
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
         }
     }
 }

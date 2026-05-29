@@ -1,4 +1,6 @@
 using System;
+using V12.Core;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Components
 {
@@ -61,7 +63,10 @@ namespace V12.Components
             _offsetY     = offsetY;
             _offsetZ     = offsetZ;
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         /// <summary>Called by the Godot binding when the LineEdit text changes.</summary>
         public void InvokeTextChanged(string text) => OnTextChanged?.Invoke(text);
     }

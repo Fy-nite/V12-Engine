@@ -30,5 +30,9 @@ namespace V12.Components.UI
 
         public LabelComponent() { }
         public LabelComponent(string text) { _text = text ?? string.Empty; }
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
     }
 }

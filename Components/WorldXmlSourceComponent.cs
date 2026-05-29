@@ -1,3 +1,4 @@
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -43,6 +44,10 @@ namespace V12.Components
         {
             _filePath   = filePath ?? string.Empty;
             _autoReload = autoReload;
+        }
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
         }
     }
 }

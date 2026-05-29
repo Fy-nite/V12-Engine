@@ -1,4 +1,5 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -60,7 +61,10 @@ namespace V12.Components
             _height = height;
             _depth  = depth;
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() =>
             $"Mesh(Shape:{Shape}, {Width:F2}x{Height:F2}x{Depth:F2})";
     }

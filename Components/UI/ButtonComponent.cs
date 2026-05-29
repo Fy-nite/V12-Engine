@@ -30,5 +30,9 @@ namespace V12.Components.UI
         {
             try { OnClick?.Invoke(); } catch { }
         }
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
     }
 }

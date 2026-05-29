@@ -145,7 +145,10 @@ namespace V12.Components
             _sprintMultiplier     = MathF.Max(1f, sprintMultiplier);
             _isLocalControlled    = isLocalControlled;
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() =>
             $"Player(Preferred:{PreferredInputMethod} Local:{IsLocalControlled} " +
             $"Move:{MoveSpeed:F2} Sprint:{SprintMultiplier:F2} Jump:{JumpStrength:F2})";

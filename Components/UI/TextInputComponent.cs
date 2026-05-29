@@ -1,4 +1,6 @@
 using System;
+using V12.Core;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI
 {
@@ -42,7 +44,10 @@ namespace V12.Components.UI
             Value = newValue ?? string.Empty;
             try { OnChanged?.Invoke(_value); } catch { }
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public TextInputComponent() { }
         public TextInputComponent(string placeholder) { Placeholder = placeholder ?? string.Empty; }
     }

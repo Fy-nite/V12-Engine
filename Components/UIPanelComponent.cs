@@ -1,4 +1,6 @@
 using System;
+using V12.Core;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Components
 {
@@ -75,7 +77,10 @@ namespace V12.Components
             _height  = MathF.Max(0.1f, height);
             _offsetY = offsetY;
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         private static float Clamp01(float v) => Math.Max(0f, Math.Min(1f, v));
     }
 }

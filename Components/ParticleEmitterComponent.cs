@@ -1,4 +1,5 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -44,7 +45,10 @@ namespace V12.Components
         {
             _amount = amount; _lifetime = lifetime; _speedMin = speedMin; _speedMax = speedMax;
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() =>
             $"Particles(Amount:{Amount} Life:{Lifetime:F2}s Speed:{SpeedMin:F1}–{SpeedMax:F1} Emitting:{Emitting})";
     }

@@ -1,4 +1,6 @@
 using System;
+using V12.Core;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Components
 {
@@ -76,7 +78,10 @@ namespace V12.Components
             _maxValue = max;
             _value    = Math.Clamp(value, min, max);
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         /// <summary>Called by the Godot binding when the slider moves.</summary>
         public void InvokeValueChanged(float v) => OnValueChanged?.Invoke(v);
     }

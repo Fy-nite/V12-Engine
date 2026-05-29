@@ -1,3 +1,4 @@
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -10,7 +11,10 @@ namespace V12.Components
     {
         public override string Name => "SpawnPoint";
         public override string Description => "Marks this element as a player spawn location";
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public SpawnPointComponent() { }
     }
 }

@@ -69,8 +69,9 @@ namespace V12.Core
 
             Registry.Register("NetworkCables", Cables);
             // Register a core InspectorService so glue code can render engine-agnostic UI
-            var inspector = new V12.Core.UI.InspectorService(this);
-            Registry.Register("InspectorService", inspector);
+            //var inspector = new V12.Core.UI.InspectorService(this);
+            //Registry.Register("InspectorService", inspector); // why the fuck do we need this as a service?
+
             // Register core InputService so glue code can forward platform input
             var inputService = new V12.Core.Input.InputService();
             Registry.Register("InputService", inputService);

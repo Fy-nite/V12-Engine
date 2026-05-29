@@ -62,5 +62,9 @@ namespace V12.Components
 
         public override string ToString() =>
             $"AudioSource(Path:{ResourcePath} Vol:{Volume:F1}dB Pitch:{Pitch:F2} Loop:{Loop} Auto:{Autoplay})";
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
     }
 }

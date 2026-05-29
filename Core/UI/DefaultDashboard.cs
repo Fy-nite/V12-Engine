@@ -163,7 +163,7 @@ namespace V12.Core.UI
         public void Update(double deltaSeconds)
         {
             if (!_isOpen) return;
-            Console.WriteLine(IsOpen);
+            //Console.WriteLine(IsOpen);
             if (_fpsLabelEl != null)
                 _fpsLabelEl.GetComponent<UILabelComponent>().Text = $"FPS: {1.0 / deltaSeconds:F1}";
 

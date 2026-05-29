@@ -50,7 +50,10 @@ namespace V12.Components
             _moveSpeed = MathF.Max(0f, moveSpeed);
             _sprintMultiplier = MathF.Max(1f, sprintMultiplier);
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() =>
             $"DesktopPlayer(Local:{IsLocalControlled} Move:{MoveSpeed:F2} Sprint:{SprintMultiplier:F2} Jump:{JumpStrength:F2} Sens:{LookSensitivity:F2})";
     }

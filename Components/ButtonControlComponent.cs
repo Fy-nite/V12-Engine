@@ -1,4 +1,6 @@
 using System;
+using V12.Core;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Components
 {
@@ -60,5 +62,9 @@ namespace V12.Components
         public void InvokePressed() => OnPressed?.Invoke();
 
         private static float Clamp01(float v) => Math.Max(0f, Math.Min(1f, v));
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
     }
 }

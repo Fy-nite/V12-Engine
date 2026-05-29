@@ -45,7 +45,10 @@ namespace V12.Components
         {
             _mode = mode; _skyR = Clamp01(skyR); _skyG = Clamp01(skyG); _skyB = Clamp01(skyB);
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         private static float Clamp01(float v) => Math.Max(0f, Math.Min(1f, v));
     }
 }

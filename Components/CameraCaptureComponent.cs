@@ -1,4 +1,5 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -33,6 +34,10 @@ namespace V12.Components
         public CameraCaptureComponent(int w, int h, string name)
         {
             _textureWidth = Math.Max(8, w); _textureHeight = Math.Max(8, h); _textureName = name ?? string.Empty;
+        }
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
         }
     }
 }

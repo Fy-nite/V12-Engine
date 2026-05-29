@@ -51,7 +51,10 @@ namespace V12.Components
         {
             _shape = shape; _width = width; _height = height; _depth = depth; _isTrigger = isTrigger;
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() =>
             $"Collider(Shape:{Shape} {Width:F2}x{Height:F2}x{Depth:F2} Trigger:{IsTrigger})";
     }

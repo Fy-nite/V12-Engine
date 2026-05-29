@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -58,7 +59,10 @@ namespace V12.Components
                     .Split(',', StringSplitOptions.RemoveEmptyEntries)
                     .Select(t => t.Trim())
                     .Where(t => t.Length > 0));
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() => $"Tag([{_tags}])";
     }
 }

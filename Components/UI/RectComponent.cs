@@ -1,3 +1,6 @@
+using V12.Core;
+using V12.Core.Core.Interfaces;
+
 namespace V12.Components.UI
 {
     public class RectComponent : ComponentBase
@@ -9,6 +12,10 @@ namespace V12.Components.UI
         public float Height { get; set; }
         public string BackgroundColor { get; set; } = string.Empty;
         public float CornerRadius { get; set; }
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
     }
 }
 

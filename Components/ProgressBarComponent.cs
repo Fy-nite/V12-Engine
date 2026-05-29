@@ -1,4 +1,6 @@
 using System;
+using V12.Core;
+using V12.Core.Core.Interfaces;
 
 namespace V12.Components
 {
@@ -71,7 +73,10 @@ namespace V12.Components
             _value          = Math.Clamp(value, 0f, 1f);
             _showPercentage = showPercentage;
         }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         private static float Clamp01(float v) => Math.Max(0f, Math.Min(1f, v));
     }
 }

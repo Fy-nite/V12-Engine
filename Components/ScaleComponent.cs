@@ -1,4 +1,5 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components
@@ -36,7 +37,10 @@ namespace V12.Components
         public ScaleComponent(float x, float y, float z) { _scaleX = x; _scaleY = y; _scaleZ = z; }
         /// <summary>Uniform scale shorthand.</summary>
         public ScaleComponent(float uniform) : this(uniform, uniform, uniform) { }
-
+        public override IWorldElement BuildUI()
+        {
+            return new Element();
+        }
         public override string ToString() => $"Scale({ScaleX:F3}, {ScaleY:F3}, {ScaleZ:F3})";
     }
 }
