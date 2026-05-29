@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 using V12.Core.Core.Interfaces;
+using V12.Core.NetworkCable;
 
 namespace V12.Core
 {
@@ -52,9 +53,11 @@ namespace V12.Core
                 child.Parent = null;
         }
 
-        internal void AddComponent(IComponent comp)
+        public void AddComponent(IComponent component)
         {
-            Components.Add(comp);
+            component.OnAttach(this);
+            Components.Add(component);
+            component.MarkDirty();
         }
     }
 }

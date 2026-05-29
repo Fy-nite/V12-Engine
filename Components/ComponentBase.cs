@@ -14,8 +14,8 @@ namespace V12.Components
         public long Id { get; protected set; }
         public long? EntityId { get; set; }
 
-        public virtual string Name { get; set; }
-        public virtual string Description => string.Empty;
+        public virtual string? Name { get; set; }
+        public virtual string? Description { get; set; }
         public bool IsDirty => OnDirty != null;
         public bool Active {  get; set; }
 

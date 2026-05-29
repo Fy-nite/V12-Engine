@@ -1,30 +1,35 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.UI;
 
 namespace V12.Components
 {
-    public class InspectorComponent : IComponent
+    public class InspectorComponent : ComponentBase
     {
-        public event Action<IComponent>? OnDirty;
-        public long Id { get; } = GenerateId();
-        public long? EntityId { get; set; }
-        public string Name { get; set; } = "Inspector";
-        public string Description { get; set; } = "Renders an inspector panel for this entity.";
-
-        public void Update(float deltaTime) { }
-        public void OnAttach(IWorldElement worldElement) { EntityId = worldElement.Id; }
-        public void OnDetach(IWorldElement worldElement) { EntityId = null; }
-        public void OnUpdate() { }
-        public void OnDestroy() { }
-
-        public IWorldElement BuildUI() => throw new NotImplementedException();
-        public void BuildInspector(IInspector inspector) { }
-        public void CopyFrom(IComponent other) { }
+        public override string Name { get; set; } = "Inspector";
+        public override string Description => "Renders an inspector panel for this entity.";
+        public InspectorComponent() { }
+        public override void Update(float deltaTime) { }
         
-        public void MarkDirty() => OnDirty?.Invoke(this);
+        public override void OnAttach(IWorldElement worldElement) 
+        { 
+            base.OnAttach(worldElement);
+            EntityId = worldElement.Id; 
+            InspectorBuilder b = new InspectorBuilder();
+            worldElement.AddChild(b.Build());
+        }
 
-        private static long _nextId = 1;
-        private static long GenerateId() => System.Threading.Interlocked.Increment(ref _nextId);
+        public override void OnDetach(IWorldElement worldElement) 
+        { 
+            base.OnDetach(worldElement);
+            EntityId = null; 
+        }
+
+        public override void OnUpdate() { }
+        public override void OnDestroy() { }
+
+        public override IWorldElement BuildUI() => new Element();
+        public override void BuildInspector(IInspector inspector) { }
     }
 }

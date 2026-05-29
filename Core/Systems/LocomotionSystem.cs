@@ -58,14 +58,11 @@ namespace V12.Core.Systems
 
             foreach (var element in world.Root)
             {
+                if (element == null) return;
                 var loco = element.GetComponent<LocomotionComponent>();
                 var transform = element.GetComponent<TransformComponent>();
                 
-                // Detailed logging for debug
-                if (element.Name.Contains("Player"))
-                {
-                     //Console.WriteLine($"LocomotionSystem: Checking Element {element.Name} - Locomotion={loco != null}, Transform={transform != null}");
-                }
+            
 
                 if (loco == null || transform == null) continue;
 

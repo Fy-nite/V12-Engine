@@ -81,6 +81,7 @@ namespace V12.Core
             Element ins = new Element("RootInspectorWindow");
             ins.AddComponent(new MeshComponent(MeshShape.Box, 0.2f, 0.2f, 0.2f));
             ins.AddComponent(new CanvasComponent());
+            ins.AddComponent(new InspectorComponent());
             var rootz = new Element("UIRoot");
             
             rootz.AddComponent(i.Build());

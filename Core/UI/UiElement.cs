@@ -2,22 +2,52 @@ namespace V12.Core.UI
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using V12.Components;
     using V12.Core.Core.Interfaces;
 
     // Lightweight UI element model for engine-agnostic V12 UI.
-    public abstract class UiElement : ComponentBase
+    // Now correctly implements IWorldElement to avoid InvalidCastException in BuildUI
+    // and shadowing issues with ComponentBase.
+    public abstract class UiElement : ComponentBase, IWorldElement
     {
-        public new string Id { get; set; } = Guid.NewGuid().ToString();
+        public event Action<IWorldElement>? OnDirty;
+
+        long IWorldElement.Id { get => Id; set => Id = value; }
         public override string? Name { get; set; }
-        public List<UiElement> Children { get; } = new List<UiElement>();
+        public override string? Description { get; set; }
+        public IWorldElement? Parent { get; set; }
+        public List<IComponent> Components { get; set; } = new List<IComponent>();
+        public List<IWorldElement> Children { get; } = new List<IWorldElement>();
+        
         public IDictionary<string, object?> Attributes { get; } = new Dictionary<string, object?>();
 
-        public override IWorldElement BuildUI() => (IWorldElement)this; // Assuming UiElement implements IWorldElement
+        public override IWorldElement BuildUI() => this; 
+        
         public override void BuildInspector(IInspector inspector)
         {
             inspector.String("Name", () => Name ?? "", s => Name = s);
             inspector.ReadOnly("Type", GetType().Name);
+        }
+
+        public void AddChild(IWorldElement child)
+        {
+            child.Parent = this;
+            Children.Add(child);
+        }
+
+        public void RemoveChild(IWorldElement child)
+        {
+            if (Children.Remove(child))
+                child.Parent = null;
+        }
+
+        // Keep the old MarkDirty accessible if needed, though ComponentBase has one for IComponent.
+        // IWorldElement.OnDirty needs to be triggered too.
+        public new void MarkDirty()
+        {
+            base.MarkDirty();
+            OnDirty?.Invoke(this);
         }
     }
 
@@ -27,10 +57,7 @@ namespace V12.Core.UI
         public string? StyleHint { get; set; }
         public float MinHeight { get; set; }
 
-        public override IWorldElement BuildUI()
-        {
-            throw new NotImplementedException();
-        }
+        public override IWorldElement BuildUI() => this;
     }
 
     public sealed class LabelElement : UiElement

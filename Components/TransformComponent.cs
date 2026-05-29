@@ -122,7 +122,6 @@ namespace V12.Components
 
         public TransformComponent(float x, float y, float z, float rotation = 0f)
         {
-            Id = GenerateId();
             _x = x;
             _y = y;
             _z = z;
@@ -153,11 +152,13 @@ namespace V12.Components
 
         public override void OnAttach(IWorldElement worldElement)
         {
+            base.OnAttach(worldElement);
             Console.WriteLine($"[TransformComponent] Attached to {worldElement.Name}");
         }
 
         public override void OnDetach(IWorldElement worldElement)
         {
+            base.OnDetach(worldElement);
             Console.WriteLine($"[TransformComponent] Detached from {worldElement.Name}");
         }
 
@@ -170,17 +171,6 @@ namespace V12.Components
         {
             Console.WriteLine($"[TransformComponent] Destroyed");
         }
-
-        /// <summary>
-        /// Mark this component as dirty to trigger network synchronization.
-        /// </summary>
-        protected new void MarkDirty()
-        {
-            base.MarkDirty();
-        }
-
-        private static long _nextId = 1;
-        private static long GenerateId() => System.Threading.Interlocked.Increment(ref _nextId);
 
         public override string ToString()
         {

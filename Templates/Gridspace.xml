@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <World name="HomeWorld">
+	<InspectorComponent></InspectorComponent>
 	<Element name="Floor">
 		<TransformComponent x="0.027" y="-0.062" z="-4.994" rotation="0.000" rotationX="-0.000" rotationY="0.000" rotationZ="0.000" />
 		<MeshComponent Shape="Box" Width="15.966" Height="0.161" Depth="25.903" />
