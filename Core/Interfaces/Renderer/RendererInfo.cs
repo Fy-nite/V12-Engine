@@ -4,7 +4,9 @@ using System.Text;
 
 namespace V12.Core.Interfaces.Renderer
 {
-    public interface IRenderable
+    public struct RendererInfo
     {
+        readonly int FPS;
+
     }
 }
