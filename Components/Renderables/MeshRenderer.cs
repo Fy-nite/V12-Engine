@@ -13,11 +13,11 @@ namespace V12.Components.Renderables
         public override string Name { get => base.Name; set => base.Name = value; }
         public MeshRenderer() { }
         public IMeshRenderable Mesh { get; set; }
-        public double[] MeshPoints => Mesh.MeshPoints;
+        public double[] MeshPoints => Mesh?.MeshPoints ?? Array.Empty<double>();
 
-        public uint[] Indices => Mesh.Indices;
+        public uint[] Indices => Mesh?.Indices ?? Array.Empty<uint>();
 
-        public Material Material => Mesh.Material;
+        public Material Material => Mesh?.Material;
 
         public Matrix4x4 Transform
         {
