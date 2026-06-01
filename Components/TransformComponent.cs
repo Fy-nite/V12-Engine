@@ -116,6 +116,27 @@ namespace V12.Components
             }
         }
 
+        /// <summary>X rotation in radians.</summary>
+        public float RX
+        {
+            get => (RotationX ?? 0) * (MathF.PI / 180f);
+            set => RotationX = value * (180f / MathF.PI);
+        }
+
+        /// <summary>Y rotation in radians.</summary>
+        public float RY
+        {
+            get => (RotationY ?? Rotation) * (MathF.PI / 180f);
+            set => RotationY = value * (180f / MathF.PI);
+        }
+
+        /// <summary>Z rotation in radians.</summary>
+        public float RZ
+        {
+            get => (RotationZ ?? 0) * (MathF.PI / 180f);
+            set => RotationZ = value * (180f / MathF.PI);
+        }
+
         public TransformComponent()
         {
         }

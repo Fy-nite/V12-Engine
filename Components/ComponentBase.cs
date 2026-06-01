@@ -1,5 +1,6 @@
 using System;
 using V12.Core.Core.Interfaces;
+using MongoDB.Bson.Serialization.Attributes;
 
 namespace V12.Components
 {
@@ -14,10 +15,13 @@ namespace V12.Components
         public long Id { get; protected set; }
         public long? EntityId { get; set; }
 
+        [BsonIgnore]
+        public IWorldElement? Owner { get; private set; }
+
         public virtual string? Name { get; set; }
         public virtual string? Description { get; set; }
         public bool IsDirty => OnDirty != null;
-        public bool Active {  get; set; }
+        public bool Active {  get; set; } = true;
 
         protected ComponentBase()
         {
@@ -25,8 +29,8 @@ namespace V12.Components
         }
 
         public virtual void Update(float deltaTime) { }
-        public virtual void OnAttach(IWorldElement worldElement) { }
-        public virtual void OnDetach(IWorldElement worldElement) { }
+        public virtual void OnAttach(IWorldElement worldElement) { Owner = worldElement; }
+        public virtual void OnDetach(IWorldElement worldElement) { Owner = null; }
         public virtual void OnUpdate() { }
         public virtual void OnDestroy() { }
         public abstract IWorldElement BuildUI();

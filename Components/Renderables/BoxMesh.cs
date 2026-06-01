@@ -28,6 +28,7 @@ namespace V12.Components.Renderables
         public uint[] Indices => _indices ??= GenerateBoxIndices();
 
         public Material Material => _material ??= new Material();
+        public BoxMesh() { }
         public BoxMesh(string name)
         {
             Name = name;

@@ -20,7 +20,7 @@ namespace V12.Core.Interfaces.Renderer
         Custom
     }
 
-    public interface IRenderable
+    public interface IRenderable : IComponent
     {
         public RenderType RenderType { get; }
     }

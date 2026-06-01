@@ -67,6 +67,13 @@ namespace V12.WorldML
             return Parse(xml);
         }
 
+        private class DeferredPropertySet
+        {
+            public object Target { get; set; }
+            public PropertyInfo Property { get; set; }
+            public string ComponentName { get; set; }
+        }
+
         /// <summary>
         /// Parse a single XML node into an Element and attach components found inside.
         /// Returned element is added to the provided world.Root list.
@@ -80,6 +87,8 @@ namespace V12.WorldML
             // Add to world registry so it can be found later by systems that iterate Root
             world.AddElement(element);
 
+            var deferredList = new List<DeferredPropertySet>();
+
             // Process component child nodes and nested elements
             foreach (XmlNode child in node.ChildNodes)
             {
@@ -90,7 +99,7 @@ namespace V12.WorldML
                 if (string.Equals(childName, "Component", StringComparison.OrdinalIgnoreCase)
                     || childName.EndsWith("Component", StringComparison.OrdinalIgnoreCase))
                 {
-                    var comp = CreateComponentFromNode(child);
+                    var comp = CreateComponentFromNode(child, deferredList);
                     if (comp != null)
                     {
                         element.AddComponent(comp);
@@ -102,6 +111,21 @@ namespace V12.WorldML
                 ParseElement(child, world, element);
             }
 
+            // Resolve deferred properties for this element
+            foreach (var ds in deferredList)
+            {
+                var refComp = element.Components.FirstOrDefault(c => string.Equals(c.Name, ds.ComponentName, StringComparison.OrdinalIgnoreCase));
+                if (refComp != null && ds.Property.PropertyType.IsAssignableFrom(refComp.GetType()))
+                {
+                    ds.Property.SetValue(ds.Target, refComp);
+                    Console.WriteLine($"[WorldMLParser] Resolved deferred property {ds.Property.Name} to component {ds.ComponentName} on {element.Name}");
+                }
+                else if (refComp == null)
+                {
+                    Console.WriteLine($"[WorldMLParser] WARNING: Could not find component named '{ds.ComponentName}' on element '{element.Name}' to satisfy property '{ds.Property.Name}'");
+                }
+            }
+
             return element;
         }
 
@@ -109,7 +133,7 @@ namespace V12.WorldML
         /// Attempt to construct an IComponent instance from an XML node.
         /// Expected attributes: type (simple or full type name). Child nodes named Property can set properties.
         /// </summary>
-        private IComponent? CreateComponentFromNode(XmlNode node)
+        private IComponent? CreateComponentFromNode(XmlNode node, List<DeferredPropertySet> deferredList)
         {
             var typeName = node.Attributes?["type"]?.Value ?? node.Attributes?["typename"]?.Value ?? node.Name;
             if (string.IsNullOrWhiteSpace(typeName)) return null;
@@ -137,7 +161,7 @@ namespace V12.WorldML
                 foreach (XmlAttribute attr in node.Attributes)
                 {
                     if (string.Equals(attr.Name, "type", StringComparison.OrdinalIgnoreCase)) continue;
-                    SetPropertyIfExists(instance, attr.Name, attr.Value);
+                    SetPropertyIfExists(instance, attr.Name, attr.Value, deferredList);
                 }
             }
 
@@ -150,13 +174,13 @@ namespace V12.WorldML
                 var propName = child.Attributes?["name"]?.Value;
                 var propValue = child.Attributes?["value"]?.Value ?? child.InnerText;
                 if (string.IsNullOrEmpty(propName)) continue;
-                SetPropertyIfExists(instance, propName, propValue);
+                SetPropertyIfExists(instance, propName, propValue, deferredList);
             }
 
             return component;
         }
 
-        private void SetPropertyIfExists(object target, string propName, string? value)
+        private void SetPropertyIfExists(object target, string propName, string? value, List<DeferredPropertySet> deferredList)
         {
             if (value == null) return;
             var pi = target.GetType().GetProperty(propName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
@@ -168,6 +192,13 @@ namespace V12.WorldML
 
             try
             {
+                // Defer if property type is a component/interface and value is a string
+                if ((pi.PropertyType.IsInterface || typeof(IComponent).IsAssignableFrom(pi.PropertyType)) && pi.PropertyType != typeof(string))
+                {
+                    deferredList.Add(new DeferredPropertySet { Target = target, Property = pi, ComponentName = value });
+                    return;
+                }
+
                 var converted = ConvertToType(value, pi.PropertyType);
                 pi.SetValue(target, converted);
                 Console.WriteLine($"[WorldMLParser] Set {propName} to {value} on {target.GetType().Name}");
