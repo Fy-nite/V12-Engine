@@ -7,6 +7,7 @@ namespace V12.Core.Interfaces.Renderer
     public struct RendererInfo
     {
         readonly int FPS;
+        readonly int CurrentObjectsCount;
 
     }
 }

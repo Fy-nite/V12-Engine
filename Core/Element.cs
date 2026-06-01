@@ -53,11 +53,12 @@ namespace V12.Core
                 child.Parent = null;
         }
 
-        public void AddComponent(IComponent component)
+        public IComponent AddComponent(IComponent component)
         {
             component.OnAttach(this);
             Components.Add(component);
             component.MarkDirty();
+            return component;
         }
     }
 }
