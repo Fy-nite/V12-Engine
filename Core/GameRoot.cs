@@ -439,6 +439,14 @@ namespace V12.Core
             SelectedWorld = world;
             return world;
         }
+
+        public World LoadArchiveWorld(string path)
+        {
+            var world = WorldLoader.LoadFromArchive(path);
+            Worlds.Add(world);
+            SelectedWorld = world;
+            return world;
+        }
     }
     
 }

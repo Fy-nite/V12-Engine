@@ -6,7 +6,7 @@
 	     <Component type="TransformComponent" X="0" Y="1" Z="-2" />
 	     <Component type="MeshComponent" name="BoxData" Shape="Box" Width="0.5" Height="0.5" Depth="0.5" />
 	     <Component type="MeshRenderer" Mesh="BoxData" />
-	     <Component type="MaterialComponent" R="1" G="0" B="0" A="1" />
+	     <Component type="MaterialComponent" R="1" G="0" B="0" A="1" TextureUrl="https://fafard.com/wp-content/uploads/2022/03/Cyclamen-leaves92.png"/>
 	</Element>
 
 	<Element name="Floor">
@@ -16,6 +16,7 @@
 		<Component type="BoxMesh" name="MyCustomBox" Size="1,1,1" />
 		<Component type="MeshRenderer" Mesh="MyCustomBox" />
 	</Element>
+	
 	<Element name="Wall">
 		<TransformComponent x="-7.756" y="0.342" z="3.135" rotation="0.000" rotationX="-0.000" rotationY="0.000" rotationZ="0.000" />
 		<MeshComponent Shape="Box" Width="0.400" Height="0.649" Depth="9.644" />
