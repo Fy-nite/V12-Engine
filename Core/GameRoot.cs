@@ -165,7 +165,7 @@ namespace V12.Core
                         renderer.QueueItem(r);
                     }
                 }
-
+                renderer.step();
             }
         }
 

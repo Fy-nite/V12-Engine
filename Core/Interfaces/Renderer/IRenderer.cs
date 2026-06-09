@@ -15,6 +15,7 @@ namespace V12.Core.Interfaces
         void RemoveItem(IRenderable item);
         int GetScreenWidth();
         int GetScreenHeight();
+        void step();
 
     }
 }
