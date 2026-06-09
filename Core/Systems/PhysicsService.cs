@@ -30,6 +30,7 @@ namespace V12.Core.Systems
             Simulation = Simulation.Create(_bufferPool, new NarrowPhaseCallbacks(), new PoseIntegratorCallbacks(new Vector3(0, -9.81f, 0)), new SolveDescription(8, 1));
         }
 
+        public void Update(GameRoot g) {}
         public void Update(float deltaTime)
         {
             if (deltaTime <= 0) return;

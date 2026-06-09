@@ -19,6 +19,7 @@ namespace V12.Core.Input
             lock (_lock) { if (!_handlers.Contains(handler)) _handlers.Add(handler); }
         }
 
+        public void Update(GameRoot g) {}
         public void UnregisterHandler(IInputHandler handler)
         {
             if (handler == null) return;

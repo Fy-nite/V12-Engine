@@ -14,7 +14,8 @@ using V12.Core.Core.Interfaces;
 using V12.Core.UI;
 using V12.Components.UI;
 using V12.Components;
-
+using V12.Core.Interfaces;
+using V12.Core.Interfaces.Renderer;
 namespace V12.Core
 {
     /// <summary>
@@ -52,6 +53,7 @@ namespace V12.Core
         // Core-managed desktop dashboard (frontend-agnostic)
         private IDashboard? _dashboard;
         private IInputHandler? _dashboardHandler;
+        public IRenderer renderer;
 
         public GameRoot() {
             Worlds.Add(UserSpace);
@@ -101,6 +103,8 @@ namespace V12.Core
             Registry.Register("LocomotionSystem", new V12.Core.Systems.LocomotionSystem(this));
             Registry.Register("PhysicsLocomotionSystem", new V12.Core.Systems.PhysicsLocomotionSystem(this));
             Registry.Register("PhysicsService", new V12.Core.Systems.PhysicsService());
+
+
         }
 
         public string ReadResource(string name)
@@ -126,12 +130,76 @@ namespace V12.Core
             {
                 Console.WriteLine($"Initializing world: {World.WorldName}");
             }
+            
 #endif
             foreach (var service in Registry.GetAll<IGameService>())
                 service.Initialize(this);
 
             StartNetworkingThread();
             SetupUI();
+
+            if (Registry.Get("IRenderer") == null)
+            {
+                Console.WriteLine("starting V12 in headless mode");
+                renderer = null;
+            }
+            else
+            {
+                Console.WriteLine("found IRenderer, loading...");
+                renderer = (IRenderer)Registry.Get("IRenderer").ServiceInstance;
+            }
+        }
+
+        public void V12Loop()
+        {
+            while (true)
+            {
+                foreach (var service in Registry.GetAll<IGameService>())
+                    service.Update(this);
+                
+                List<IRenderable> renderables = GetAllRenderables();
+                if (renderer != null)
+                {
+                    foreach (var r in renderables)
+                    {
+                        renderer.QueueItem(r);
+                    }
+                }
+
+            }
+        }
+
+        public List<IRenderable> GetAllRenderables()
+        {
+            var renderables = new List<IRenderable>();
+            if (SelectedWorld == null)
+                return renderables;
+
+            void CollectRenderables(IWorldElement element)
+            {
+                if (element == null)
+                    return;
+
+                if (element.Components != null)
+                {
+                    foreach (var component in element.Components)
+                    {
+                        if (component is IRenderable renderable)
+                            renderables.Add(renderable);
+                    }
+                }
+
+                if (element.Children != null)
+                {
+                    foreach (var child in element.Children)
+                        CollectRenderables(child);
+                }
+            }
+
+            foreach (var element in SelectedWorld.Root)
+                CollectRenderables(element);
+
+            return renderables;
         }
 
         private void SetupUI()

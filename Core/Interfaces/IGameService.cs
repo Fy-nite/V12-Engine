@@ -7,5 +7,6 @@ namespace V12.Core.Core.Interfaces
     {
         void Initialize(GameRoot g);
         void Update(float deltaTime);
+        void Update(GameRoot gameRoot);
     }
 }

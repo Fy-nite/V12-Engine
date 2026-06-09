@@ -22,6 +22,7 @@ namespace V12.Core.Systems
             _gameRoot = gameRoot;
         }
 
+        public void Update(GameRoot g) {}
         public void Initialize() 
         {
             _input = _gameRoot.Registry.Get<InputService>();

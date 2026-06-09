@@ -20,7 +20,7 @@ namespace V12.Core.Systems
         {
             _physicsService = g.Registry.Get<PhysicsService>();
         }
-
+        public void Update(GameRoot g) {}
         public void Update(float deltaTime)
         {
             //Console.WriteLine("PhysicsLocomotionSystem Updating...");

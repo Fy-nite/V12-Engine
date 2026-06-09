@@ -35,7 +35,10 @@ namespace V12.Core.Networking
             _cables = cables ?? NetworkCables.Default;
             _senderUri = new Uri(senderUri ?? "networkcables://dirtytracker");
         }
-
+        public void Update(GameRoot g)
+        {
+            
+        }
         public void Initialize() { }
 
         /// <summary>
