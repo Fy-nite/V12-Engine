@@ -1,44 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <World name="HomeWorld">
-	<InspectorComponent></InspectorComponent>
+	<!--<InspectorComponent></InspectorComponent>-->
 
 	<Element name="MyBox">
-	     <Component type="TransformComponent" X="0" Y="1" Z="-2" />
-	     <Component type="MeshComponent" name="BoxData" Shape="Box" Width="0.5" Height="0.5" Depth="0.5" />
+	     <Component type="TransformComponent" X="0" Y="0" Z="0" />
+	     <Component type="MeshComponent" name="BoxData" Shape="Box" />
+		 <ScaleComponent ScaleX="5" ScaleY="0.05" ScaleZ="5"/>
 	     <Component type="MeshRenderer" Mesh="BoxData" />
 	     <Component type="MaterialComponent" R="1" G="0" B="0" A="1" TextureUrl="https://fafard.com/wp-content/uploads/2022/03/Cyclamen-leaves92.png"/>
 	</Element>
 
-	<Element name="Floor">
-		<TransformComponent x="0.027" y="-0.062" z="-4.994" rotation="0.000" rotationX="-0.000" rotationY="0.000" rotationZ="0.000" />
-		<MeshComponent Shape="Box" Width="15.966" Height="0.161" Depth="25.903" />
-		<ColliderComponent Shape="Box" Width="15.966" Height="0.161" Depth="25.903" isTrigger="false" />
-		<Component type="BoxMesh" name="MyCustomBox" Size="1,1,1" />
-		<Component type="MeshRenderer" Mesh="MyCustomBox" />
-	</Element>
-	
-	<Element name="Wall">
-		<TransformComponent x="-7.756" y="0.342" z="3.135" rotation="0.000" rotationX="-0.000" rotationY="0.000" rotationZ="0.000" />
-		<MeshComponent Shape="Box" Width="0.400" Height="0.649" Depth="9.644" />
-		<ColliderComponent Shape="Box" Width="0.400" Height="0.649" Depth="9.644" isTrigger="false" />
-		<Component type="BoxMesh" name="MyCustomBox" Size="1,1,1" />
-		<Component type="MeshRenderer" Mesh="MyCustomBox" />
-	</Element>
-	<Element name="Wall2">
-		<TransformComponent x="7.850" y="0.346" z="2.042" rotation="0.000" rotationX="-0.000" rotationY="0.000" rotationZ="0.000" />
-		<MeshComponent Shape="Box" Width="0.400" Height="0.657" Depth="11.830" />
-		<ColliderComponent Shape="Box" Width="0.400" Height="0.657" Depth="11.830" isTrigger="false" />
-	</Element>
-	<Element name="Wall3">
-		<TransformComponent x="0.048" y="0.348" z="7.709" rotation="90.000" rotationX="-0.000" rotationY="90.000" rotationZ="0.000" />
-		<MeshComponent Shape="Box" Width="0.400" Height="0.662" Depth="15.202" />
-		<ColliderComponent Shape="Box" Width="0.400" Height="0.662" Depth="15.202" isTrigger="false" />
-	</Element>
-	<Element name="V12SpawnPoint">
-		<TransformComponent x="0.000" y="0.351" z="-1.544" rotation="0.000" rotationX="-0.000" rotationY="0.000" rotationZ="0.000" />
-		<SpawnPointComponent />
-		<TagComponent tags="Spawn" />
-	</Element>
 	<Element name="SpotLight3D">
 		<TransformComponent x="-4.947" y="7.207" z="-8.072" rotation="-161.192" rotationX="-63.670" rotationY="-161.192" rotationZ="-178.918" />
 		<TagComponent tags="SpotLight" />

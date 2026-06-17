@@ -10,6 +10,18 @@ using static System.Net.Mime.MediaTypeNames;
 
 namespace V12.Core.Interfaces.Renderer
 {
+
+    public interface RenderPackets
+    {
+        TRS LocalTransform { get; }
+        Matrix4x4 WorldTransform { get; }
+    }
+    public struct TRS
+    {
+        public Vector3 Position;
+        public Quaternion Rotation;
+        public Vector3 Scale;
+    }
     public enum RenderType
     {
         PrimitiveModel,

@@ -26,10 +26,19 @@ namespace V12.Components.Renderables
                 if (Owner != null)
                 {
                     var t = Owner.GetComponent<TransformComponent>();
+                    var s = Owner.GetComponent<ScaleComponent>();
+                    
+                    Matrix4x4 scale = s != null ? Matrix4x4.CreateScale(s.ScaleX, s.ScaleY, s.ScaleZ) : Matrix4x4.Identity;
+                    
                     if (t != null)
                     {
-                        return Matrix4x4.CreateFromYawPitchRoll(t.RY, t.RX, t.RZ)
+                        return scale
+                             * Matrix4x4.CreateFromYawPitchRoll(t.RY, t.RX, t.RZ)
                              * Matrix4x4.CreateTranslation(t.X, t.Y, t.Z);
+                    }
+                    else if (Mesh != null)
+                    {
+                        return scale * Mesh.Transform;
                     }
                 }
                 return Mesh?.Transform ?? Matrix4x4.Identity;

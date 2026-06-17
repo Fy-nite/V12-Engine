@@ -76,9 +76,15 @@ namespace V12.Components
                 if (Owner != null)
                 {
                     var t = Owner.GetComponent<TransformComponent>();
+                    var s = Owner.GetComponent<ScaleComponent>();
+                    
+                    float scaleX = Width * (s?.ScaleX ?? 1f);
+                    float scaleY = Height * (s?.ScaleY ?? 1f);
+                    float scaleZ = Depth * (s?.ScaleZ ?? 1f);
+
                     if (t != null)
                     {
-                        return Matrix4x4.CreateScale(Width, Height, Depth) 
+                        return Matrix4x4.CreateScale(scaleX, scaleY, scaleZ) 
                              * Matrix4x4.CreateFromYawPitchRoll(t.RY, t.RX, t.RZ)
                              * Matrix4x4.CreateTranslation(t.X, t.Y, t.Z);
                     }

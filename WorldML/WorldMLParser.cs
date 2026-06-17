@@ -158,9 +158,17 @@ namespace V12.WorldML
             // 1) attributes
             if (node.Attributes != null)
             {
+                // Explicitly check for 'name' attribute to set component instance name
+                var nameAttr = node.Attributes["name"];
+                //if (nameAttr != null)
+                //{
+                //    component.Name = nameAttr.Value;
+                //}
+
                 foreach (XmlAttribute attr in node.Attributes)
                 {
-                    if (string.Equals(attr.Name, "type", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(attr.Name, "type", StringComparison.OrdinalIgnoreCase) || 
+                        string.Equals(attr.Name, "name", StringComparison.OrdinalIgnoreCase)) continue;
                     SetPropertyIfExists(instance, attr.Name, attr.Value, deferredList);
                 }
             }
@@ -184,6 +192,10 @@ namespace V12.WorldML
         {
             if (value == null) return;
             var pi = target.GetType().GetProperty(propName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            
+            // ADDED DEBUG LOGGING
+            Console.WriteLine($"[WorldMLParser] DEBUG: Attempting to set '{propName}' on '{target.GetType().Name}'. Found PI: {pi != null}");
+            
             if (pi == null || !pi.CanWrite) 
             {
                 Console.WriteLine($"[WorldMLParser] DEBUG: Property '{propName}' NOT FOUND or NOT WRITABLE on {target.GetType().Name}. Available: {string.Join(", ", target.GetType().GetProperties().Select(p => p.Name))}");
