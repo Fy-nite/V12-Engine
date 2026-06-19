@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Text;
 using V12.Core.Core.Interfaces;
+using V12.Core.Interfaces.Renderer;
 using V12.Core.NetworkCable;
 
 namespace V12.Core
@@ -20,6 +22,10 @@ namespace V12.Core
         public List<IComponent> Components { get; set; } = new List<IComponent>();
         public List<IWorldElement> Children { get; } = new List<IWorldElement>();
         public bool Active { get; set; } = true;
+
+        public TRS LocalTransform => throw new NotImplementedException();
+
+        public Matrix4x4 WorldTransform => throw new NotImplementedException();
 
         private static long _nextElementId = 0;
 

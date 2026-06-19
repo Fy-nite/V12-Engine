@@ -11,11 +11,7 @@ using static System.Net.Mime.MediaTypeNames;
 namespace V12.Core.Interfaces.Renderer
 {
 
-    public interface RenderPackets
-    {
-        TRS LocalTransform { get; }
-        Matrix4x4 WorldTransform { get; }
-    }
+
     public struct TRS
     {
         public Vector3 Position;
@@ -29,15 +25,35 @@ namespace V12.Core.Interfaces.Renderer
         Sprite,
         Text,
         ParticleSystem,
+        Light,
         Custom
     }
 
-    public interface IRenderable : IComponent
+    public interface IRenderable : IComponent, ISpatial
     {
         public RenderType RenderType { get; }
     }
-
-   
+    public enum LightType
+    {
+        Point,
+        Directional,
+        Spot,
+        AreaLight
+    }
+    public interface ICameraRenderable : IRenderable
+    {
+        public float FieldOfView { get; }
+        public float AspectRatio { get; }
+        public float NearClip { get; }
+        public float FarClip { get; }
+    }
+    public interface ILightRenderable : IRenderable
+    {
+        public Color Color { get; }
+        public float Intensity { get; }
+        public float Range { get; }
+        public LightType Type { get; }
+    }
 
     public interface ITransformRenderable : IRenderable
     {

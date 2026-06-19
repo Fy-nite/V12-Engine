@@ -95,6 +95,10 @@ namespace V12.Components
 
         public bool IsWorldLocked => true;
 
+        public TRS LocalTransform => throw new NotImplementedException();
+
+        public Matrix4x4 WorldTransform => throw new NotImplementedException();
+
         public MeshComponent() { }
         public MeshComponent(MeshShape shape, float width = 1f, float height = 1f, float depth = 1f)
         {

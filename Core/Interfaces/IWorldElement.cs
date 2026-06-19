@@ -3,9 +3,10 @@ using System.Collections.Generic;
 using System.Text;
 using System.Linq;
 using V12.Core.NetworkCable;
+using V12.Core.Interfaces.Renderer;
 namespace V12.Core.Core.Interfaces
 {
-    public interface IWorldElement
+    public interface IWorldElement : ISpatial
     {
         /// <summary>
         /// Event raised when this world element or its components have changed and should be synchronized over the network.

@@ -3,8 +3,10 @@ namespace V12.Core.UI
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Numerics;
     using V12.Components;
     using V12.Core.Core.Interfaces;
+    using V12.Core.Interfaces.Renderer;
 
     // Lightweight UI element model for engine-agnostic V12 UI.
     // Now correctly implements IWorldElement to avoid InvalidCastException in BuildUI
@@ -21,6 +23,10 @@ namespace V12.Core.UI
         public List<IWorldElement> Children { get; } = new List<IWorldElement>();
         
         public IDictionary<string, object?> Attributes { get; } = new Dictionary<string, object?>();
+
+        public TRS LocalTransform => throw new NotImplementedException();
+
+        public Matrix4x4 WorldTransform => throw new NotImplementedException();
 
         public override IWorldElement BuildUI() => this; 
         

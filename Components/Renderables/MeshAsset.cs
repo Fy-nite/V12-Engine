@@ -112,6 +112,10 @@ namespace V12.Components.Renderables
             }
         }
 
+        public TRS LocalTransform => throw new NotImplementedException();
+
+        public Matrix4x4 WorldTransform => throw new NotImplementedException();
+
         public MeshAsset()
         {
             _assimpContext = new AssimpContext();

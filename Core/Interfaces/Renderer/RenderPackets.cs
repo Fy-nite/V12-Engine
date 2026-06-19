@@ -13,8 +13,8 @@ namespace V12.Core.Interfaces.Renderer
         public List<SpriteDraw> Sprites = new();
         public List<TextDraw> Texts = new();
 
-        public List<LightData> Lights = new();
-        public List<CameraData> Cameras = new();
+        //public List<LightData> Lights = new();
+        //public List<CameraData> Cameras = new();
     }
     public struct MeshDraw
     {

@@ -49,6 +49,10 @@ namespace V12.Components.Renderables
 
         public RenderType RenderType => Mesh?.RenderType ?? RenderType.Mesh;
 
+        public TRS LocalTransform => throw new NotImplementedException();
+
+        public Matrix4x4 WorldTransform => throw new NotImplementedException();
+
         public override IWorldElement BuildUI()
         {
             throw new NotImplementedException();
