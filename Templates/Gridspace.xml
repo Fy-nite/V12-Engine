@@ -3,19 +3,19 @@
 	<!--<InspectorComponent></InspectorComponent>-->
 
 	<Element name="MyBox">
-	     <Component type="TransformComponent" X="0" Y="0" Z="0" />
-	     <Component type="MeshComponent" name="BoxData" Shape="Box" />
-		 <ScaleComponent ScaleX="5" ScaleY="0.05" ScaleZ="5"/>
-	     <Component type="MeshRenderer" Mesh="BoxData" />
-	     <Component type="MaterialComponent" R="1" G="0" B="0" A="1" TextureUrl="https://fafard.com/wp-content/uploads/2022/03/Cyclamen-leaves92.png"/>
+		<Component type="TransformComponent" X="0" Y="0" Z="0" />
+		<Component type="MeshComponent" name="BoxData" Shape="Box" />
+		<ScaleComponent ScaleX="5" ScaleY="0.05" ScaleZ="5"/>
+		<Component type="MeshRenderer" Mesh="BoxData" />
+		<Component type="MaterialComponent" R="1" G="0" B="0" A="1" TextureUrl="https://fafard.com/wp-content/uploads/2022/03/Cyclamen-leaves92.png"/>
 	</Element>
-	<Element name ="camera">
-		<CameraComponent isMain="true" RotX="10" RotY="0" RotZ="0"/>
-	</Element>
+	<!--<Element name ="camera">
+		<CameraComponent IsCurrent="true" RotX="0" RotY="0" RotZ="0"/>
+	</Element>-->
 	<Element name="SpotLight3D">
 		<TransformComponent x="-4.947" y="7.207" z="-8.072" rotation="-161.192" rotationX="-63.670" rotationY="-161.192" rotationZ="-178.918" />
 		<TagComponent tags="SpotLight" />
 		<GenericLightComponent colorR="0.689" colorG="0.001" colorB="0.734" range="111.653" energy="2.017"  spotSoftness="1.000" />
 	</Element>
-</World>
 
+</World>

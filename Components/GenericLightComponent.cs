@@ -111,6 +111,29 @@ namespace V12.Components
 
         public RenderType RenderType => RenderType.Light;
 
+        public Matrix4x4 Transform
+        {
+            get
+            {
+                if (Owner != null)
+                {
+                    var t = Owner.GetComponent<TransformComponent>();
+                    var s = Owner.GetComponent<ScaleComponent>();
+
+                    Matrix4x4 scale = s != null ? Matrix4x4.CreateScale(s.ScaleX, s.ScaleY, s.ScaleZ) : Matrix4x4.Identity;
+
+                    if (t != null)
+                    {
+                        return scale
+                             * Matrix4x4.CreateFromYawPitchRoll(t.RY, t.RX, t.RZ)
+                             * Matrix4x4.CreateTranslation(t.X, t.Y, t.Z);
+                    }
+                }
+                return Matrix4x4.Identity;
+            }
+        }
+
+        public bool IsWorldLocked => true;
 
         public Matrix4x4 WorldTransform
         {

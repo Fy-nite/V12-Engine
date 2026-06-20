@@ -38,6 +38,7 @@ namespace V12.Core
             if (Root.Remove(element))
                 ElementRemoved?.Invoke(element);
         }
+     
         public void GenerateWorld()
         {
             // This method can be overridden in derived classes to create specific world content.

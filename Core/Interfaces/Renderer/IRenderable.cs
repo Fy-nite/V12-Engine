@@ -1,4 +1,4 @@
-﻿using Assimp;
+using Assimp;
 using Assimp.Unmanaged;
 using System;
 using System.Collections.Generic;
@@ -40,14 +40,15 @@ namespace V12.Core.Interfaces.Renderer
         Spot,
         AreaLight
     }
-    public interface ICameraRenderable : IRenderable
+    public interface ICameraRenderable : ITransformRenderable
     {
         public float FieldOfView { get; }
         public float AspectRatio { get; }
         public float NearClip { get; }
         public float FarClip { get; }
+        public bool IsCurrent { get; }
     }
-    public interface ILightRenderable : IRenderable
+    public interface ILightRenderable : ITransformRenderable
     {
         public Color Color { get; }
         public float Intensity { get; }

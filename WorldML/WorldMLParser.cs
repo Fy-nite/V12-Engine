@@ -14,7 +14,7 @@ namespace V12.WorldML
         /// <summary>
         /// Parse a world description from an XML string.
         /// </summary>
-        public World Parse(string xml)
+        public IWorldElement Parse(string xml)
         {
             if (string.IsNullOrWhiteSpace(xml))
             {
@@ -46,7 +46,7 @@ namespace V12.WorldML
             Console.WriteLine("XML Contenets:" + Environment.NewLine + doc.OuterXml);
             if (root == null) throw new Exception("Invalid XML: No root element found.");
             var worldName = root.Attributes?["name"]?.Value ?? "World";
-            var world = new World(worldName);
+            var world = new Element(worldName);
 
             // If the root node itself contains element nodes, parse them as world elements.
             foreach (XmlNode child in root.ChildNodes)
@@ -61,7 +61,7 @@ namespace V12.WorldML
         /// <summary>
         /// Load and parse XML file from disk.
         /// </summary>
-        public World ParseFile(string path)
+        public IWorldElement ParseFile(string path)
         {
             var xml = System.IO.File.ReadAllText(path);
             return Parse(xml);
@@ -78,14 +78,14 @@ namespace V12.WorldML
         /// Parse a single XML node into an Element and attach components found inside.
         /// Returned element is added to the provided world.Root list.
         /// </summary>
-        private IWorldElement ParseElement(XmlNode node, World world, IWorldElement? parent)
+        private IWorldElement ParseElement(XmlNode node, Element world, IWorldElement? parent)
         {
             var name = node.Attributes?["name"]?.Value;
             var description = node.Attributes?["description"]?.Value;
 
             var element = new Element(name, description, parent);
             // Add to world registry so it can be found later by systems that iterate Root
-            world.AddElement(element);
+            world.AddChild(element);
 
             var deferredList = new List<DeferredPropertySet>();
 

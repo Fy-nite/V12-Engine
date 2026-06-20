@@ -25,7 +25,9 @@ namespace V12.Core
             }
             
             var parser = new WorldMLParser();
-            var world = parser.ParseFile(mainXmlPath);
+            var worldcontents = parser.ParseFile(mainXmlPath);
+            var world = new World(worldcontents.Name);
+            world.AddElement(worldcontents);
             return world;
         }
     }

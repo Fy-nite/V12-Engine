@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
@@ -35,8 +35,8 @@ namespace V12.Core
         /// The currently selected or focused world. When set, only this world will be updated by Update().
         /// </summary>
         public World? SelectedWorld { get; private set; }
-           public World UserSpace = new World("UserSpace"); // always open and active no matter what, contains the UI for being able to control the game and select worlds, etc. This world is not meant to be used for actual game content, but rather for the user interface and control of the game.
-           public World HomeWorld = new World("HomeWorld");
+           //public World UserSpace = new World("UserSpace"); // always open and active no matter what, contains the UI for being able to control the game and select worlds, etc. This world is not meant to be used for actual game content, but rather for the user interface and control of the game.
+           //public World HomeWorld = new World("HomeWorld");
 
         /// <summary>
         /// Central service registry. Networking, DirtyTracker, and other engine services are registered here.
@@ -56,13 +56,13 @@ namespace V12.Core
         public IRenderer renderer;
 
         public GameRoot() {
-            Worlds.Add(UserSpace);
-            Worlds.Add(HomeWorld);
+            //Worlds.Add(UserSpace);
+            //Worlds.Add(HomeWorld);
             // Default to the first created world as the focused world
-            SelectedWorld = HomeWorld;
+            //SelectedWorld = HomeWorld;
             Templates["empty"] = (name) => new World(name);
-            Templates["default"] = (name) => new V12.WorldML.WorldMLParser().Parse(ReadResource("V12.Templates.Default.xml"));
-            Templates["Gridspace"] = (name) => new V12.WorldML.WorldMLParser().Parse(ReadResource("V12.Templates.Gridspace.xml"));
+            //Templates["default"] = (name) => new V12.WorldML.WorldMLParser().Parse(ReadResource("V12.Templates.Default.xml"));
+            //Templates["Gridspace"] = (name) => new V12.WorldML.WorldMLParser().Parse(ReadResource("V12.Templates.Gridspace.xml"));
             Templates["HotReload"] = (name) => {
                 var world = new World(name);
                 var reloader = new V12.Core.Networking.WorldXmlHotReloader(world);
@@ -72,23 +72,10 @@ namespace V12.Core
             };
 
             Registry.Register("NetworkCables", Cables);
-            // Register a core InspectorService so glue code can render engine-agnostic UI
-            //var inspector = new V12.Core.UI.InspectorService(this);
-            //Registry.Register("InspectorService", inspector); // why the fuck do we need this as a service?
-
             // Register core InputService so glue code can forward platform input
             var inputService = new V12.Core.Input.InputService();
             Registry.Register("InputService", inputService);
-            InspectorBuilder i = new InspectorBuilder();
-            Element ins = new Element("RootInspectorWindow");
-            ins.AddComponent(new MeshComponent(MeshShape.Box, 0.2f, 0.2f, 0.2f));
-            ins.AddComponent(new CanvasComponent());
-            ins.AddComponent(new InspectorComponent());
-            var rootz = new Element("UIRoot");
-            
-            rootz.AddComponent(i.Build());
-            ins.AddChild(rootz);
-            SelectedWorld.AddElement(ins);
+     
             var vrInput = new V12.Core.Input.VRInputProvider();
             Registry.Register("VRInput", vrInput);
             // Register a default in-engine UIBuilder so dashboards can build
@@ -100,9 +87,7 @@ namespace V12.Core
             }
             catch { }
             
-            Registry.Register("LocomotionSystem", new V12.Core.Systems.LocomotionSystem(this));
-            Registry.Register("PhysicsLocomotionSystem", new V12.Core.Systems.PhysicsLocomotionSystem(this));
-            Registry.Register("PhysicsService", new V12.Core.Systems.PhysicsService());
+            
 
 
         }
@@ -148,12 +133,18 @@ namespace V12.Core
                 Console.WriteLine("found IRenderer, loading...");
                 renderer = (IRenderer)Registry.Get("IRenderer").ServiceInstance;
             }
-        }
-
-        public void V12Loop()
-        {
-            while (true)
+            if (Registry.Get("Bootstrap") != null)
             {
+                Console.WriteLine("Found IBootstrap, running...");
+                var bootstrap = (IGameService)Registry.Get("Bootstrap").ServiceInstance;
+                bootstrap.Initialize(this);
+            }
+        }
+            
+        
+        public void V12Tick()
+        {
+        
                 foreach (var service in Registry.GetAll<IGameService>())
                     service.Update(this);
                 
@@ -166,7 +157,7 @@ namespace V12.Core
                     }
                 }
                 renderer.step();
-            }
+                
         }
 
         public List<IRenderable> GetAllRenderables()
@@ -398,7 +389,7 @@ namespace V12.Core
             }
             else
             {
-                UserSpace.Update(deltaTime);
+                //UserSpace.Update(deltaTime);
             }
 
             // Let the dashboard update first (if present) so UI values are
@@ -482,26 +473,9 @@ namespace V12.Core
                 world = new World(worldName);
             }
 
-            // Ensure a player exists in the world
-            bool hasPlayer = false;
-            foreach (var el in world.Root)
-            {
-                if (el.GetComponent<V12.Components.PlayerComponent>() != null)
-                {
-                    hasPlayer = true;
-                    break;
-                }
-            }
+            
 
-            if (!hasPlayer)
-            {
-                var player = new Element("DefaultPlayer");
-                player.AddComponent(new V12.Components.PlayerComponent());
-                player.AddComponent(new V12.Components.TransformComponent { X = 0, Y = -1.0f, Z = 0 });
-                player.AddComponent(new V12.Components.PhysicsBodyComponent { IsKinematic = true });
-                player.AddComponent(new V12.Components.LocomotionComponent());
-                world.AddElement(player);
-            }
+         
 
             Worlds.Add(world);
             SelectedWorld = world;

@@ -28,6 +28,7 @@ namespace V12.Core.Input
 
         public void SendEvent(InputEvent evt)
         {
+            //Console.WriteLine("InputService: Sending event " + evt?.Name);
             if (evt == null) return;
             IInputHandler[] copy;
             lock (_lock) { copy = _handlers.ToArray(); }
