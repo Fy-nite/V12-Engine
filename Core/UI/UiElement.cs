@@ -21,7 +21,7 @@ namespace V12.Core.UI
         public IWorldElement? Parent { get; set; }
         public List<IComponent> Components { get; set; } = new List<IComponent>();
         public List<IWorldElement> Children { get; } = new List<IWorldElement>();
-        
+        public void UnGenerateElementID() => Id = 0; //TODO: fix this shit
         public IDictionary<string, object?> Attributes { get; } = new Dictionary<string, object?>();
 
         public TRS LocalTransform => throw new NotImplementedException();

@@ -1,6 +1,7 @@
-﻿using V12.Core.Core.Interfaces;
+﻿using System;
 using System.Collections.Generic;
-using System;
+using System.Linq;
+using V12.Core.Core.Interfaces;
 namespace V12.Core
 {
     public class World 
@@ -8,6 +9,7 @@ namespace V12.Core
 
         public List<IWorldElement> Root { get; set; }
         public string WorldName { get; set; }
+        public  Dictionary<long, IWorldElement> _elementsById = new();     
 
         /// <summary>Raised on the calling thread when an element is added via <see cref="AddElement"/>.</summary>
         public event Action<IWorldElement>? ElementAdded;
@@ -25,10 +27,15 @@ namespace V12.Core
             WorldName = Name;
             Root = new List<IWorldElement>();
         }
-
+        public IWorldElement? FindElementWithComponent<T>()
+    where T : IComponent
+        {
+            return Root.FirstOrDefault(e => e.GetComponent<T>() != null);
+        }
         public void AddElement(IWorldElement element)
         {
             Root.Add(element);
+            _elementsById[element.Id] = element;
             ElementAdded?.Invoke(element);
         }
 
@@ -36,9 +43,12 @@ namespace V12.Core
         public void RemoveElement(IWorldElement element)
         {
             if (Root.Remove(element))
+            {
+                _elementsById.Remove(element.Id);
                 ElementRemoved?.Invoke(element);
+            }
         }
-     
+
         public void GenerateWorld()
         {
             // This method can be overridden in derived classes to create specific world content.
@@ -52,8 +62,11 @@ namespace V12.Core
                 {
                     element.Components.ForEach(component => component.Update(deltaTime));
                 }
-                catch { }
-            }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"Error updating element {element.Name}: {e.Message}"); Console.WriteLine(e);
+                }
         }
     }
+}
 }

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Xml;
 using V12.Core;
 using V12.Core.Core.Interfaces;
@@ -14,49 +16,53 @@ namespace V12.WorldML
         /// <summary>
         /// Parse a world description from an XML string.
         /// </summary>
+        private IWorldElement _parseTask;
         public IWorldElement Parse(string xml)
         {
-            if (string.IsNullOrWhiteSpace(xml))
-            {
-                throw new ArgumentException("XML content is empty or whitespace. Ensure the resource or file was loaded correctly.");
-            }
+        
+                if (string.IsNullOrWhiteSpace(xml))
+                {
+                    throw new ArgumentException("XML content is empty or whitespace. Ensure the resource or file was loaded correctly.");
+                }
 
-            var doc = new XmlDocument();
-            try
-            {
-                doc.LoadXml(xml);
-            }
-            catch (XmlException)
-            {
-                // The input might be a fragment (multiple root elements, no <World> wrapper).
-                // Try wrapping it and parsing again before giving up.
+                var doc = new XmlDocument();
                 try
                 {
-                    doc.LoadXml($"<World>{xml}</World>");
+                    doc.LoadXml(xml);
                 }
-                catch (XmlException ex2)
+                catch (XmlException)
                 {
-                    var preview = xml.Length > 200 ? xml.Substring(0, 200) + "..." : xml;
-                    throw new XmlException($"Failed to parse XML input. Preview: {preview}", ex2);
+                    // The input might be a fragment (multiple root elements, no <World> wrapper).
+                    // Try wrapping it and parsing again before giving up.
+                    try
+                    {
+                        doc.LoadXml($"<World>{xml}</World>");
+                    }
+                    catch (XmlException ex2)
+                    {
+                        var preview = xml.Length > 200 ? xml.Substring(0, 200) + "..." : xml;
+                        throw new XmlException($"Failed to parse XML input. Preview: {preview}", ex2);
+                    }
                 }
+
+                var root = doc.DocumentElement;
+                Console.WriteLine("Loaded XML document with root: " + root?.Name);
+                Console.WriteLine("XML Contenets:" + Environment.NewLine + doc.OuterXml);
+                if (root == null) throw new Exception("Invalid XML: No root element found.");
+                var worldName = root.Attributes?["name"]?.Value ?? "World";
+                var world = new Element(worldName);
+
+                // If the root node itself contains element nodes, parse them as world elements.
+                foreach (XmlNode child in root.ChildNodes)
+                {
+                    if (child.NodeType != XmlNodeType.Element) continue;
+                    var elem = ParseElement(child, world, null);
+                }
+
+                return world;
+
+
             }
-
-            var root = doc.DocumentElement;
-            Console.WriteLine("Loaded XML document with root: " + root?.Name);
-            Console.WriteLine("XML Contenets:" + Environment.NewLine + doc.OuterXml);
-            if (root == null) throw new Exception("Invalid XML: No root element found.");
-            var worldName = root.Attributes?["name"]?.Value ?? "World";
-            var world = new Element(worldName);
-
-            // If the root node itself contains element nodes, parse them as world elements.
-            foreach (XmlNode child in root.ChildNodes)
-            {
-                if (child.NodeType != XmlNodeType.Element) continue;
-                var elem = ParseElement(child, world, null);
-            }
-
-            return world;
-        }
 
         /// <summary>
         /// Load and parse XML file from disk.

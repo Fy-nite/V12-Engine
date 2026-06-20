@@ -91,6 +91,8 @@ namespace V12.Core.Core.Interfaces
             return Components.Find(c => c.Name == name);
         }
 
+
+
         /// <summary>
         /// Retrieves the first component of the specified type from the collection of components.
         /// </summary>
@@ -101,12 +103,12 @@ namespace V12.Core.Core.Interfaces
         /// <returns>The component of type T if found; otherwise, null.</returns>
         public T GetComponent<T>() where T : IComponent
         {
-            return (T)Components.Find(c => c is T);
+            return (T)Components.Find(c => c is T) ?? default(T);
         }
 
         public T GetComponent<T>(string name) where T : IComponent
         {
-            return (T)Components.Find(c => c is T && c.Name == name);
+            return (T)Components.Find(c => c is T && c.Name == name) ?? default(T);
         }
 
         /// <summary>
@@ -123,16 +125,15 @@ namespace V12.Core.Core.Interfaces
             child.Parent = this;
             if (!Children.Contains(child))
                 Children.Add(child);
+            GameRoot.Instance.SelectedWorld._elementsById[child.Id] = child;
         }
 
-        /// <summary>
-        /// Removes a child element and clears its parent reference.
-        /// </summary>
         public void RemoveChild(IWorldElement child)
         {
             if (child == null) return;
             if (Children.Remove(child))
                 child.Parent = null;
+            GameRoot.Instance.SelectedWorld._elementsById.Remove(child.Id);
         }
 
         /// <summary>

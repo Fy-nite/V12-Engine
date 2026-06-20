@@ -30,7 +30,7 @@ namespace V12.Core
         public event Action<V12.Core.NetworkCable.NetworkClient?>? OnNetworkClientRegistered;
 
         public List<World> Worlds = new List<World>();
-
+        public static GameRoot Instance { get; private set; }
         /// <summary>
         /// The currently selected or focused world. When set, only this world will be updated by Update().
         /// </summary>
@@ -86,10 +86,10 @@ namespace V12.Core
                 Registry.Register("UIBuilder", uiBuilder);
             }
             catch { }
-            
-            
 
 
+
+            Instance = this;
         }
 
         public string ReadResource(string name)

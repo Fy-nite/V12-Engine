@@ -29,14 +29,37 @@ namespace V12.Core
 
         private static long _nextElementId = 0;
 
-        private static long GenerateElementId() => System.Threading.Interlocked.Increment(ref _nextElementId);
+        private long _nextId = 1;
+
+        private long NextElementID()
+        {
+            while (GameRoot.Instance.SelectedWorld._elementsById.ContainsKey(_nextId))
+                _nextId++;
+
+            return _nextId++;
+        }
+        private static void Traverse(IWorldElement element, ref long maxId)
+        {
+            if (element == null) return;
+
+            if (element.Id >= maxId)
+                maxId = element.Id + 1;
+
+            if (element.Children == null) return;
+
+            foreach (var child in element.Children)
+                Traverse(child, ref maxId);
+        }
+
+        //return System.Threading.Interlocked.Increment(ref _nextElementId); 
+
 
         public Element(string? name = null, string? description = null, IWorldElement? parent = null)
         {
             Name = name;
             Description = description;
             Parent = parent;
-            ID = GenerateElementId();
+            ID = NextElementID();
         }
 
         public void MarkDirty()
@@ -50,6 +73,7 @@ namespace V12.Core
             child.Parent = this;
             if (!Children.Contains(child))
                 Children.Add(child);
+            GameRoot.Instance.SelectedWorld._elementsById[child.Id] = child;
         }
 
         public void RemoveChild(IWorldElement child)
@@ -57,6 +81,7 @@ namespace V12.Core
             if (child == null) return;
             if (Children.Remove(child))
                 child.Parent = null;
+            GameRoot.Instance.SelectedWorld._elementsById.Remove(child.Id);
         }
 
         public IComponent AddComponent(IComponent component)

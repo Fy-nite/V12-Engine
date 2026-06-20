@@ -21,6 +21,7 @@ namespace V12.Core.Interfaces.Renderer
     public enum RenderType
     {
         PrimitiveModel,
+        RawElement, // this is primarily for hirachy stablisation for things like transforms.
         Mesh,
         Sprite,
         Text,
