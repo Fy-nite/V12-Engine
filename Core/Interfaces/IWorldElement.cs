@@ -112,6 +112,19 @@ namespace V12.Core.Core.Interfaces
         }
 
         /// <summary>
+        /// Returns all components of the specified type.
+        /// </summary>
+        public List<T> GetComponents<T>() where T : IComponent
+        {
+            var results = new List<T>();
+            foreach (var component in Components)
+            {
+                if (component is T t) results.Add(t);
+            }
+            return results;
+        }
+
+        /// <summary>
         /// The direct children of this element in the world hierarchy.
         /// </summary>
         List<IWorldElement> Children { get; }

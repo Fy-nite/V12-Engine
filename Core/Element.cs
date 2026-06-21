@@ -91,5 +91,58 @@ namespace V12.Core
             component.MarkDirty();
             return component;
         }
+        public void RemoveComponent(IComponent component)
+        {
+            Components.Remove(component);
+            component.OnDetach(this);
+        }
+        public IComponent GetComponent(string name)
+        {
+            foreach (var component in Components)
+            {
+                if (component.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return component;
+                }
+            }
+            return null;
+        }
+
+        public IWorldElement? FindChildByName(string name)
+        {
+            return Children.Find(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public IWorldElement? FindChildByNameRecursive(string name)
+        {
+            foreach (var child in Children)
+            {
+                if (string.Equals(child.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return child;
+                var found = child.FindChildByNameRecursive(name);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        public T? GetComponent<T>(string name) where T : IComponent
+        {
+            foreach (var component in Components)
+            {
+                if (component is T && string.Equals(component.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return (T)component;
+            }
+            return default;
+        }
+
+        public List<T> GetComponents<T>() where T : IComponent
+        {
+            var results = new List<T>();
+            foreach (var component in Components)
+            {
+                if (component is T t) results.Add(t);
+            }
+            return results;
+        }
     }
 }

@@ -1,13 +1,15 @@
 using System;
+using System.Numerics;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.Interfaces.Renderer;
 
 namespace V12.Components
 {
     /// <summary>
     /// Example component demonstrating automatic dirty tracking for network synchronization.
     /// </summary>
-    public class TransformComponent : ComponentBase
+    public class TransformComponent : ComponentBase, ITransformRenderable
     {
         private float _x;
         private float _y;
@@ -136,6 +138,28 @@ namespace V12.Components
             get => (RotationZ ?? 0) * (MathF.PI / 180f);
             set => RotationZ = value * (180f / MathF.PI);
         }
+
+        // ITransformRenderable / IRenderable / ISpatial
+
+        public RenderType RenderType => RenderType.RawElement;
+
+        public bool IsWorldLocked => false;
+
+        public Matrix4x4 Transform
+        {
+            get
+            {
+                var s = Owner?.GetComponent<ScaleComponent>();
+                float sx = s?.ScaleX ?? 1f;
+                float sy = s?.ScaleY ?? 1f;
+                float sz = s?.ScaleZ ?? 1f;
+                return Matrix4x4.CreateScale(sx, sy, sz)
+                     * Matrix4x4.CreateFromYawPitchRoll(RY, RX, RZ)
+                     * Matrix4x4.CreateTranslation(X, Y, Z);
+            }
+        }
+
+        public Matrix4x4 WorldTransform => Transform;
 
         public TransformComponent()
         {

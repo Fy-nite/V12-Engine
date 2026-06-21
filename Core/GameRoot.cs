@@ -76,8 +76,8 @@ namespace V12.Core
             var inputService = new V12.Core.Input.InputService();
             Registry.Register("InputService", inputService);
      
-            var vrInput = new V12.Core.Input.VRInputProvider();
-            Registry.Register("VRInput", vrInput);
+            // VRInputProvider is NOT registered here — VR projects register
+            // their own IVRInputProvider when VR mode is active.
             // Register a default in-engine UIBuilder so dashboards can build
             // UI as world elements which frontends will sync and render.
             try
@@ -173,10 +173,25 @@ namespace V12.Core
 
                 if (element.Components != null)
                 {
+                    // Only add TransformComponent as IRenderable if the element
+                    // has no other IRenderable (avoiding duplicate nodes).
+                    bool hasOtherRenderable = false;
+                    TransformComponent transformComp = null;
                     foreach (var component in element.Components)
                     {
-                        if (component is IRenderable renderable)
-                            renderables.Add(renderable);
+                        if (component is TransformComponent tc)
+                            transformComp = tc;
+                        else if (component is IRenderable)
+                            hasOtherRenderable = true;
+                    }
+
+                    if (transformComp != null && !hasOtherRenderable)
+                        renderables.Add(transformComp);
+
+                    foreach (var component in element.Components)
+                    {
+                        if (component is IRenderable r && !(component is TransformComponent))
+                            renderables.Add(r);
                     }
                 }
 

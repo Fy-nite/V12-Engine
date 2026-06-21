@@ -32,6 +32,28 @@ namespace V12.Core
         {
             return Root.FirstOrDefault(e => e.GetComponent<T>() != null);
         }
+
+        public IWorldElement? FindElementWithComponentRecursive<T>() where T : IComponent
+        {
+            foreach (var element in Root)
+            {
+                if (element.GetComponent<T>() != null) return element;
+                var found = FindInChildren<T>(element);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private IWorldElement? FindInChildren<T>(IWorldElement parent) where T : IComponent
+        {
+            foreach (var child in parent.Children)
+            {
+                if (child.GetComponent<T>() != null) return child;
+                var found = FindInChildren<T>(child);
+                if (found != null) return found;
+            }
+            return null;
+        }
         public void AddElement(IWorldElement element)
         {
             Root.Add(element);
@@ -56,8 +78,10 @@ namespace V12.Core
         }
         public void Update(float deltaTime)
         {
+            Console.WriteLine($"World.Update: {Root.Count} elements");
             foreach (var element in Root)
             {
+                Console.WriteLine($"  Element: {element.Name} ({element.Components.Count} components)");
                 try
                 {
                     element.Components.ForEach(component => component.Update(deltaTime));
