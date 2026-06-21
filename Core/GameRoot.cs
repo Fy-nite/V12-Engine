@@ -178,7 +178,7 @@ namespace V12.Core
                     bool hasOtherRenderable = false;
                     bool hasMeshRenderer = false;
                     TransformComponent transformComp = null;
-                    foreach (var component in element.Components)
+                    foreach (var component in element.Components.ToArray())
                     {
                         if (component is TransformComponent tc)
                             transformComp = tc;
@@ -194,7 +194,7 @@ namespace V12.Core
                     if (transformComp != null && !hasOtherRenderable)
                         renderables.Add(transformComp);
 
-                    foreach (var component in element.Components)
+                    foreach (var component in element.Components.ToArray())
                     {
                         if (component is IRenderable r && !(component is TransformComponent))
                         {
@@ -208,12 +208,12 @@ namespace V12.Core
 
                 if (element.Children != null)
                 {
-                    foreach (var child in element.Children)
+                    foreach (var child in element.Children.ToArray())
                         CollectRenderables(child);
                 }
             }
 
-            foreach (var element in SelectedWorld.Root)
+            foreach (var element in SelectedWorld.Root.ToArray())
                 CollectRenderables(element);
 
             return renderables;

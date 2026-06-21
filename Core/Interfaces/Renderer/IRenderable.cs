@@ -21,10 +21,11 @@ namespace V12.Core.Interfaces.Renderer
     public enum RenderType
     {
         PrimitiveModel,
-        RawElement, // this is primarily for hirachy stablisation for things like transforms.
+        RawElement,
         Mesh,
         Sprite,
         Text,
+        Svg,
         ParticleSystem,
         Light,
         Custom
@@ -55,6 +56,8 @@ namespace V12.Core.Interfaces.Renderer
         public float Intensity { get; }
         public float Range { get; }
         public LightType Type { get; }
+        public float Angle { get; }
+        public float SpotSoftness { get; }
     }
 
     public interface ITransformRenderable : IRenderable
@@ -84,5 +87,12 @@ namespace V12.Core.Interfaces.Renderer
         public Font Font { get; }
         public Color Color { get; }
         public float FontSize { get; }
+    }
+
+    public interface ISvgRenderable : ITransformRenderable
+    {
+        public string SvgContent { get; }
+        public Vector2 Size { get; }
+        public Color Tint { get; }
     }
 }

@@ -48,7 +48,7 @@ namespace V12.WorldML
 
                 var root = doc.DocumentElement;
                 Console.WriteLine("Loaded XML document with root: " + root?.Name);
-                Console.WriteLine("XML Contenets:" + Environment.NewLine + doc.OuterXml);
+                //Console.WriteLine("XML Contenets:" + Environment.NewLine + doc.OuterXml);
                 if (root == null) throw new Exception("Invalid XML: No root element found.");
                 var worldName = root.Attributes?["name"]?.Value ?? "World";
                 var world = new Element(worldName);
@@ -125,7 +125,7 @@ namespace V12.WorldML
                 if (refComp != null && ds.Property.PropertyType.IsAssignableFrom(refComp.GetType()))
                 {
                     ds.Property.SetValue(ds.Target, refComp);
-                    Console.WriteLine($"[WorldMLParser] Resolved deferred property {ds.Property.Name} to component {ds.ComponentName} on {element.Name}");
+                    //Console.WriteLine($"[WorldMLParser] Resolved deferred property {ds.Property.Name} to component {ds.ComponentName} on {element.Name}");
                 }
                 else if (refComp == null)
                 {
@@ -174,7 +174,7 @@ namespace V12.WorldML
 
                 foreach (XmlAttribute attr in node.Attributes)
                 {
-                    if (string.Equals(attr.Name, "type", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (attr.Name == "type" || attr.Name == "typename" || attr.Name == "name") continue;
                     SetPropertyIfExists(instance, attr.Name, attr.Value, deferredList);
                 }
             }
@@ -191,6 +191,62 @@ namespace V12.WorldML
                 SetPropertyIfExists(instance, propName, propValue, deferredList);
             }
 
+            // 3) If the component has an SvgContent string property, capture
+            //    the raw inner XML of this node (e.g. embedded <svg> element).
+            if (component is V12.Components.SvgComponent svgComp && node.HasChildNodes)
+            {
+                var inner = node.InnerXml?.Trim();
+                if (!string.IsNullOrEmpty(inner))
+                    svgComp.SvgContent = inner;
+            }
+
+            // 4) For MeshComponent (Shape=Custom), collect <vert> and <tri> child elements
+            if (component is V12.Components.MeshComponent meshComp && node.HasChildNodes)
+            {
+                var verts = new List<double>();
+                var tris = new List<uint>();
+                uint vertIndex = 0;
+                foreach (XmlNode child in node.ChildNodes)
+                {
+                    if (child.NodeType != XmlNodeType.Element) continue;
+                    if (string.Equals(child.Name, "vert", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(child.Name, "v", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var x = TryParseDouble(child.Attributes?["x"]?.Value);
+                        var y = TryParseDouble(child.Attributes?["y"]?.Value);
+                        var z = TryParseDouble(child.Attributes?["z"]?.Value);
+                        if (x.HasValue && y.HasValue && z.HasValue)
+                        {
+                            verts.Add(x.Value);
+                            verts.Add(y.Value);
+                            verts.Add(z.Value);
+                            vertIndex++;
+                        }
+                    }
+                    else if (string.Equals(child.Name, "tri", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(child.Name, "i", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(child.Name, "index", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var aAttr = child.Attributes?["a"]?.Value ?? child.Attributes?["v1"]?.Value;
+                        var bAttr = child.Attributes?["b"]?.Value ?? child.Attributes?["v2"]?.Value;
+                        var cAttr = child.Attributes?["c"]?.Value ?? child.Attributes?["v3"]?.Value;
+                        if (uint.TryParse(aAttr, out var a) &&
+                            uint.TryParse(bAttr, out var b) &&
+                            uint.TryParse(cAttr, out var c))
+                        {
+                            tris.Add(a); tris.Add(b); tris.Add(c);
+                        }
+                    }
+                }
+                if (verts.Count > 0)
+                {
+                    meshComp.CustomMeshPoints = verts.ToArray();
+                    meshComp.Shape = V12.Components.MeshShape.Custom;
+                }
+                if (tris.Count > 0)
+                    meshComp.CustomIndices = tris.ToArray();
+            }
+
             return component;
         }
 
@@ -199,14 +255,8 @@ namespace V12.WorldML
             if (value == null) return;
             var pi = target.GetType().GetProperty(propName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
             
-            // ADDED DEBUG LOGGING
-            Console.WriteLine($"[WorldMLParser] DEBUG: Attempting to set '{propName}' on '{target.GetType().Name}'. Found PI: {pi != null}");
-            
             if (pi == null || !pi.CanWrite) 
-            {
-                Console.WriteLine($"[WorldMLParser] DEBUG: Property '{propName}' NOT FOUND or NOT WRITABLE on {target.GetType().Name}. Available: {string.Join(", ", target.GetType().GetProperties().Select(p => p.Name))}");
                 return;
-            }
 
             try
             {
@@ -219,7 +269,7 @@ namespace V12.WorldML
 
                 var converted = ConvertToType(value, pi.PropertyType);
                 pi.SetValue(target, converted);
-                Console.WriteLine($"[WorldMLParser] Set {propName} to {value} on {target.GetType().Name}");
+                //Console.WriteLine($"[WorldMLParser] Set {propName} to {value} on {target.GetType().Name}");
             }
             catch (Exception ex) 
             {
@@ -249,6 +299,14 @@ namespace V12.WorldML
         private IEnumerable<Type> SafeGetTypes(Assembly a)
         {
             try { return a.GetTypes(); } catch { return Array.Empty<Type>(); }
+        }
+
+        private static double? TryParseDouble(string? value)
+        {
+            if (value == null) return null;
+            if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var result))
+                return result;
+            return null;
         }
     }
 }

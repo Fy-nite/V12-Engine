@@ -78,7 +78,7 @@ namespace V12.Core.Registry
         /// </summary>
         public void Update(float deltaTime)
         {
-            foreach (var service in GetAll<IGameService>())
+            foreach (var service in GetAll<IGameService>().ToArray())
                 service.Update(deltaTime);
         }
     }

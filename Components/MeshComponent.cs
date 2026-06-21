@@ -34,6 +34,10 @@ namespace V12.Components
         private double[] _meshPoints;
         private uint[] _indices;
 
+        // Optional custom vertex/index data (used when Shape == Custom)
+        public double[] CustomMeshPoints { get; set; }
+        public uint[] CustomIndices { get; set; }
+
 		public override string Name { get; set; } = "Mesh";
         public override string Description => "Primitive mesh shape";
 
@@ -63,9 +67,9 @@ namespace V12.Components
 
         public RenderType RenderType => RenderType.Mesh;
 
-        public double[] MeshPoints => _meshPoints ??= GenerateMeshPoints();
+        public double[] MeshPoints => Shape == MeshShape.Custom && CustomMeshPoints != null ? CustomMeshPoints : (_meshPoints ??= GenerateMeshPoints());
 
-        public uint[] Indices => _indices ??= GenerateIndices();
+        public uint[] Indices => Shape == MeshShape.Custom && CustomIndices != null ? CustomIndices : (_indices ??= GenerateIndices());
 
         public Material Material => null; // Use MaterialComponent from element
 

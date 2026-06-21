@@ -16,6 +16,8 @@ namespace V12.Components
         private Color _shadowColor;
         private float _shadowEnergy;
         private float _Range = 100f;
+        private float _angle = 45f;
+        private float _spotSoftness = 0.5f;
 
         private LightType _lightType = LightType.Directional;
 
@@ -107,6 +109,17 @@ namespace V12.Components
                     MarkDirty();
                 }
             }
+        }
+
+        public float Angle
+        {
+            get => _angle;
+            set { if (Math.Abs(_angle - value) > 0.001f) { _angle = Math.Clamp(value, 0f, 90f); MarkDirty(); } }
+        }
+        public float SpotSoftness
+        {
+            get => _spotSoftness;
+            set { if (Math.Abs(_spotSoftness - value) > 0.001f) { _spotSoftness = Clamp01(value); MarkDirty(); } }
         }
 
         public RenderType RenderType => RenderType.Light;
