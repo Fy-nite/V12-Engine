@@ -34,7 +34,7 @@ namespace V12.Components
         private double[] _meshPoints;
         private uint[] _indices;
 
-        public override string Name        => "Mesh";
+		public override string Name { get; set; } = "Mesh";
         public override string Description => "Primitive mesh shape";
 
         public MeshShape Shape

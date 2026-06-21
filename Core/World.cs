@@ -78,10 +78,10 @@ namespace V12.Core
         }
         public void Update(float deltaTime)
         {
-            Console.WriteLine($"World.Update: {Root.Count} elements");
+            //Console.WriteLine($"World.Update: {Root.Count} elements");
             foreach (var element in Root)
             {
-                Console.WriteLine($"  Element: {element.Name} ({element.Components.Count} components)");
+                //Console.WriteLine($"  Element: {element.Name} ({element.Components.Count} components)");
                 try
                 {
                     element.Components.ForEach(component => component.Update(deltaTime));

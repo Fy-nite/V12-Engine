@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Xml;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Components;
 
 namespace V12.WorldML
 {
@@ -166,15 +167,14 @@ namespace V12.WorldML
             {
                 // Explicitly check for 'name' attribute to set component instance name
                 var nameAttr = node.Attributes["name"];
-                //if (nameAttr != null)
-                //{
-                //    component.Name = nameAttr.Value;
-                //}
+                if (nameAttr != null && component is ComponentBase cb)
+                {
+                    cb.Name = nameAttr.Value;
+                }
 
                 foreach (XmlAttribute attr in node.Attributes)
                 {
-                    if (string.Equals(attr.Name, "type", StringComparison.OrdinalIgnoreCase) || 
-                        string.Equals(attr.Name, "name", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(attr.Name, "type", StringComparison.OrdinalIgnoreCase)) continue;
                     SetPropertyIfExists(instance, attr.Name, attr.Value, deferredList);
                 }
             }

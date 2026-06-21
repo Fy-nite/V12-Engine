@@ -176,11 +176,17 @@ namespace V12.Core
                     // Only add TransformComponent as IRenderable if the element
                     // has no other IRenderable (avoiding duplicate nodes).
                     bool hasOtherRenderable = false;
+                    bool hasMeshRenderer = false;
                     TransformComponent transformComp = null;
                     foreach (var component in element.Components)
                     {
                         if (component is TransformComponent tc)
                             transformComp = tc;
+                        else if (component is V12.Components.Renderables.MeshRenderer)
+                        {
+                            hasMeshRenderer = true;
+                            hasOtherRenderable = true;
+                        }
                         else if (component is IRenderable)
                             hasOtherRenderable = true;
                     }
@@ -191,7 +197,12 @@ namespace V12.Core
                     foreach (var component in element.Components)
                     {
                         if (component is IRenderable r && !(component is TransformComponent))
+                        {
+                            // Skip bare MeshComponent when a MeshRenderer wrapper exists
+                            if (component is V12.Components.MeshComponent && hasMeshRenderer)
+                                continue;
                             renderables.Add(r);
+                        }
                     }
                 }
 
