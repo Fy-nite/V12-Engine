@@ -19,7 +19,7 @@ namespace V12.Core
         public string MountPoint { get; set; }
 
         /// <summary>Global lock for all world and element tree mutations.</summary>
-        public ReaderWriterLockSlim Lock { get; } = new();
+        public ReaderWriterLockSlim Lock { get; } = new(LockRecursionPolicy.SupportsRecursion);
 
         /// <summary>Raised on the calling thread when an element is added via <see cref="AddElement"/>.</summary>
         public event Action<IWorldElement>? ElementAdded;

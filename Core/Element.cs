@@ -34,25 +34,35 @@ namespace V12.Core
 
         public TRS LocalTransform
         {
-            get
-            {
-                var tc = GetComponent<TransformComponent>();
-                if (tc != null)
-                {
-                    var sc = GetComponent<ScaleComponent>();
-                    return new TRS
-                    {
-                        Position = new Vector3(tc.X, tc.Y, tc.Z),
-                        Rotation = Quaternion.CreateFromYawPitchRoll(tc.RY, tc.RX, tc.RZ),
-                        Scale = sc != null ? new Vector3(sc.ScaleX, sc.ScaleY, sc.ScaleZ) : Vector3.One
-                    };
-                }
-                return _localTransform;
-            }
+            get => _localTransform;
             set
             {
                 _localTransform = value;
+                var tc = GetComponent<TransformComponent>();
+                if (tc != null)
+                {
+                    tc.X = value.Position.X;
+                    tc.Y = value.Position.Y;
+                    tc.Z = value.Position.Z;
+                    var (yaw, pitch, roll) = ToEulerAngles(value.Rotation);
+                    tc.RY = yaw;
+                    tc.RX = pitch;
+                    tc.RZ = roll;
+                }
             }
+        }
+
+        private static (float yaw, float pitch, float roll) ToEulerAngles(Quaternion q)
+        {
+            float siny_cosp = 2 * (q.W * q.Y + q.Z * q.X);
+            float cosy_cosp = 1 - 2 * (q.Y * q.Y + q.Z * q.Z);
+            float yaw = MathF.Atan2(siny_cosp, cosy_cosp);
+            float sinp = 2 * (q.W * q.X - q.Y * q.Z);
+            float pitch = Math.Abs(sinp) >= 1 ? MathF.CopySign(MathF.PI / 2, sinp) : MathF.Asin(sinp);
+            float sinr_cosp = 2 * (q.W * q.Z + q.X * q.Y);
+            float cosr_cosp = 1 - 2 * (q.X * q.X + q.Z * q.Z);
+            float roll = MathF.Atan2(sinr_cosp, cosr_cosp);
+            return (yaw, pitch, roll);
         }
 
         public Matrix4x4 WorldTransform
@@ -135,11 +145,11 @@ namespace V12.Core
 
         public IComponent AddComponent(IComponent component)
         {
+            component.OnAttach(this);
             var world = GameRoot.Instance?.SelectedWorld;
             world?.Lock.EnterWriteLock();
             try
             {
-                component.OnAttach(this);
                 Components.Add(component);
                 component.MarkDirty();
             }
@@ -153,9 +163,9 @@ namespace V12.Core
             try
             {
                 Components.Remove(component);
-                component.OnDetach(this);
             }
             finally { world?.Lock.ExitWriteLock(); }
+            component.OnDetach(this);
         }
         public IComponent GetComponent(string name)
         {

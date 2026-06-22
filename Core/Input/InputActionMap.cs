@@ -8,6 +8,8 @@ namespace V12.Core.Input
     {
         public string Name { get; set; } = "ActionMap";
 
+        private readonly object _lock = new();
+
         private struct AxisBinding
         {
             public string PositiveInput;
@@ -27,6 +29,8 @@ namespace V12.Core.Input
         private readonly Dictionary<string, float> _rawPositive = new();
         private readonly Dictionary<string, float> _rawNegative = new();
         private readonly Dictionary<string, bool> _rawButtons = new();
+        private readonly HashSet<string> _pendingPress = new();
+        private readonly HashSet<string> _pendingRelease = new();
 
         private readonly Dictionary<string, float> _axisValues = new();
         private readonly Dictionary<string, bool> _buttonHeld = new();
@@ -87,24 +91,41 @@ namespace V12.Core.Input
         public void OnInputEvent(InputEvent evt)
         {
             if (evt == null) return;
-
-            if (evt.Type == InputEventType.Axis)
+            lock (_lock)
             {
-                foreach (var kv in _axisBindings)
+                if (evt.Type == InputEventType.Axis)
                 {
-                    var binding = kv.Value;
-                    if (evt.Name == binding.PositiveInput)
-                        _rawPositive[kv.Key] = Math.Max(_rawPositive.GetValueOrDefault(kv.Key), evt.Value);
-                    if (evt.Name == binding.NegativeInput)
-                        _rawNegative[kv.Key] = Math.Max(_rawNegative.GetValueOrDefault(kv.Key), evt.Value);
+                    foreach (var kv in _axisBindings)
+                    {
+                        var binding = kv.Value;
+                        if (evt.Name == binding.PositiveInput)
+                            _rawPositive[kv.Key] = Math.Max(_rawPositive.GetValueOrDefault(kv.Key), evt.Value);
+                        if (evt.Name == binding.NegativeInput)
+                            _rawNegative[kv.Key] = Math.Max(_rawNegative.GetValueOrDefault(kv.Key), evt.Value);
+                    }
                 }
-            }
-            else if (evt.Type == InputEventType.ButtonDown || evt.Type == InputEventType.ButtonUp)
-            {
-                foreach (var kv in _buttonBindings)
+                else if (evt.Type == InputEventType.ButtonDown)
                 {
-                    if (evt.Name == kv.Value.InputName)
-                        _rawButtons[kv.Key] = evt.Type == InputEventType.ButtonDown;
+                    foreach (var kv in _buttonBindings)
+                    {
+                        if (evt.Name == kv.Value.InputName)
+                        {
+                            _rawButtons[kv.Key] = true;
+                            _pendingPress.Add(kv.Key);
+                            _pendingRelease.Remove(kv.Key);
+                        }
+                    }
+                }
+                else if (evt.Type == InputEventType.ButtonUp)
+                {
+                    foreach (var kv in _buttonBindings)
+                    {
+                        if (evt.Name == kv.Value.InputName)
+                        {
+                            _rawButtons[kv.Key] = false;
+                            _pendingRelease.Add(kv.Key);
+                        }
+                    }
                 }
             }
         }
@@ -113,32 +134,47 @@ namespace V12.Core.Input
 
         public void Update(float deltaTime)
         {
-            foreach (var action in _axisBindings.Keys)
+            lock (_lock)
             {
-                float pos = _rawPositive.GetValueOrDefault(action, 0f);
-                float neg = _rawNegative.GetValueOrDefault(action, 0f);
-                _axisValues[action] = Math.Clamp(pos - neg, -1f, 1f);
-            }
+                _justPressed.Clear();
+                _justReleased.Clear();
 
-            foreach (var action in _buttonBindings.Keys)
-            {
-                bool current = _rawButtons.GetValueOrDefault(action, false);
-                bool prev = _prevHeld.Contains(action);
-                _buttonHeld[action] = current;
-                if (current && !prev) _justPressed.Add(action);
-                if (!current && prev) _justReleased.Add(action);
-            }
+                foreach (var action in _axisBindings.Keys)
+                {
+                    float pos = _rawPositive.GetValueOrDefault(action, 0f);
+                    float neg = _rawNegative.GetValueOrDefault(action, 0f);
+                    _axisValues[action] = Math.Clamp(pos - neg, -1f, 1f);
+                }
 
-            _prevHeld.Clear();
-            foreach (var action in _buttonBindings.Keys)
-            {
-                if (_rawButtons.GetValueOrDefault(action, false))
-                    _prevHeld.Add(action);
-            }
+                foreach (var action in _buttonBindings.Keys)
+                {
+                    bool hasPendingPress = _pendingPress.Contains(action);
+                    bool hasPendingRelease = _pendingRelease.Contains(action);
+                    bool prev = _prevHeld.Contains(action);
+                    bool current = _buttonHeld.TryGetValue(action, out bool held) && held;
 
-            _rawPositive.Clear();
-            _rawNegative.Clear();
-            _rawButtons.Clear();
+                    if (hasPendingPress)
+                    {
+                        current = true;
+                        _justPressed.Add(action);
+                    }
+                    if (hasPendingRelease)
+                    {
+                        current = false;
+                        _justReleased.Add(action);
+                    }
+
+                    _buttonHeld[action] = current;
+                    if (current) _prevHeld.Add(action);
+                    else _prevHeld.Remove(action);
+                }
+
+                _rawPositive.Clear();
+                _rawNegative.Clear();
+                _rawButtons.Clear();
+                _pendingPress.Clear();
+                _pendingRelease.Clear();
+            }
         }
 
         // ── Registration helpers ─────────────────────────────────────────────

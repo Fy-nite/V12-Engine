@@ -8,6 +8,9 @@ namespace V12.Core.Core.Interfaces
 {
     public interface IWorldElement : ISpatial
     {
+        /// <summary>Local position, rotation, and scale of this element (relative to parent).</summary>
+        TRS LocalTransform { get; set; }
+
         /// <summary>
         /// Event raised when this world element or its components have changed and should be synchronized over the network.
         /// </summary>

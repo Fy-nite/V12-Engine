@@ -137,12 +137,7 @@ namespace V12.Core
                 Console.WriteLine("found IRenderer, loading...");
                 renderer = (IRenderer)Registry.Get("IRenderer").ServiceInstance;
             }
-            if (Registry.Get("Bootstrap") != null)
-            {
-                Console.WriteLine("Found IBootstrap, running...");
-                var bootstrap = (IGameService)Registry.Get("Bootstrap").ServiceInstance;
-                bootstrap.Initialize(this);
-            }
+
         }
             
         

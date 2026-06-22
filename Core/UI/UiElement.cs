@@ -24,9 +24,21 @@ namespace V12.Core.UI
         public void UnGenerateElementID() => Id = 0; //TODO: fix this shit
         public IDictionary<string, object?> Attributes { get; } = new Dictionary<string, object?>();
 
-        public TRS LocalTransform => throw new NotImplementedException();
+        private TRS _localTransform = new TRS { Position = Vector3.Zero, Rotation = Quaternion.Identity, Scale = Vector3.One };
+        public TRS LocalTransform { get => _localTransform; set => _localTransform = value; }
 
-        public Matrix4x4 WorldTransform => throw new NotImplementedException();
+        public Matrix4x4 WorldTransform
+        {
+            get
+            {
+                var local = Matrix4x4.CreateScale(_localTransform.Scale)
+                          * Matrix4x4.CreateFromQuaternion(_localTransform.Rotation)
+                          * Matrix4x4.CreateTranslation(_localTransform.Position);
+                if (Parent != null)
+                    return local * Parent.WorldTransform;
+                return local;
+            }
+        }
 
         public override IWorldElement BuildUI() => this; 
         
