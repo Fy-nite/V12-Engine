@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Drawing;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -10,12 +12,14 @@ using V12.Core.NetworkCable;
 using V12.Core.Networking;
 using V12.Core.Registry;
 using V12.Core.Input;
-using V12.Core.Core.Interfaces;
+using V12.Core.Rendering;
 using V12.Core.UI;
 using V12.Components.UI;
 using V12.Components;
+using V12.Components.Renderables;
 using V12.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
+using V12.WorldML;
 namespace V12.Core
 {
     /// <summary>
@@ -117,7 +121,7 @@ namespace V12.Core
             }
             
 #endif
-            foreach (var service in Registry.GetAll<IGameService>())
+            foreach (var service in Registry.GetAll<IGameService>().ToArray())
                 service.Initialize(this);
 
             StartNetworkingThread();
@@ -217,6 +221,184 @@ namespace V12.Core
                 CollectRenderables(element);
 
             return renderables;
+        }
+
+        public FrameSnapshot CaptureFrame()
+        {
+            var snapshot = new FrameSnapshot();
+            if (SelectedWorld == null) return snapshot;
+
+            SelectedWorld.Lock.EnterReadLock();
+            try
+            {
+                // ── Walk tree for renderables ──
+                void CaptureRenderables(IWorldElement element)
+                {
+                    if (element?.Components == null) return;
+
+                    // Snapshot every IRenderable component on this element
+                    foreach (var c in element.Components.ToArray())
+                    {
+                        if (c is IRenderable renderable)
+                        {
+                            var rs = new RenderableSnapshot();
+                            rs.ElementId = renderable.Id;
+                            rs.Name = renderable.Name ?? "";
+
+                            // ParentId for Godot node parenting
+                            if (renderable is ComponentBase cb && cb.Owner?.Parent != null)
+                                rs.ParentId = cb.Owner.Parent.Id;
+
+                            // Transform — replicate the renderer's own decision
+                            rs.Transform = renderable is ITransformRenderable tr
+                                ? tr.Transform
+                                : renderable.WorldTransform;
+                            rs.IsWorldLocked = renderable is ITransformRenderable itr && itr.IsWorldLocked;
+
+                            // Light
+                            if (renderable is ILightRenderable light)
+                            {
+                                switch (light.Type)
+                                {
+                                    case LightType.Directional: rs.NodeType = SnapshotNodeType.LightDirectional; break;
+                                    case LightType.Spot:        rs.NodeType = SnapshotNodeType.LightSpot; break;
+                                    default:                    rs.NodeType = SnapshotNodeType.LightPoint; break;
+                                }
+                                rs.LightColor = light.Color;
+                                rs.LightIntensity = light.Intensity;
+                                rs.LightRange = light.Range;
+                                rs.LightAngle = light.Angle;
+                                rs.LightSpotSoftness = light.SpotSoftness;
+                            }
+                            // Mesh
+                            else if (renderable is IMeshRenderable mesh)
+                            {
+                                MeshComponent mc = null;
+                                if (mesh is MeshComponent mcDirect)
+                                    mc = mcDirect;
+                                else if (mesh is MeshRenderer mr && mr.Mesh is MeshComponent mcWrap)
+                                    mc = mcWrap;
+
+                                if (mc != null)
+                                {
+                                    switch (mc.Shape)
+                                    {
+                                        case MeshShape.Box:      rs.NodeType = SnapshotNodeType.MeshBox; break;
+                                        case MeshShape.Sphere:   rs.NodeType = SnapshotNodeType.MeshSphere; break;
+                                        case MeshShape.Custom:   rs.NodeType = SnapshotNodeType.MeshCustom; break;
+                                        default:                 rs.NodeType = SnapshotNodeType.MeshBox; break;
+                                    }
+                                    rs.MeshWidth = mc.Width;
+                                    rs.MeshHeight = mc.Height;
+                                    rs.MeshDepth = mc.Depth;
+                                    rs.MeshPoints = mc.MeshPoints;
+                                    rs.MeshIndices = mc.Indices;
+                                }
+                                else
+                                {
+                                    rs.NodeType = SnapshotNodeType.RawElement;
+                                }
+                            }
+                            // Camera
+                            else if (renderable is ICameraRenderable cam)
+                            {
+                                rs.NodeType = SnapshotNodeType.Camera;
+                                rs.Fov = cam.FieldOfView;
+                                rs.NearClip = cam.NearClip;
+                                rs.FarClip = cam.FarClip;
+                                rs.IsCurrentCamera = cam.IsCurrent;
+                            }
+                            // Sprite
+                            else if (renderable is ISpriteRenderable sprite)
+                            {
+                                rs.NodeType = SnapshotNodeType.Sprite;
+                                rs.TextureSource = sprite.Texture?.Source ?? "";
+                                rs.SizeX = sprite.Size.X;
+                                rs.SizeY = sprite.Size.Y;
+                                rs.Tint = sprite.Tint;
+                            }
+                            // SVG
+                            else if (renderable is ISvgRenderable svg)
+                            {
+                                rs.NodeType = SnapshotNodeType.Svg;
+                                rs.SvgContent = svg.SvgContent ?? "";
+                                rs.SizeX = svg.Size.X;
+                                rs.SizeY = svg.Size.Y;
+                                rs.Tint = svg.Tint;
+                            }
+                            // Text
+                            else if (renderable is ITextRenderable text)
+                            {
+                                rs.NodeType = SnapshotNodeType.Text;
+                                rs.TextContent = text.Text ?? "";
+                                rs.TextColor = text.Color;
+                                rs.FontSize = text.FontSize;
+                            }
+                            // Fallback
+                            else
+                            {
+                                rs.NodeType = SnapshotNodeType.RawElement;
+                            }
+
+                            snapshot.Renderables.Add(rs);
+                        }
+                    }
+
+                    if (element.Children != null)
+                        foreach (var child in element.Children)
+                            CaptureRenderables(child);
+                }
+
+                foreach (var root in SelectedWorld.Root.ToArray())
+                    CaptureRenderables(root);
+
+                // ── Audio sources ──
+                void CaptureAudio(IWorldElement element)
+                {
+                    if (element?.Components == null) return;
+                    foreach (var c in element.Components.ToArray())
+                    {
+                        if (c is IAudioSource src)
+                        {
+                            var a = new AudioSourceSnapshot();
+                            a.OwnerElementId = src.Id;
+                            a.Position = src.Position;
+                            a.Volume = src.Volume;
+                            a.Pitch = src.Pitch;
+                            a.MaxDistance = src.MaxDistance;
+                            a.IsPlaying = src.IsPlaying;
+                            a.ClipPath = src.AudioClipPath ?? "";
+                            snapshot.AudioSources.Add(a);
+                        }
+                    }
+                    if (element.Children != null)
+                        foreach (var child in element.Children)
+                            CaptureAudio(child);
+                }
+
+                foreach (var root in SelectedWorld.Root.ToArray())
+                    CaptureAudio(root);
+
+                // ── Audio listener ──
+                var listenerElement = SelectedWorld.FindElementWithComponentRecursive<IAudioListener>();
+                if (listenerElement != null)
+                {
+                    var listenerComp = listenerElement.GetComponent<IAudioListener>();
+                    if (listenerComp != null)
+                    {
+                        snapshot.Listener = new AudioListenerSnapshot
+                        {
+                            Position = listenerComp.Position,
+                            Forward = listenerComp.Forward,
+                            Up = listenerComp.Up,
+                            HasValue = true
+                        };
+                    }
+                }
+            }
+            finally { SelectedWorld.Lock.ExitReadLock(); }
+
+            return snapshot;
         }
 
         private void SetupUI()
@@ -510,7 +692,16 @@ namespace V12.Core
 
         public World LoadArchiveWorld(string path)
         {
-            var world = WorldLoader.LoadFromArchive(path);
+            var resolver = new V12AssetResolver();
+            var templates = new WorldTemplateProvider();
+            var result = WorldLoader.LoadFromArchive(path, resolver, templates);
+            var world = result.World;
+
+            Registry.Register("AssetResolver", resolver);
+            Registry.Register("TemplateProvider", templates);
+            world.ExtractPath = result.TempDirectory;
+            world.MountPoint = result.MountPoint;
+
             Worlds.Add(world);
             SelectedWorld = world;
             return world;

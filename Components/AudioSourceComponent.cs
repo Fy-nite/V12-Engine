@@ -61,8 +61,9 @@ namespace V12.Components
         {
             get
             {
-                var t = Owner?.GetComponent<TransformComponent>();
-                return t != null ? new Vector3(t.X, t.Y, t.Z) : Vector3.Zero;
+                if (Owner == null) return Vector3.Zero;
+                var m = Owner.WorldTransform;
+                return new Vector3(m.M41, m.M42, m.M43);
             }
         }
 

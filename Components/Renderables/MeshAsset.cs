@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 
@@ -141,16 +142,18 @@ namespace V12.Components.Renderables
                     | PostProcessSteps.CalculateTangentSpace
                     | PostProcessSteps.JoinIdenticalVertices;
 
-                var scene = _assimpContext.ImportFile(_assetPath, postProcess);
+                string resolvedPath = V12AssetResolver.ResolveGlobal(_assetPath);
+
+                var scene = _assimpContext.ImportFile(resolvedPath, postProcess);
 
                 if (scene == null || scene.MeshCount == 0)
-                    throw new InvalidOperationException($"No meshes found in asset: {_assetPath}");
+                    throw new InvalidOperationException($"No meshes found in asset: {resolvedPath}");
 
                 return scene;
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException($"Failed to load mesh asset '{_assetPath}'", ex);
+                throw new InvalidOperationException($"Failed to load mesh asset '{_assetPath}' (resolved: {V12AssetResolver.ResolveGlobal(_assetPath)})", ex);
             }
         }
 

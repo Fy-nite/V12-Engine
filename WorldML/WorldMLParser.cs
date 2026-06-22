@@ -3,17 +3,24 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Components;
+using V12.Core.Interfaces;
 
 namespace V12.WorldML
 {
     public class WorldMLParser
     {
+        private static readonly Regex _interpRegex = new(@"\$\{(\w+)\}", RegexOptions.Compiled);
+
+        /// <summary>Optional template provider for <c>template="name"</c> and <c>&lt;Instance&gt;</c> support.</summary>
+        public ITemplateProvider TemplateProvider { get; set; }
+
         /// <summary>
         /// Parse a world description from an XML string.
         /// </summary>
@@ -53,10 +60,30 @@ namespace V12.WorldML
                 var worldName = root.Attributes?["name"]?.Value ?? "World";
                 var world = new Element(worldName);
 
-                // If the root node itself contains element nodes, parse them as world elements.
+                // Collect inline <Templates> before parsing elements
+                if (TemplateProvider is WorldTemplateProvider wtp)
+                {
+                    foreach (XmlNode child in root.ChildNodes)
+                    {
+                        if (child.NodeType != XmlNodeType.Element) continue;
+                        if (string.Equals(child.Name, "Templates", StringComparison.OrdinalIgnoreCase))
+                        {
+                            foreach (XmlNode tmpl in child.ChildNodes)
+                            {
+                                if (tmpl.NodeType != XmlNodeType.Element) continue;
+                                if (string.Equals(tmpl.Name, "Template", StringComparison.OrdinalIgnoreCase))
+                                    wtp.AddInline(tmpl);
+                            }
+                        }
+                    }
+                }
+
+                // Parse root child elements
                 foreach (XmlNode child in root.ChildNodes)
                 {
                     if (child.NodeType != XmlNodeType.Element) continue;
+                    if (string.Equals(child.Name, "Templates", StringComparison.OrdinalIgnoreCase))
+                        continue;
                     var elem = ParseElement(child, world, null);
                 }
 
@@ -91,8 +118,30 @@ namespace V12.WorldML
             var description = node.Attributes?["description"]?.Value;
 
             var element = new Element(name, description, parent);
-            // Add to world registry so it can be found later by systems that iterate Root
             world.AddChild(element);
+
+            // Collect template overrides (everything except name/description/template)
+            var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (node.Attributes != null)
+            {
+                foreach (XmlAttribute attr in node.Attributes)
+                {
+                    if (string.Equals(attr.Name, "name", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(attr.Name, "description", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(attr.Name, "template", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    overrides[attr.Name] = attr.Value;
+                }
+            }
+
+            // If this element has a template, expand it first
+            bool hasTemplateAttr = false;
+            string templateName = node.Attributes?["template"]?.Value;
+            if (!string.IsNullOrEmpty(templateName) && TemplateProvider != null)
+            {
+                hasTemplateAttr = true;
+                ExpandTemplate(templateName, overrides, element, world);
+            }
 
             var deferredList = new List<DeferredPropertySet>();
 
@@ -102,6 +151,27 @@ namespace V12.WorldML
                 if (child.NodeType != XmlNodeType.Element) continue;
 
                 var childName = child.Name;
+
+                // <Instance template="name" /> — inline template expansion
+                if (string.Equals(childName, "Instance", StringComparison.OrdinalIgnoreCase))
+                {
+                    string instTmpl = child.Attributes?["template"]?.Value;
+                    if (!string.IsNullOrEmpty(instTmpl) && TemplateProvider != null)
+                    {
+                        var instOverrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        if (child.Attributes != null)
+                        {
+                            foreach (XmlAttribute attr in child.Attributes)
+                            {
+                                if (string.Equals(attr.Name, "template", StringComparison.OrdinalIgnoreCase))
+                                    continue;
+                                instOverrides[attr.Name] = attr.Value;
+                            }
+                        }
+                        ExpandTemplate(instTmpl, instOverrides, element, world);
+                    }
+                    continue;
+                }
 
                 if (string.Equals(childName, "Component", StringComparison.OrdinalIgnoreCase)
                     || childName.EndsWith("Component", StringComparison.OrdinalIgnoreCase))
@@ -125,7 +195,6 @@ namespace V12.WorldML
                 if (refComp != null && ds.Property.PropertyType.IsAssignableFrom(refComp.GetType()))
                 {
                     ds.Property.SetValue(ds.Target, refComp);
-                    //Console.WriteLine($"[WorldMLParser] Resolved deferred property {ds.Property.Name} to component {ds.ComponentName} on {element.Name}");
                 }
                 else if (refComp == null)
                 {
@@ -134,6 +203,67 @@ namespace V12.WorldML
             }
 
             return element;
+        }
+
+        private void ExpandTemplate(string templateName, Dictionary<string, string> overrides, Element parent, Element world)
+        {
+            var tmplDoc = TemplateProvider.GetTemplate(templateName);
+            if (tmplDoc == null)
+            {
+                Console.WriteLine($"[WorldMLParser] WARNING: Template '{templateName}' not found.");
+                return;
+            }
+
+            var tmplRoot = tmplDoc.DocumentElement;
+            if (tmplRoot == null) return;
+
+            foreach (XmlNode tmplChild in tmplRoot.ChildNodes)
+            {
+                if (tmplChild.NodeType != XmlNodeType.Element) continue;
+                var clone = tmplChild.CloneNode(true);
+                ApplyInterpolation(clone, overrides);
+                ParseElement(clone, world, parent);
+            }
+        }
+
+        private static void ApplyInterpolation(XmlNode node, Dictionary<string, string> overrides)
+        {
+            if (node.Attributes != null)
+            {
+                var attrsToUpdate = new List<(XmlAttribute, string)>();
+                foreach (XmlAttribute attr in node.Attributes)
+                {
+                    var result = InterpolateString(attr.Value, overrides);
+                    if (result != attr.Value)
+                        attrsToUpdate.Add((attr, result));
+                }
+                foreach (var (attr, newVal) in attrsToUpdate)
+                    attr.Value = newVal;
+            }
+
+            foreach (XmlNode child in node.ChildNodes)
+            {
+                if (child.NodeType == XmlNodeType.Element)
+                    ApplyInterpolation(child, overrides);
+                else if (child.NodeType == XmlNodeType.Text)
+                {
+                    var result = InterpolateString(child.Value, overrides);
+                    if (result != child.Value)
+                        child.Value = result;
+                }
+            }
+        }
+
+        private static string InterpolateString(string input, Dictionary<string, string> overrides)
+        {
+            if (string.IsNullOrEmpty(input) || !input.Contains("${"))
+                return input;
+
+            return _interpRegex.Replace(input, match =>
+            {
+                var name = match.Groups[1].Value;
+                return overrides.TryGetValue(name, out var val) ? val : "0";
+            });
         }
 
         /// <summary>

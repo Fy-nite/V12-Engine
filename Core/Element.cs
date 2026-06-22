@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Numerics;
 using System.Text;
+using System.Threading;
+using V12.Components;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 using V12.Core.NetworkCable;
@@ -23,20 +25,55 @@ namespace V12.Core
         public List<IWorldElement> Children { get; } = new List<IWorldElement>();
         public bool Active { get; set; } = true;
 
-        public TRS LocalTransform => throw new NotImplementedException();
+        private TRS _localTransform = new TRS
+        {
+            Position = Vector3.Zero,
+            Rotation = Quaternion.Identity,
+            Scale = Vector3.One
+        };
 
-        public Matrix4x4 WorldTransform => throw new NotImplementedException();
+        public TRS LocalTransform
+        {
+            get
+            {
+                var tc = GetComponent<TransformComponent>();
+                if (tc != null)
+                {
+                    var sc = GetComponent<ScaleComponent>();
+                    return new TRS
+                    {
+                        Position = new Vector3(tc.X, tc.Y, tc.Z),
+                        Rotation = Quaternion.CreateFromYawPitchRoll(tc.RY, tc.RX, tc.RZ),
+                        Scale = sc != null ? new Vector3(sc.ScaleX, sc.ScaleY, sc.ScaleZ) : Vector3.One
+                    };
+                }
+                return _localTransform;
+            }
+            set
+            {
+                _localTransform = value;
+            }
+        }
+
+        public Matrix4x4 WorldTransform
+        {
+            get
+            {
+                var lt = LocalTransform;
+                var local = Matrix4x4.CreateScale(lt.Scale)
+                          * Matrix4x4.CreateFromQuaternion(lt.Rotation)
+                          * Matrix4x4.CreateTranslation(lt.Position);
+                if (Parent != null)
+                    return local * Parent.WorldTransform;
+                return local;
+            }
+        }
 
         private static long _nextElementId = 0;
 
-        private long _nextId = 1;
-
-        private long NextElementID()
+        private static long NextElementID()
         {
-            while (GameRoot.Instance.SelectedWorld._elementsById.ContainsKey(_nextId))
-                _nextId++;
-
-            return _nextId++;
+            return Interlocked.Increment(ref _nextElementId);
         }
         private static void Traverse(IWorldElement element, ref long maxId)
         {
@@ -50,8 +87,6 @@ namespace V12.Core
             foreach (var child in element.Children)
                 Traverse(child, ref maxId);
         }
-
-        //return System.Threading.Interlocked.Increment(ref _nextElementId); 
 
 
         public Element(string? name = null, string? description = null, IWorldElement? parent = null)
@@ -70,31 +105,57 @@ namespace V12.Core
         public void AddChild(IWorldElement child)
         {
             if (child == null) return;
-            child.Parent = this;
-            if (!Children.Contains(child))
-                Children.Add(child);
-            GameRoot.Instance.SelectedWorld._elementsById[child.Id] = child;
+            var world = GameRoot.Instance?.SelectedWorld;
+            world?.Lock.EnterWriteLock();
+            try
+            {
+                child.Parent = this;
+                if (!Children.Contains(child))
+                    Children.Add(child);
+                if (world != null)
+                    world._elementsById[child.Id] = child;
+            }
+            finally { world?.Lock.ExitWriteLock(); }
         }
 
         public void RemoveChild(IWorldElement child)
         {
             if (child == null) return;
-            if (Children.Remove(child))
-                child.Parent = null;
-            GameRoot.Instance.SelectedWorld._elementsById.Remove(child.Id);
+            var world = GameRoot.Instance?.SelectedWorld;
+            world?.Lock.EnterWriteLock();
+            try
+            {
+                if (Children.Remove(child))
+                    child.Parent = null;
+                if (world != null)
+                    world._elementsById.Remove(child.Id);
+            }
+            finally { world?.Lock.ExitWriteLock(); }
         }
 
         public IComponent AddComponent(IComponent component)
         {
-            component.OnAttach(this);
-            Components.Add(component);
-            component.MarkDirty();
+            var world = GameRoot.Instance?.SelectedWorld;
+            world?.Lock.EnterWriteLock();
+            try
+            {
+                component.OnAttach(this);
+                Components.Add(component);
+                component.MarkDirty();
+            }
+            finally { world?.Lock.ExitWriteLock(); }
             return component;
         }
         public void RemoveComponent(IComponent component)
         {
-            Components.Remove(component);
-            component.OnDetach(this);
+            var world = GameRoot.Instance?.SelectedWorld;
+            world?.Lock.EnterWriteLock();
+            try
+            {
+                Components.Remove(component);
+                component.OnDetach(this);
+            }
+            finally { world?.Lock.ExitWriteLock(); }
         }
         public IComponent GetComponent(string name)
         {
@@ -123,6 +184,15 @@ namespace V12.Core
                 if (found != null) return found;
             }
             return null;
+        }
+
+        public T? GetComponent<T>() where T : IComponent
+        {
+            foreach (var component in Components)
+            {
+                if (component is T t) return t;
+            }
+            return default;
         }
 
         public T? GetComponent<T>(string name) where T : IComponent

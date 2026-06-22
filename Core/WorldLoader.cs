@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.IO.Compression;
-using V12.Core;
+using V12.Core.Interfaces;
 using V12.WorldML;
 
 namespace V12.Core
@@ -10,25 +10,83 @@ namespace V12.Core
     {
         public static World LoadFromArchive(string archivePath)
         {
+            var resolver = new V12AssetResolver();
+            var templates = new WorldTemplateProvider();
+            return LoadFromArchive(archivePath, resolver, templates).World;
+        }
+
+        public static WorldLoadResult LoadFromArchive(string archivePath, IAssetResolver resolver, ITemplateProvider templates)
+        {
             if (!File.Exists(archivePath))
                 throw new FileNotFoundException($"Archive not found: {archivePath}");
 
-            string tempDir = Path.Combine(Path.GetTempPath(), "V12Worlds", Path.GetFileNameWithoutExtension(archivePath) + "_" + Guid.NewGuid().ToString("N"));
+            string worldName = Path.GetFileNameWithoutExtension(archivePath);
+            string tempDir = Path.Combine(
+                Path.GetTempPath(), "V12Worlds",
+                worldName + "_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
-            
+
             ZipFile.ExtractToDirectory(archivePath, tempDir);
-            
-            string mainXmlPath = Path.Combine(tempDir, "main.xml");
+
+            // Mount the temp directory as v12://{worldName}
+            resolver.Mount(worldName, tempDir);
+
+            // Load templates from templates/ folder if present
+            string templatesDir = Path.Combine(tempDir, "templates");
+            if (templates is WorldTemplateProvider wtp)
+                wtp.LoadFromDirectory(templatesDir);
+
+            // Parse main.xml
+            string mainXmlPath = Path.Combine(tempDir, "world.xml");
             if (!File.Exists(mainXmlPath))
             {
-                throw new FileNotFoundException($"Could not find main.xml in archive: {archivePath}");
+                mainXmlPath = Path.Combine(tempDir, "main.xml");
+                if (!File.Exists(mainXmlPath))
+                {
+                    resolver.Unmount(worldName);
+                    Directory.Delete(tempDir, true);
+                    throw new FileNotFoundException($"Could not find world.xml or main.xml in archive: {archivePath}");
+                }
             }
-            
+
+            // Set the template provider on the parser
             var parser = new WorldMLParser();
-            var worldcontents = parser.ParseFile(mainXmlPath);
-            var world = new World(worldcontents.Name);
-            world.AddElement(worldcontents);
-            return world;
+            if (templates != null)
+                parser.TemplateProvider = templates;
+
+            var worldContents = parser.ParseFile(mainXmlPath);
+            var world = new World(worldContents.Name ?? worldName)
+            {
+                ExtractPath = tempDir,
+                MountPoint = worldName
+            };
+            world.AddElement(worldContents);
+
+            return new WorldLoadResult
+            {
+                World = world,
+                TempDirectory = tempDir,
+                MountPoint = worldName
+            };
         }
+
+        public static void Cleanup(World world, IAssetResolver resolver)
+        {
+            if (!string.IsNullOrEmpty(world.MountPoint))
+                resolver?.Unmount(world.MountPoint);
+
+            if (!string.IsNullOrEmpty(world.ExtractPath) && Directory.Exists(world.ExtractPath))
+            {
+                try { Directory.Delete(world.ExtractPath, true); }
+                catch { /* best effort */ }
+            }
+        }
+    }
+
+    public class WorldLoadResult
+    {
+        public World World { get; set; }
+        public string TempDirectory { get; set; }
+        public string MountPoint { get; set; }
     }
 }

@@ -14,8 +14,9 @@ namespace V12.Components
         {
             get
             {
-                var t = Owner?.GetComponent<TransformComponent>();
-                return t != null ? new Vector3(t.X, t.Y, t.Z) : Vector3.Zero;
+                if (Owner == null) return Vector3.Zero;
+                var m = Owner.WorldTransform;
+                return new Vector3(m.M41, m.M42, m.M43);
             }
         }
 
@@ -23,13 +24,10 @@ namespace V12.Components
         {
             get
             {
-                float yaw = GetEffectiveYaw();
-                float pitch = GetEffectivePitch();
-                return Vector3.Normalize(new Vector3(
-                    MathF.Cos(pitch) * MathF.Sin(yaw),
-                    MathF.Sin(pitch),
-                    MathF.Cos(pitch) * MathF.Cos(yaw)
-                ));
+                if (Owner == null) return -Vector3.UnitZ;
+                var m = Owner.WorldTransform;
+                var fwd = new Vector3(m.M31, m.M32, m.M33);
+                return fwd.LengthSquared() > 0.0001f ? Vector3.Normalize(fwd) : -Vector3.UnitZ;
             }
         }
 
@@ -37,34 +35,11 @@ namespace V12.Components
         {
             get
             {
-                float yaw = GetEffectiveYaw();
-                float pitch = GetEffectivePitch();
-                var fwd = new Vector3(
-                    MathF.Cos(pitch) * MathF.Sin(yaw),
-                    MathF.Sin(pitch),
-                    MathF.Cos(pitch) * MathF.Cos(yaw)
-                );
-                var right = Vector3.Normalize(Vector3.Cross(fwd, Vector3.UnitY));
-                return Vector3.Normalize(Vector3.Cross(right, fwd));
+                if (Owner == null) return Vector3.UnitY;
+                var m = Owner.WorldTransform;
+                var up = new Vector3(m.M21, m.M22, m.M23);
+                return up.LengthSquared() > 0.0001f ? Vector3.Normalize(up) : Vector3.UnitY;
             }
-        }
-
-        private float GetEffectiveYaw()
-        {
-            var t = Owner?.GetComponent<TransformComponent>();
-            float yaw = t?.RY ?? 0f;
-            if (Owner?.Parent != null)
-            {
-                var parentT = Owner.Parent.GetComponent<TransformComponent>();
-                if (parentT != null)
-                    yaw += parentT.RY;
-            }
-            return yaw;
-        }
-
-        private float GetEffectivePitch()
-        {
-            return Owner?.GetComponent<TransformComponent>()?.RX ?? 0f;
         }
 
         public AudioListenerComponent() { }

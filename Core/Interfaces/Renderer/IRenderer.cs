@@ -1,5 +1,6 @@
 using System;
 using V12.Core.Interfaces.Renderer;
+using V12.Core.Rendering;
 
 namespace V12.Core.Interfaces
 {
@@ -22,6 +23,12 @@ namespace V12.Core.Interfaces
         int GetScreenWidth();
         int GetScreenHeight();
         void step();
+
+        /// <summary>
+        /// Process a frame snapshot produced by <see cref="GameRoot.CaptureFrame"/>.
+        /// Called on the Godot main thread; creates/updates/destroys scene nodes.
+        /// </summary>
+        void ApplySnapshot(FrameSnapshot snapshot);
 
     }
 }

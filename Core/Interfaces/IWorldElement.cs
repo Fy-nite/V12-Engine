@@ -138,7 +138,6 @@ namespace V12.Core.Core.Interfaces
             child.Parent = this;
             if (!Children.Contains(child))
                 Children.Add(child);
-            GameRoot.Instance.SelectedWorld._elementsById[child.Id] = child;
         }
 
         public void RemoveChild(IWorldElement child)
@@ -146,7 +145,6 @@ namespace V12.Core.Core.Interfaces
             if (child == null) return;
             if (Children.Remove(child))
                 child.Parent = null;
-            GameRoot.Instance.SelectedWorld._elementsById.Remove(child.Id);
         }
 
         /// <summary>
