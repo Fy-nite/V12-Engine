@@ -288,6 +288,19 @@ namespace V12.Core
                                     rs.MeshDepth = mc.Depth;
                                     rs.MeshPoints = mc.MeshPoints;
                                     rs.MeshIndices = mc.Indices;
+
+                                    // Capture MaterialComponent if present on the same element
+                                    var matComp = element.GetComponent<V12.Components.MaterialComponent>();
+                                    if (matComp != null)
+                                    {
+                                        rs.MatR = matComp.R;
+                                        rs.MatG = matComp.G;
+                                        rs.MatB = matComp.B;
+                                        rs.MatA = matComp.A;
+                                        rs.MatMetallic = matComp.Metallic;
+                                        rs.MatRoughness = matComp.Roughness;
+                                        rs.MatTexturePath = matComp.PrimaryTexture ?? "";
+                                    }
                                 }
                                 else
                                 {

@@ -7,6 +7,8 @@ namespace V12.Components
     /// <summary>
     /// Describes the surface appearance of an element: colour (RGBA) and PBR parameters.
     /// R/G/B/A are in the 0–1 range. Metallic and Roughness are also 0–1.
+    /// Texture paths are relative (e.g. "textures/crate.png") and resolved against the
+    /// owning world's V12:// mount point at render time.
     /// </summary>
     public class MaterialComponent : ComponentBase
     {
@@ -17,6 +19,11 @@ namespace V12.Components
         private float _metallic = 0f;
         private float _roughness = 0.5f;
         private string? _textureUrl;
+        private string? _albedoTexture;
+        private string? _normalTexture;
+        private string? _metallicTexture;
+        private string? _roughnessTexture;
+        private string? _emissionTexture;
 
         public override string Name        => "Material";
         public override string Description => "Surface colour and PBR properties";
@@ -25,6 +32,36 @@ namespace V12.Components
         {
             get => _textureUrl;
             set { _textureUrl = value; MarkDirty(); }
+        }
+
+        public string? AlbedoTexture
+        {
+            get => _albedoTexture;
+            set { _albedoTexture = value; MarkDirty(); }
+        }
+
+        public string? NormalTexture
+        {
+            get => _normalTexture;
+            set { _normalTexture = value; MarkDirty(); }
+        }
+
+        public string? MetallicTexture
+        {
+            get => _metallicTexture;
+            set { _metallicTexture = value; MarkDirty(); }
+        }
+
+        public string? RoughnessTexture
+        {
+            get => _roughnessTexture;
+            set { _roughnessTexture = value; MarkDirty(); }
+        }
+
+        public string? EmissionTexture
+        {
+            get => _emissionTexture;
+            set { _emissionTexture = value; MarkDirty(); }
         }
 
         public float R
@@ -65,12 +102,15 @@ namespace V12.Components
             _metallic = Clamp01(metallic); _roughness = Clamp01(roughness);
         }
 
+        public string? PrimaryTexture =>
+            AlbedoTexture ?? NormalTexture ?? MetallicTexture ?? RoughnessTexture ?? EmissionTexture ?? TextureUrl;
+
         private static float Clamp01(float v) => Math.Max(0f, Math.Min(1f, v));
         public override IWorldElement BuildUI()
         {
             return new Element();
         }
         public override string ToString() =>
-            $"Material(RGBA:{R:F2},{G:F2},{B:F2},{A:F2} M:{Metallic:F2} R:{Roughness:F2})";
+            $"Material(RGBA:{R:F2},{G:F2},{B:F2},{A:F2} M:{Metallic:F2} R:{Roughness:F2} Tex:{PrimaryTexture})";
     }
 }

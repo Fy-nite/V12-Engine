@@ -61,6 +61,25 @@ namespace V12.Core
             return uri;
         }
 
+        /// <summary>Resolve a relative path (e.g. "textures/crate.png") against the default mount point.
+        /// Returns the original path if no default mount is set.</summary>
+        public string ResolveRelative(string relativePath)
+        {
+            if (string.IsNullOrEmpty(relativePath)) return relativePath;
+            if (_defaultMount != null && _mounts.TryGetValue(_defaultMount, out string basePath))
+            {
+                var combined = Path.Combine(basePath, relativePath);
+                if (File.Exists(combined)) return combined;
+            }
+            // Fallback: try the first available mount
+            foreach (var kv in _mounts)
+            {
+                var combined = Path.Combine(kv.Value, relativePath);
+                if (File.Exists(combined)) return combined;
+            }
+            return relativePath;
+        }
+
         public Stream Open(string uri)
         {
             string resolved = Resolve(uri);

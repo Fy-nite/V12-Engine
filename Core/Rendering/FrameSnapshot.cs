@@ -43,6 +43,15 @@ namespace V12.Core.Rendering
         public double[] MeshPoints;
         public uint[] MeshIndices;
 
+        // Material properties (PBR)
+        public float MatR;
+        public float MatG;
+        public float MatB;
+        public float MatA;
+        public float MatMetallic;
+        public float MatRoughness;
+        public string MatTexturePath;
+
         // Sprite / SVG
         public string TextureSource;
         public float SizeX;

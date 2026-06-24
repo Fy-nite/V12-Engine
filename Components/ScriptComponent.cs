@@ -70,6 +70,7 @@ namespace V12.Components
                 else return;
 
                 Runtime.Load(code, Source ?? "inline");
+                Runtime.Call("on_init");
                 IsInitialized = true;
             }
             catch (Exception ex)
