@@ -3,8 +3,7 @@
   <PropertyGroup>
 	<OutputType>library</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <!-- <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable> -->
+    <Nullable>enable</Nullable>
     <LangVersion>10.0</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
@@ -33,7 +32,6 @@
   <PackageReference Include="AssimpNetter" Version="6.0.4" />
   <PackageReference Include="LiteNetLib" Version="1.1.0" />
   <PackageReference Include="MongoDB.Bson" Version="2.25.0" />
-  <PackageReference Include="System.Text.Json" Version="7.0.2" />
   <PackageReference Include="BepuPhysics" Version="2.5.0-beta.29" />
   <PackageReference Include="MoonSharp" Version="2.0.0" />
   </ItemGroup>

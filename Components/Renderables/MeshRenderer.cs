@@ -36,10 +36,11 @@ namespace V12.Components.Renderables
                              * Matrix4x4.CreateFromYawPitchRoll(t.RY, t.RX, t.RZ)
                              * Matrix4x4.CreateTranslation(t.X, t.Y, t.Z);
                     }
-                    else if (Mesh != null)
-                    {
-                        return scale * Mesh.Transform;
-                    }
+                    // Fallback: use Element's LocalTransform
+                    var lt = Owner.LocalTransform;
+                    return scale
+                         * Matrix4x4.CreateFromQuaternion(lt.Rotation)
+                         * Matrix4x4.CreateTranslation(lt.Position);
                 }
                 return Mesh?.Transform ?? Matrix4x4.Identity;
             }

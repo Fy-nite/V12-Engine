@@ -7,6 +7,6 @@ namespace V12.Core.Interfaces.Renderer
 {
     public interface ISpatial
     {
-        Matrix4x4 WorldTransform { get; }
+        public Matrix4x4 WorldTransform { get; }
     }
 }

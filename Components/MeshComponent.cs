@@ -65,6 +65,18 @@ namespace V12.Components
             set { if (Math.Abs(_depth - value) > 0.0001f) { _depth = value; InvalidateCache(); MarkDirty(); } }
         }
 
+        public override void OnAttach(IWorldElement element)
+        {
+            base.OnAttach(element);
+            var collider = element.GetComponent<ColliderComponent>();
+            if (collider != null)
+            {
+                _width = collider.Width;
+                _height = collider.Height;
+                _depth = collider.Depth;
+            }
+        }
+
         public RenderType RenderType => RenderType.Mesh;
 
         public double[] MeshPoints => Shape == MeshShape.Custom && CustomMeshPoints != null ? CustomMeshPoints : (_meshPoints ??= GenerateMeshPoints());
@@ -88,10 +100,15 @@ namespace V12.Components
 
                     if (t != null)
                     {
-                        return Matrix4x4.CreateScale(scaleX, scaleY, scaleZ) 
+                        return Matrix4x4.CreateScale(scaleX, scaleY, scaleZ)
                              * Matrix4x4.CreateFromYawPitchRoll(t.RY, t.RX, t.RZ)
                              * Matrix4x4.CreateTranslation(t.X, t.Y, t.Z);
                     }
+                    // Fallback: use Element's LocalTransform
+                    var lt = Owner.LocalTransform;
+                    return Matrix4x4.CreateScale(scaleX, scaleY, scaleZ)
+                         * Matrix4x4.CreateFromQuaternion(lt.Rotation)
+                         * Matrix4x4.CreateTranslation(lt.Position);
                 }
                 return Matrix4x4.Identity;
             }
