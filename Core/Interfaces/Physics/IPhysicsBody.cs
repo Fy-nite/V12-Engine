@@ -7,6 +7,8 @@ namespace V12.Core.Interfaces.Physics
         Vector3 Position { get; set; }
         Quaternion Rotation { get; set; }
         Vector3 LinearVelocity { get; set; }
+        bool IsDynamic { get; }
         void AddForce(Vector3 force);
+        void SetKinematic(bool kinematic);
     }
 }
