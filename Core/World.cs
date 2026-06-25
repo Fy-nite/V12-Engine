@@ -114,18 +114,28 @@ namespace V12.Core
             {
                 foreach (var element in Root.ToArray())
                 {
-                    try
-                    {
-                        foreach (var component in element.Components.ToArray())
-                            component.Update(deltaTime);
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine($"Error updating element {element.Name}: {e.Message}"); Console.WriteLine(e);
-                    }
+                    UpdateElementRecursive(element, deltaTime);
                 }
             }
             finally { Lock.ExitReadLock(); }
+        }
+
+        private void UpdateElementRecursive(IWorldElement element, float deltaTime)
+        {
+            try
+            {
+                foreach (var component in element.Components.ToArray())
+                    component.Update(deltaTime);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"Error updating element {element.Name}: {e.Message}"); Console.WriteLine(e);
+            }
+
+            foreach (var child in element.Children.ToArray())
+            {
+                UpdateElementRecursive(child, deltaTime);
+            }
         }
     }
 }

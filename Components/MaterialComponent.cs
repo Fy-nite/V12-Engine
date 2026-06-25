@@ -24,6 +24,10 @@ namespace V12.Components
         private string? _metallicTexture;
         private string? _roughnessTexture;
         private string? _emissionTexture;
+        private float _uv1OffsetX;
+        private float _uv1OffsetY;
+        private float _uv1ScaleX = 1f;
+        private float _uv1ScaleY = 1f;
 
         public override string Name        => "Material";
         public override string Description => "Surface colour and PBR properties";
@@ -93,6 +97,27 @@ namespace V12.Components
         {
             get => _roughness;
             set { if (Math.Abs(_roughness - value) > 0.001f) { _roughness = Clamp01(value); MarkDirty(); } }
+        }
+
+        public float Uv1OffsetX
+        {
+            get => _uv1OffsetX;
+            set { if (Math.Abs(_uv1OffsetX - value) > 0.001f) { _uv1OffsetX = value; MarkDirty(); } }
+        }
+        public float Uv1OffsetY
+        {
+            get => _uv1OffsetY;
+            set { if (Math.Abs(_uv1OffsetY - value) > 0.001f) { _uv1OffsetY = value; MarkDirty(); } }
+        }
+        public float Uv1ScaleX
+        {
+            get => _uv1ScaleX;
+            set { if (Math.Abs(_uv1ScaleX - value) > 0.001f) { _uv1ScaleX = value; MarkDirty(); } }
+        }
+        public float Uv1ScaleY
+        {
+            get => _uv1ScaleY;
+            set { if (Math.Abs(_uv1ScaleY - value) > 0.001f) { _uv1ScaleY = value; MarkDirty(); } }
         }
 
         public MaterialComponent() { }

@@ -25,6 +25,7 @@ namespace V12.Components
 
         public override void Update(float deltaTime)
         {
+            Console.WriteLine("Updating");
             if (!Active || Owner == null) return;
 
             var root = GameRoot.Instance;
@@ -52,7 +53,7 @@ namespace V12.Components
                     rot = provider.HeadOrientation;
                     break;
             }
-
+            Console.WriteLine($"POS {pos}, ROT {rot}");
             var lt = new TRS { Position = pos, Rotation = rot, Scale = Scale };
             if (lt.Position != _prevTransform.Position || lt.Rotation != _prevTransform.Rotation)
             {

@@ -300,6 +300,10 @@ namespace V12.Core
                                         rs.MatMetallic = matComp.Metallic;
                                         rs.MatRoughness = matComp.Roughness;
                                         rs.MatTexturePath = matComp.PrimaryTexture ?? "";
+                                        rs.MatUvOffsetX = matComp.Uv1OffsetX;
+                                        rs.MatUvOffsetY = matComp.Uv1OffsetY;
+                                        rs.MatUvScaleX = matComp.Uv1ScaleX;
+                                        rs.MatUvScaleY = matComp.Uv1ScaleY;
                                     }
                                 }
                                 else
@@ -573,7 +577,7 @@ namespace V12.Core
                             if (uiBuilder != null)
                             {
                                 var d = new V12.Core.UI.DefaultDashboard();
-                                d.Initialize(uiBuilder);
+                                d.Initialize(uiBuilder, this);
                                 _dashboard = d;
                                 // register so future lookups find it
                                 Registry.Register("Dashboard", _dashboard);

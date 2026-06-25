@@ -51,6 +51,10 @@ namespace V12.Core.Rendering
         public float MatMetallic;
         public float MatRoughness;
         public string MatTexturePath;
+        public float MatUvOffsetX;
+        public float MatUvOffsetY;
+        public float MatUvScaleX;
+        public float MatUvScaleY;
 
         // Sprite / SVG
         public string TextureSource;

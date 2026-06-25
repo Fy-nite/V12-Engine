@@ -66,18 +66,26 @@ namespace V12.Core
         public string ResolveRelative(string relativePath)
         {
             if (string.IsNullOrEmpty(relativePath)) return relativePath;
+            string cleanPath = StripResPrefix(relativePath);
             if (_defaultMount != null && _mounts.TryGetValue(_defaultMount, out string basePath))
             {
-                var combined = Path.Combine(basePath, relativePath);
+                var combined = Path.Combine(basePath, cleanPath);
                 if (File.Exists(combined)) return combined;
             }
             // Fallback: try the first available mount
             foreach (var kv in _mounts)
             {
-                var combined = Path.Combine(kv.Value, relativePath);
+                var combined = Path.Combine(kv.Value, cleanPath);
                 if (File.Exists(combined)) return combined;
             }
             return relativePath;
+        }
+
+        private static string StripResPrefix(string path)
+        {
+            if (path.StartsWith("res://", StringComparison.OrdinalIgnoreCase))
+                return path.Substring(6).TrimStart('/');
+            return path;
         }
 
         public Stream Open(string uri)

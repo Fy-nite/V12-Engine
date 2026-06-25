@@ -12,7 +12,26 @@ namespace V12.Core
         {
             var resolver = new V12AssetResolver();
             var templates = new WorldTemplateProvider();
-            return LoadFromArchive(archivePath, resolver, templates).World;
+            var result = LoadFromArchive(archivePath, resolver, templates);
+            var world = result.World;
+            world.ExtractPath = result.TempDirectory;
+            world.MountPoint = result.MountPoint;
+
+            var root = GameRoot.Instance;
+            if (root != null)
+            {
+                root.Registry?.Register("AssetResolver", resolver);
+                root.Registry?.Register("TemplateProvider", templates);
+                if (!root.Worlds.Contains(world))
+                    root.Worlds.Add(world);
+                Console.WriteLine($"[WorldLoader] Registered resolver, added world '{world.WorldName}' (Worlds count={root.Worlds.Count})");
+            }
+            else
+            {
+                Console.Error.WriteLine("[WorldLoader] CRITICAL: GameRoot.Instance is NULL — resolver NOT registered");
+            }
+
+            return world;
         }
 
         public static WorldLoadResult LoadFromArchive(string archivePath, IAssetResolver resolver, ITemplateProvider templates)
