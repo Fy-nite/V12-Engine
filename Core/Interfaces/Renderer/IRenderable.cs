@@ -15,8 +15,15 @@ namespace V12.Core.Interfaces.Renderer
     public struct TRS
     {
         public Vector3 Position;
-        public Quaternion Rotation;
-        public Vector3 Scale;
+        public Quaternion Rotation = Quaternion.Identity;
+        public Vector3 Scale = Vector3.One;
+        
+        public TRS(Vector3? position = null, Quaternion? rotation = null, Vector3? scale = null)
+        {
+            Position = position ?? Vector3.Zero;
+            Rotation = rotation ?? Quaternion.Identity;
+            Scale = scale ?? Vector3.One;
+        }
     }
     public enum RenderType
     {
