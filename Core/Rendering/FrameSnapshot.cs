@@ -13,6 +13,9 @@ namespace V12.Core.Rendering
         LightSpot,
         MeshBox,
         MeshSphere,
+        MeshCapsule,
+        MeshCylinder,
+        MeshPlane,
         MeshCustom,
         Sprite,
         Svg,
@@ -27,6 +30,8 @@ namespace V12.Core.Rendering
         public string Name;
         public SnapshotNodeType NodeType;
         public Matrix4x4 Transform;
+        public Matrix4x4 LocalTransform;
+        public bool HasLocalTransform;
         public bool IsWorldLocked;
 
         // Light properties

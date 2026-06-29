@@ -80,8 +80,9 @@ namespace V12.Core
             var inputService = new V12.Core.Input.InputService();
             Registry.Register("InputService", inputService);
      
-            // VRInputProvider is NOT registered here — VR projects register
-            // their own IVRInputProvider when VR mode is active.
+            // XRTrackingService is registered by the renderer (e.g. TwoDog)
+            // when XR mode is active. PlayerComponent finds head/hand elements
+            // by looking for XRHeadComponent / XRHandComponent on children.
             // Register a default in-engine UIBuilder so dashboards can build
             // UI as world elements which frontends will sync and render.
             try
@@ -227,142 +228,223 @@ namespace V12.Core
             try
             {
                 // ── Walk tree for renderables ──
-                void CaptureRenderables(IWorldElement element)
+                void CaptureRenderables(IWorldElement element, HashSet<long> renderedElementIds)
                 {
                     if (element?.Components == null) return;
 
-                    // Snapshot every IRenderable component on this element
-                    foreach (var c in element.Components.ToArray())
+                    // Determine which components to snapshot (avoid duplicates per element)
+                    bool hasMeshRenderer = false;
+                    bool hasOtherRenderable = false;
+                    TransformComponent transformComp = null;
+                    IRenderable primaryRenderable = null;
+                    foreach (var c in element.Components)
                     {
-                        if (c is IRenderable renderable)
+                        if (c is TransformComponent tc)
+                            transformComp = tc;
+                        else if (c is V12.Components.Renderables.MeshRenderer)
+                            hasMeshRenderer = hasOtherRenderable = true;
+                        else if (c is IRenderable)
+                            hasOtherRenderable = true;
+                    }
+
+                    // Pick the primary renderable: prefer non-Transform if one exists
+                    foreach (var c in element.Components)
+                    {
+                        if (c is IRenderable r)
                         {
-                            var rs = new RenderableSnapshot();
-                            rs.ElementId = renderable.Id;
-                            rs.Name = renderable.Name ?? "";
-
-                            // ParentId for Godot node parenting
-                            if (renderable is ComponentBase cb && cb.Owner?.Parent != null)
-                                rs.ParentId = cb.Owner.Parent.Id;
-
-                            // Transform — replicate the renderer's own decision
-                            rs.Transform = renderable is ITransformRenderable tr
-                                ? tr.Transform
-                                : renderable.WorldTransform;
-                            rs.IsWorldLocked = renderable is ITransformRenderable itr && itr.IsWorldLocked;
-
-                            // Light
-                            if (renderable is ILightRenderable light)
-                            {
-                                switch (light.Type)
-                                {
-                                    case LightType.Directional: rs.NodeType = SnapshotNodeType.LightDirectional; break;
-                                    case LightType.Spot:        rs.NodeType = SnapshotNodeType.LightSpot; break;
-                                    default:                    rs.NodeType = SnapshotNodeType.LightPoint; break;
-                                }
-                                rs.LightColor = light.Color;
-                                rs.LightIntensity = light.Intensity;
-                                rs.LightRange = light.Range;
-                                rs.LightAngle = light.Angle;
-                                rs.LightSpotSoftness = light.SpotSoftness;
-                            }
-                            // Mesh
-                            else if (renderable is IMeshRenderable mesh)
-                            {
-                                MeshComponent mc = null;
-                                if (mesh is MeshComponent mcDirect)
-                                    mc = mcDirect;
-                                else if (mesh is MeshRenderer mr && mr.Mesh is MeshComponent mcWrap)
-                                    mc = mcWrap;
-
-                                if (mc != null)
-                                {
-                                    switch (mc.Shape)
-                                    {
-                                        case MeshShape.Box:      rs.NodeType = SnapshotNodeType.MeshBox; break;
-                                        case MeshShape.Sphere:   rs.NodeType = SnapshotNodeType.MeshSphere; break;
-                                        case MeshShape.Custom:   rs.NodeType = SnapshotNodeType.MeshCustom; break;
-                                        default:                 rs.NodeType = SnapshotNodeType.MeshBox; break;
-                                    }
-                                    rs.MeshWidth = mc.Width;
-                                    rs.MeshHeight = mc.Height;
-                                    rs.MeshDepth = mc.Depth;
-                                    rs.MeshPoints = mc.MeshPoints;
-                                    rs.MeshIndices = mc.Indices;
-
-                                    // Capture MaterialComponent if present on the same element
-                                    var matComp = element.GetComponent<V12.Components.MaterialComponent>();
-                                    if (matComp != null)
-                                    {
-                                        rs.MatR = matComp.R;
-                                        rs.MatG = matComp.G;
-                                        rs.MatB = matComp.B;
-                                        rs.MatA = matComp.A;
-                                        rs.MatMetallic = matComp.Metallic;
-                                        rs.MatRoughness = matComp.Roughness;
-                                        rs.MatTexturePath = matComp.PrimaryTexture ?? "";
-                                        rs.MatUvOffsetX = matComp.Uv1OffsetX;
-                                        rs.MatUvOffsetY = matComp.Uv1OffsetY;
-                                        rs.MatUvScaleX = matComp.Uv1ScaleX;
-                                        rs.MatUvScaleY = matComp.Uv1ScaleY;
-                                    }
-                                }
-                                else
-                                {
-                                    rs.NodeType = SnapshotNodeType.RawElement;
-                                }
-                            }
-                            // Camera
-                            else if (renderable is ICameraRenderable cam)
-                            {
-                                rs.NodeType = SnapshotNodeType.Camera;
-                                rs.Fov = cam.FieldOfView;
-                                rs.NearClip = cam.NearClip;
-                                rs.FarClip = cam.FarClip;
-                                rs.IsCurrentCamera = cam.IsCurrent;
-                            }
-                            // Sprite
-                            else if (renderable is ISpriteRenderable sprite)
-                            {
-                                rs.NodeType = SnapshotNodeType.Sprite;
-                                rs.TextureSource = sprite.Texture?.Source ?? "";
-                                rs.SizeX = sprite.Size.X;
-                                rs.SizeY = sprite.Size.Y;
-                                rs.Tint = sprite.Tint;
-                            }
-                            // SVG
-                            else if (renderable is ISvgRenderable svg)
-                            {
-                                rs.NodeType = SnapshotNodeType.Svg;
-                                rs.SvgContent = svg.SvgContent ?? "";
-                                rs.SizeX = svg.Size.X;
-                                rs.SizeY = svg.Size.Y;
-                                rs.Tint = svg.Tint;
-                            }
-                            // Text
-                            else if (renderable is ITextRenderable text)
-                            {
-                                rs.NodeType = SnapshotNodeType.Text;
-                                rs.TextContent = text.Text ?? "";
-                                rs.TextColor = text.Color;
-                                rs.FontSize = text.FontSize;
-                            }
-                            // Fallback
-                            else
-                            {
-                                rs.NodeType = SnapshotNodeType.RawElement;
-                            }
-
-                            snapshot.Renderables.Add(rs);
+                            if (r is TransformComponent) continue;
+                            if (r is MeshComponent && hasMeshRenderer) continue;
+                            primaryRenderable = r;
+                            break;
                         }
                     }
+                    primaryRenderable ??= transformComp;
+
+                    if (primaryRenderable != null)
+                        EmitSnapshot(element, primaryRenderable, renderedElementIds);
 
                     if (element.Children != null)
                         foreach (var child in element.Children)
-                            CaptureRenderables(child);
+                            CaptureRenderables(child, renderedElementIds);
                 }
 
+                void EmitSnapshot(IWorldElement element, IRenderable renderable, HashSet<long> renderedElementIds)
+                {
+                    var rs = new RenderableSnapshot();
+                    rs.ElementId = element.Id;
+                    rs.Name = element.Name ?? "";
+
+                    // ParentId for hierarchy parenting
+                    if (element.Parent != null)
+                        rs.ParentId = element.Parent.Id;
+
+                    // World transform (for non-hierarchy renderers)
+                    rs.Transform = element.WorldTransform;
+                    rs.IsWorldLocked = renderable is ITransformRenderable itr && itr.IsWorldLocked;
+
+                    // Local transform (for hierarchy-based renderers)
+                    var tc = element.GetComponent<TransformComponent>();
+                    if (tc != null)
+                        rs.LocalTransform = tc.Transform;
+                    else
+                    {
+                        var lt = element.LocalTransform;
+                        rs.LocalTransform = System.Numerics.Matrix4x4.CreateScale(lt.Scale)
+                                          * System.Numerics.Matrix4x4.CreateFromQuaternion(lt.Rotation)
+                                          * System.Numerics.Matrix4x4.CreateTranslation(lt.Position);
+                    }
+                    rs.HasLocalTransform = true;
+
+                    // Emit parent-chain placeholders for non-renderable ancestors
+                    var ancestor = element.Parent;
+                    while (ancestor != null)
+                    {
+                        if (!renderedElementIds.Add(ancestor.Id)) break;
+
+                        bool hasAnyRenderable = false;
+                        foreach (var comp in ancestor.Components)
+                        {
+                            if (comp is IRenderable) { hasAnyRenderable = true; break; }
+                        }
+
+                        if (!hasAnyRenderable)
+                        {
+                            var parentRs = new RenderableSnapshot();
+                            parentRs.ElementId = ancestor.Id;
+                            parentRs.Name = ancestor.Name ?? "";
+                            parentRs.ParentId = ancestor.Parent?.Id ?? 0;
+                            parentRs.NodeType = SnapshotNodeType.RawElement;
+                            var atc = ancestor.GetComponent<TransformComponent>();
+                            parentRs.Transform = ancestor.WorldTransform;
+                            if (atc != null)
+                                parentRs.LocalTransform = atc.Transform;
+                            else
+                            {
+                                var alt = ancestor.LocalTransform;
+                                parentRs.LocalTransform = System.Numerics.Matrix4x4.CreateScale(alt.Scale)
+                                                        * System.Numerics.Matrix4x4.CreateFromQuaternion(alt.Rotation)
+                                                        * System.Numerics.Matrix4x4.CreateTranslation(alt.Position);
+                            }
+                            parentRs.HasLocalTransform = true;
+                            snapshot.Renderables.Add(parentRs);
+                        }
+
+                        ancestor = ancestor.Parent;
+                    }
+
+                    renderedElementIds.Add(element.Id);
+
+                    // Light
+                    if (renderable is ILightRenderable light)
+                    {
+                        switch (light.Type)
+                        {
+                            case LightType.Directional: rs.NodeType = SnapshotNodeType.LightDirectional; break;
+                            case LightType.Spot:        rs.NodeType = SnapshotNodeType.LightSpot; break;
+                            default:                    rs.NodeType = SnapshotNodeType.LightPoint; break;
+                        }
+                        rs.LightColor = light.Color;
+                        rs.LightIntensity = light.Intensity;
+                        rs.LightRange = light.Range;
+                        rs.LightAngle = light.Angle;
+                        rs.LightSpotSoftness = light.SpotSoftness;
+                    }
+                    // Mesh
+                    else if (renderable is IMeshRenderable mesh)
+                    {
+                        MeshComponent mc = null;
+                        if (mesh is MeshComponent mcDirect)
+                            mc = mcDirect;
+                        else if (mesh is MeshRenderer mr && mr.Mesh is MeshComponent mcWrap)
+                            mc = mcWrap;
+
+                        if (mc != null)
+                        {
+                            switch (mc.Shape)
+                            {
+                                case MeshShape.Box:      rs.NodeType = SnapshotNodeType.MeshBox; break;
+                                case MeshShape.Sphere:   rs.NodeType = SnapshotNodeType.MeshSphere; break;
+                                case MeshShape.Capsule:  rs.NodeType = SnapshotNodeType.MeshCapsule; break;
+                                case MeshShape.Cylinder: rs.NodeType = SnapshotNodeType.MeshCylinder; break;
+                                case MeshShape.Plane:    rs.NodeType = SnapshotNodeType.MeshPlane; break;
+                                case MeshShape.Custom:   rs.NodeType = SnapshotNodeType.MeshCustom; break;
+                                default:                 rs.NodeType = SnapshotNodeType.MeshBox; break;
+                            }
+                            rs.MeshWidth = mc.Width;
+                            rs.MeshHeight = mc.Height;
+                            rs.MeshDepth = mc.Depth;
+                            rs.MeshPoints = mc.MeshPoints;
+                            rs.MeshIndices = mc.Indices;
+
+                            // Capture MaterialComponent if present on the same element
+                            var matComp = element.GetComponent<V12.Components.MaterialComponent>();
+                            if (matComp != null)
+                            {
+                                rs.MatR = matComp.R;
+                                rs.MatG = matComp.G;
+                                rs.MatB = matComp.B;
+                                rs.MatA = matComp.A;
+                                rs.MatMetallic = matComp.Metallic;
+                                rs.MatRoughness = matComp.Roughness;
+                                rs.MatTexturePath = matComp.PrimaryTexture ?? "";
+                                rs.MatUvOffsetX = matComp.Uv1OffsetX;
+                                rs.MatUvOffsetY = matComp.Uv1OffsetY;
+                                rs.MatUvScaleX = matComp.Uv1ScaleX;
+                                rs.MatUvScaleY = matComp.Uv1ScaleY;
+                            }
+                        }
+                        else
+                        {
+                            rs.NodeType = SnapshotNodeType.RawElement;
+                        }
+                    }
+                    // Camera
+                    else if (renderable is ICameraRenderable cam)
+                    {
+                        rs.NodeType = SnapshotNodeType.Camera;
+                        rs.Fov = cam.FieldOfView;
+                        rs.NearClip = cam.NearClip;
+                        rs.FarClip = cam.FarClip;
+                        rs.IsCurrentCamera = cam.IsCurrent;
+                    }
+                    // Sprite
+                    else if (renderable is ISpriteRenderable sprite)
+                    {
+                        rs.NodeType = SnapshotNodeType.Sprite;
+                        rs.TextureSource = sprite.Texture?.Source ?? "";
+                        rs.SizeX = sprite.Size.X;
+                        rs.SizeY = sprite.Size.Y;
+                        rs.Tint = sprite.Tint;
+                    }
+                    // SVG
+                    else if (renderable is ISvgRenderable svg)
+                    {
+                        rs.NodeType = SnapshotNodeType.Svg;
+                        rs.SvgContent = svg.SvgContent ?? "";
+                        rs.SizeX = svg.Size.X;
+                        rs.SizeY = svg.Size.Y;
+                        rs.Tint = svg.Tint;
+                    }
+                    // Text
+                    else if (renderable is ITextRenderable text)
+                    {
+                        rs.NodeType = SnapshotNodeType.Text;
+                        rs.TextContent = text.Text ?? "";
+                        rs.TextColor = text.Color;
+                        rs.FontSize = text.FontSize;
+                    }
+                    // Fallback
+                    else
+                    {
+                        rs.NodeType = SnapshotNodeType.RawElement;
+                    }
+
+                    snapshot.Renderables.Add(rs);
+                }
+
+                var renderedIds = new HashSet<long>();
                 foreach (var root in SelectedWorld.Root.ToArray())
-                    CaptureRenderables(root);
+                    CaptureRenderables(root, renderedIds);
 
                 // ── Audio sources ──
                 void CaptureAudio(IWorldElement element)

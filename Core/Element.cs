@@ -69,13 +69,21 @@ namespace V12.Core
         {
             get
             {
+                var tc = GetComponent<TransformComponent>();
+                if (tc != null)
+                {
+                    var local = tc.Transform;
+                    if (Parent != null)
+                        return local * Parent.WorldTransform;
+                    return local;
+                }
                 var lt = LocalTransform;
-                var local = Matrix4x4.CreateScale(lt.Scale)
+                var local2 = Matrix4x4.CreateScale(lt.Scale)
                           * Matrix4x4.CreateFromQuaternion(lt.Rotation)
                           * Matrix4x4.CreateTranslation(lt.Position);
                 if (Parent != null)
-                    return local * Parent.WorldTransform;
-                return local;
+                    return local2 * Parent.WorldTransform;
+                return local2;
             }
         }
 
