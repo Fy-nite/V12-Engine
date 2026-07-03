@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -26,6 +27,15 @@ namespace V12.Core.NetworkCable
         // have locally-assigned element IDs that happen to match.
         private readonly ConcurrentDictionary<TcpClient, long> _clientPlayerIds = new ConcurrentDictionary<TcpClient, long>();
         private long _nextPlayerId = 1000; // Start at 1000 to avoid collision with local IDs
+
+        // Heartbeat tracking: last time each client sent a message (heartbeat or otherwise).
+        // Clients are expected to send a Heartbeat message at least every HeartbeatInterval seconds.
+        // If no message is received for HeartbeatTimeout seconds, the client is considered dead.
+        private readonly ConcurrentDictionary<TcpClient, DateTime> _clientLastHeartbeat = new();
+        private const int HeartbeatIntervalSeconds = 5;
+        private const int HeartbeatTimeoutSeconds = 15; // 3 missed heartbeats before we give up
+        private CancellationTokenSource? _heartbeatCts;
+        private Task? _heartbeatMonitorTask;
 
         /// <summary>
         /// Global debug mode flag. Set to true to enable verbose network logging.
@@ -105,6 +115,10 @@ namespace V12.Core.NetworkCable
 
                 // Accept clients loop
                 _ = Task.Run(async () => await AcceptClientsAsync(_cts.Token), _cts.Token);
+
+                // Heartbeat monitor: check every HeartbeatInterval seconds for dead clients
+                _heartbeatCts = new CancellationTokenSource();
+                _ = Task.Run(async () => await HeartbeatMonitorAsync(_cts.Token), _cts.Token);
             }
             catch (Exception ex)
             {
@@ -137,6 +151,9 @@ namespace V12.Core.NetworkCable
                     // Assign a unique player ID to this client
                     var playerId = System.Threading.Interlocked.Increment(ref _nextPlayerId);
                     _clientPlayerIds[client] = playerId;
+
+                    // Record initial heartbeat time so the monitor doesn't immediately fire
+                    _clientLastHeartbeat[client] = DateTime.UtcNow;
 
                     Console.WriteLine($"[NetworkHost] Client connected from {remoteEndpoint}. Total clients: {_clients.Count}, assigned PlayerId: {playerId}");
                     try { OnClientConnected?.Invoke(playerId); } catch { }
@@ -200,6 +217,9 @@ namespace V12.Core.NetworkCable
                         // can skip echoing it back to the sender.
                         message.SenderToken = client;
                         _cables.EnqueueIncoming(message);
+
+                        // Record that this client is alive. Any received message counts as a heartbeat.
+                        _clientLastHeartbeat[client] = DateTime.UtcNow;
                     }
                     catch (Exception ex)
                     {
@@ -221,10 +241,74 @@ namespace V12.Core.NetworkCable
                 var playerId = 0L;
                 _clientPlayerIds.TryRemove(client, out playerId);
                 _clients.TryRemove(client, out _);
+                _clientLastHeartbeat.TryRemove(client, out _);
                 try { client.Close(); } catch { }
                 Console.WriteLine($"[NetworkHost] Client disconnected from {remote} (PlayerId: {playerId}). Total clients: {ClientCount}");
                 try { OnClientDisconnected?.Invoke(playerId); } catch { }
             }
+        }
+
+        /// <summary>
+        /// Background task that periodically checks for clients that have missed too many heartbeats
+        /// and fires OnClientDisconnected so a PlayerLeave message is broadcast to remaining clients.
+        /// </summary>
+        private async Task HeartbeatMonitorAsync(CancellationToken hostToken)
+        {
+            Console.WriteLine($"[NetworkHost] Heartbeat monitor started (interval={HeartbeatIntervalSeconds}s, timeout={HeartbeatTimeoutSeconds}s)");
+
+            try
+            {
+                while (!hostToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(HeartbeatIntervalSeconds), hostToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+
+                    if (hostToken.IsCancellationRequested)
+                        break;
+
+                    var cutoff = DateTime.UtcNow.AddSeconds(-HeartbeatTimeoutSeconds);
+                    var staleClients = new List<TcpClient>();
+
+                    foreach (var kvp in _clientLastHeartbeat)
+                    {
+                        if (kvp.Value < cutoff)
+                            staleClients.Add(kvp.Key);
+                    }
+
+                    foreach (var staleClient in staleClients)
+                    {
+                        var remote = staleClient.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
+                        var playerId = _clientPlayerIds.TryGetValue(staleClient, out var id) ? id : 0;
+
+                        // Remove from tracking dictionaries
+                        _clientPlayerIds.TryRemove(staleClient, out _);
+                        _clients.TryRemove(staleClient, out _);
+                        _clientLastHeartbeat.TryRemove(staleClient, out _);
+
+                        // Close the connection if still open
+                        try { staleClient.Close(); } catch { }
+
+                        Console.WriteLine($"[NetworkHost] ⚠ Heartbeat timeout: client {remote} (PlayerId: {playerId}) marked dead. Firing OnClientDisconnected...");
+                        try { OnClientDisconnected?.Invoke(playerId); } catch { }
+                    }
+
+                    if (staleClients.Count > 0)
+                        Console.WriteLine($"[NetworkHost] Heartbeat monitor: removed {staleClients.Count} stale client(s). Remaining: {_clients.Count}");
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[NetworkHost] Heartbeat monitor error: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            Console.WriteLine($"[NetworkHost] Heartbeat monitor stopped.");
         }
 
         private void BroadcastMessage(MessageDTO message)
@@ -316,6 +400,8 @@ namespace V12.Core.NetworkCable
         public void Dispose()
         {
             Stop();
+            _heartbeatCts?.Cancel();
+            _heartbeatCts?.Dispose();
             _cts?.Dispose();
             _listener = null;
         }

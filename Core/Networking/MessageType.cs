@@ -19,6 +19,7 @@ namespace V12.Core.Networking
         PlayerKick,
         PlayerAction,
         PlayerSync,
+        Heartbeat,
         Error
     }
 }
