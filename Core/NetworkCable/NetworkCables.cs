@@ -77,7 +77,8 @@ namespace V12.Core.NetworkCable
         {
             while (SendQueue.TryDequeue(out var message))
             {
-                Console.WriteLine($"Processing outgoing message from {message.Sender?.AbsoluteUri} of type {message.MessageType}");
+                
+                // Console.WriteLine($"Processing outgoing message from {message.Sender?.AbsoluteUri} of type {message.MessageType}");
                 OnMessageSending?.Invoke(message);
             }
         }
