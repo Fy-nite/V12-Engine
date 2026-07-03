@@ -18,25 +18,40 @@ namespace V12.Core.Networking
                 var snap = new WorldSyncDTO { WorldName = w.WorldName };
                 foreach (var el in w.Root)
                 {
-                    var esDto = new ElementSyncDTO { Name = el?.Name, Description = el?.Description };
-                    if (el?.Components != null)
-                    {
-                        foreach (var comp in el.Components)
-                        {
-                            try
-                            {
-                                var csDto = CompressComponent(comp);
-                                if (csDto != null) esDto.Components.Add(csDto);
-                            }
-                            catch { /* skip components that can't be serialized */ }
-                        }
-                    }
-                    snap.Elements.Add(esDto);
+                    var esDto = CompressElement(el);
+                    if (esDto != null) snap.Elements.Add(esDto);
                 }
                 return snap.ToBson();
             }
 
             return obj.ToBson();
+        }
+
+        private static ElementSyncDTO CompressElement(IWorldElement el)
+        {
+            if (el == null) return null;
+            var esDto = new ElementSyncDTO { Id = el.Id, Name = el.Name, Description = el.Description };
+            if (el.Components != null)
+            {
+                foreach (var comp in el.Components)
+                {
+                    try
+                    {
+                        var csDto = CompressComponent(comp);
+                        if (csDto != null) esDto.Components.Add(csDto);
+                    }
+                    catch { }
+                }
+            }
+            if (el.Children != null)
+            {
+                foreach (var child in el.Children)
+                {
+                    var childDto = CompressElement(child);
+                    if (childDto != null) esDto.Children.Add(childDto);
+                }
+            }
+            return esDto;
         }
 
         public static T Decompress<T>(byte[] data)
@@ -47,22 +62,49 @@ namespace V12.Core.Networking
                 var world = new V12.Core.World(snap.WorldName ?? "World");
                 foreach (var es in snap.Elements)
                 {
-                    var element = new V12.Core.Element(es.Name, es.Description);
-                    foreach (var cs in es.Components)
-                    {
-                        try
-                        {
-                            var comp = DecompressComponent(cs);
-                            if (comp != null) element.Components.Add(comp);
-                        }
-                        catch { /* skip components that can't be deserialized */ }
-                    }
-                    world.Root.Add(element);
+                    var element = DecompressElement(es);
+                    if (element != null) world.Root.Add(element);
                 }
                 return (T)(object)world;
             }
 
             return BsonSerializer.Deserialize<T>(data);
+        }
+
+        private static IWorldElement DecompressElement(ElementSyncDTO es)
+        {
+            if (es == null) return null;
+            var element = new V12.Core.Element(es.Name, es.Description);
+            element.Id = es.Id;
+            if (es.Components != null)
+            {
+                foreach (var cs in es.Components)
+                {
+                    try
+                    {
+                        var comp = DecompressComponent(cs);
+                        if (comp != null) element.Components.Add(comp);
+                    }
+                    catch { }
+                }
+            }
+            if (es.Children != null)
+            {
+                foreach (var childDto in es.Children)
+                {
+                    var child = DecompressElement(childDto);
+                    if (child != null) element.AddChild(child);
+                }
+            }
+
+            // Call OnAttach for each component after children are added
+            // (some components, e.g. PlayerComponent, find or create child elements in OnAttach)
+            foreach (var comp in element.Components)
+            {
+                try { comp.OnAttach(element); } catch { }
+            }
+
+            return element;
         }
 
         // ── Component serialization helpers ───────────────────────────────────

@@ -527,7 +527,7 @@ namespace V12.Core
         /// <param name="port">Port to listen on (server) or connect to (client).</param>
         /// <param name="connectHost">Host to connect to. If null, runs as server.</param>
         /// <param name="isServer">Explicitly force server mode even when <paramref name="connectHost"/> is null.</param>
-        public void SetupNetworking(int port = 7777, string? connectHost = null, bool isServer = false)
+        public void SetupNetworking(int port = 7777, string? connectHost = null, bool isServer = false, string? worldArchivePath = null)
         {
             if (isServer || connectHost == null)
             {
@@ -540,6 +540,33 @@ namespace V12.Core
                         Console.WriteLine("[GameRoot] Client connected but SelectedWorld is null – no WorldSync sent.");
                         return;
                     }
+
+                    // Send V12World archive first so the client can resolve asset URIs
+                    if (worldArchivePath != null && File.Exists(worldArchivePath))
+                    {
+                        try
+                        {
+                            var archiveBytes = File.ReadAllBytes(worldArchivePath);
+                            var archiveName = Path.GetFileName(worldArchivePath);
+                            var payload = new byte[4 + archiveName.Length + archiveBytes.Length];
+                            BitConverter.GetBytes(archiveName.Length).CopyTo(payload, 0);
+                            System.Text.Encoding.UTF8.GetBytes(archiveName).CopyTo(payload, 4);
+                            archiveBytes.CopyTo(payload, 4 + archiveName.Length);
+
+                            Cables.SendData(new MessageDTO
+                            {
+                                Sender = new Uri("networkcables://server"),
+                                MessageType = MessageType.WorldArchive,
+                                Message = payload
+                            });
+                            Console.WriteLine($"[GameRoot] Sent V12World archive '{archiveName}' ({archiveBytes.Length} bytes)");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[GameRoot] ERROR sending V12World archive: {ex.GetType().Name}: {ex.Message}");
+                        }
+                    }
+
                     Console.WriteLine($"[GameRoot] Client connected → sending WorldSync '{world.WorldName}' ({world.Root.Count} elements)");
                     try
                     {

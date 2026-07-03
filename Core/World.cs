@@ -102,6 +102,36 @@ namespace V12.Core
                 ElementRemoved?.Invoke(element);
         }
 
+        /// <summary>
+        /// Replace this world's entire element tree with elements from another world,
+        /// preserving the world name. Thread-safe: acquires the write lock.
+        /// </summary>
+        public void ReplaceFrom(World source)
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                Root.Clear();
+                _elementsById.Clear();
+                foreach (var el in source.Root)
+                {
+                    Root.Add(el);
+                    IndexElementRecursive(el);
+                }
+            }
+            finally { Lock.ExitWriteLock(); }
+        }
+
+        private void IndexElementRecursive(IWorldElement element)
+        {
+            _elementsById[element.Id] = element;
+            if (element.Children != null)
+            {
+                foreach (var child in element.Children)
+                    IndexElementRecursive(child);
+            }
+        }
+
         public void GenerateWorld()
         {
             // This method can be overridden in derived classes to create specific world content.

@@ -14,12 +14,15 @@ namespace V12.Core.Networking
 
     public class ElementSyncDTO
     {
+        public long Id { get; set; }
         public string? Name { get; set; }
         public string? Description { get; set; }
         /// <summary>Serialized component payloads. Each entry stores the component's
         /// assembly-qualified type name and its BSON-serialized data so the receiver
         /// can fully reconstruct the component.</summary>
         public List<ComponentSyncDTO> Components { get; set; } = new();
+        /// <summary>Child elements (recursive, for full tree serialization).</summary>
+        public List<ElementSyncDTO> Children { get; set; } = new();
     }
 
     /// <summary>Carries a single serialized component for wire transport.</summary>

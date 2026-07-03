@@ -12,6 +12,7 @@ namespace V12.Core.Networking
         Event,
         WorldSync,
         WorldUpdate,
+        WorldArchive,
         PlayerJoin,
         PlayerLeave,
         PlayerBan,
