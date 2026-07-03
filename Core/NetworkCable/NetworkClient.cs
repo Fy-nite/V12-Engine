@@ -60,32 +60,44 @@ namespace V12.Core.NetworkCable
 
         /// <summary>
         /// Connect to the host and start sending/receiving messages.
+        /// Uses the host/port provided at construction time.
         /// Connection failures are surfaced via <see cref="OnConnectionFailed"/> instead of
         /// propagating as unobserved task exceptions.
         /// </summary>
         public async Task ConnectAsync(CancellationToken token = default)
+            => await ConnectToAsync(_host, _port, token);
+
+        /// <summary>
+        /// Connect to a specific host/port and start sending/receiving messages.
+        /// Connection failures are surfaced via <see cref="OnConnectionFailed"/> instead of
+        /// propagating as unobserved task exceptions.
+        /// </summary>
+        public async Task ConnectAsync(string host, int port, CancellationToken token = default)
+            => await ConnectToAsync(host, port, token);
+
+        private async Task ConnectToAsync(string host, int port, CancellationToken token)
         {
             if (IsConnected) return;
 
             _cts = CancellationTokenSource.CreateLinkedTokenSource(token);
             _client = new TcpClient();
 
-            Console.WriteLine($"[NetworkClient] Connecting to {_host}:{_port}...");
+            Console.WriteLine($"[NetworkClient] Connecting to {host}:{port}...");
             try
             {
-                var connectTask = _client.ConnectAsync(_host, _port);
+                var connectTask = _client.ConnectAsync(host, port);
                 var cancelTask  = System.Threading.Tasks.Task.Delay(-1, _cts.Token);
                 var finished    = await System.Threading.Tasks.Task.WhenAny(connectTask, cancelTask);
 
                 if (finished != connectTask)
                 {
-                    Console.WriteLine($"[NetworkClient] Connection to {_host}:{_port} was cancelled.");
+                    Console.WriteLine($"[NetworkClient] Connection to {host}:{port} was cancelled.");
                     return;
                 }
 
                 await connectTask; // re-throws if the TCP connect failed
 
-                Console.WriteLine($"[NetworkClient] Connected to {_host}:{_port}");
+                Console.WriteLine($"[NetworkClient] Connected to {host}:{port}");
                 _cables.OnMessageSending += SendMessage;
                 OnConnected?.Invoke();
 
@@ -93,11 +105,11 @@ namespace V12.Core.NetworkCable
             }
             catch (OperationCanceledException)
             {
-                Console.WriteLine($"[NetworkClient] Connection to {_host}:{_port} cancelled.");
+                Console.WriteLine($"[NetworkClient] Connection to {host}:{port} cancelled.");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[NetworkClient] Failed to connect to {_host}:{_port}: {ex.GetType().Name}: {ex.Message}");
+                Console.WriteLine($"[NetworkClient] Failed to connect to {host}:{port}: {ex.GetType().Name}: {ex.Message}");
                 try { OnConnectionFailed?.Invoke(ex); } catch { }
             }
         }
