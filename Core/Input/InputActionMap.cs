@@ -124,6 +124,7 @@ namespace V12.Core.Input
                         {
                             _rawButtons[kv.Key] = false;
                             _pendingRelease.Add(kv.Key);
+                            _pendingPress.Remove(kv.Key);
                         }
                     }
                 }
@@ -169,9 +170,18 @@ namespace V12.Core.Input
                     else _prevHeld.Remove(action);
                 }
 
+                // Don't clear raw input here — it's cleared after being consumed.
+                // If we clear it here, any input events that arrive between Update() calls
+                // (e.g. from the Godot main thread) will be lost, causing jerky/stuttering
+                // movement when the V12 worker thread runs at a different rate than the
+                // input thread.
+                // Instead, we accumulate and let OnInputEvent overwrite with fresh values.
+                // The raw values represent "current frame's input state" and are consumed
+                // by the axis calculation above. We clear them after computing axis values.
                 _rawPositive.Clear();
                 _rawNegative.Clear();
-                _rawButtons.Clear();
+                // Don't clear _rawButtons here — button state is latched and cleared
+                // after the press/release events are processed.
                 _pendingPress.Clear();
                 _pendingRelease.Clear();
             }

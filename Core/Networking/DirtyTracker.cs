@@ -26,7 +26,15 @@ namespace V12.Core.Networking
         /// <summary>
         /// Minimum time (in seconds) between sending batched updates. Set to 0 to send immediately.
         /// </summary>
-        public float ThrottleInterval { get; set; } = 0.1f; // 10Hz default
+        public float ThrottleInterval { get; set; } = 0.01f; // 10Hz default
+
+        /// <summary>
+        /// Optional predicate that returns true when there is at least one connected peer
+        /// (a client on the server, or a live server connection on the client). When this
+        /// returns false, <see cref="SendDirtyUpdates"/> skips queueing anything onto the
+        /// cables, so an idle/disconnected instance produces no outgoing traffic.
+        /// </summary>
+        public Func<bool>? HasConnectedPeer { get; set; }
 
         private float _timeSinceLastSend = 0f;
 
@@ -128,6 +136,16 @@ namespace V12.Core.Networking
         /// </summary>
         public void SendDirtyUpdates()
         {
+            // If nobody is connected there is no point serialising/batching dirty state.
+            // We still drain the dirty sets so they don't grow unbounded while offline;
+            // we just don't push anything onto the cables.
+            var hasPeer = HasConnectedPeer?.Invoke() ?? true;
+            if (!hasPeer)
+            {
+                DrainDirtyWithoutSending();
+                return;
+            }
+
             // Send dirty components
             if (!_dirtyComponents.IsEmpty)
             {
@@ -284,6 +302,28 @@ namespace V12.Core.Networking
         {
             _dirtyComponents.Clear();
             _dirtyElements.Clear();
+        }
+
+        /// <summary>
+        /// Drain the dirty sets without pushing anything onto the cables. Used when
+        /// there is no connected peer so the sets don't grow unbounded while offline
+        /// but we also don't generate any outgoing traffic.
+        /// </summary>
+        private void DrainDirtyWithoutSending()
+        {
+            while (!_dirtyComponents.IsEmpty)
+            {
+                var key = _dirtyComponents.Keys.FirstOrDefault();
+                if (key == 0) break;
+                _dirtyComponents.TryRemove(key, out _);
+            }
+
+            while (!_dirtyElements.IsEmpty)
+            {
+                var key = _dirtyElements.Keys.FirstOrDefault();
+                if (key == null) break;
+                _dirtyElements.TryRemove(key, out _);
+            }
         }
 
         public void Initialize(GameRoot g)

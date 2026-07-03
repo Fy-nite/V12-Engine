@@ -37,6 +37,13 @@ namespace V12.Core
             get => _localTransform;
             set
             {
+                // Avoid signalling dirty (and re-syncing the TransformComponent) when the
+                // new transform is effectively identical to the current one. This is the
+                // single biggest source of spurious dirty traffic: many systems assign
+                // LocalTransform every tick even when nothing actually moved.
+                if (TRSApproximatelyEqual(_localTransform, value))
+                    return;
+
                 _localTransform = value;
                 var tc = GetComponent<TransformComponent>();
                 if (tc != null)
@@ -49,7 +56,34 @@ namespace V12.Core
                     tc.RX = pitch;
                     tc.RZ = roll;
                 }
+                MarkDirty();
             }
+        }
+
+        private const float TransformEpsilon = 1e-5f;
+
+        private static bool QuaternionApproximatelyEqual(Quaternion a, Quaternion b)
+        {
+            // Quaternions q and -q represent the same rotation, so compare both signs.
+            return MathF.Abs(a.X - b.X) < TransformEpsilon
+                && MathF.Abs(a.Y - b.Y) < TransformEpsilon
+                && MathF.Abs(a.Z - b.Z) < TransformEpsilon
+                && MathF.Abs(a.W - b.W) < TransformEpsilon
+                || MathF.Abs(a.X + b.X) < TransformEpsilon
+                && MathF.Abs(a.Y + b.Y) < TransformEpsilon
+                && MathF.Abs(a.Z + b.Z) < TransformEpsilon
+                && MathF.Abs(a.W + b.W) < TransformEpsilon;
+        }
+
+        private static bool TRSApproximatelyEqual(TRS a, TRS b)
+        {
+            return MathF.Abs(a.Position.X - b.Position.X) < TransformEpsilon
+                && MathF.Abs(a.Position.Y - b.Position.Y) < TransformEpsilon
+                && MathF.Abs(a.Position.Z - b.Position.Z) < TransformEpsilon
+                && QuaternionApproximatelyEqual(a.Rotation, b.Rotation)
+                && MathF.Abs(a.Scale.X - b.Scale.X) < TransformEpsilon
+                && MathF.Abs(a.Scale.Y - b.Scale.Y) < TransformEpsilon
+                && MathF.Abs(a.Scale.Z - b.Scale.Z) < TransformEpsilon;
         }
 
         private static (float yaw, float pitch, float roll) ToEulerAngles(Quaternion q)

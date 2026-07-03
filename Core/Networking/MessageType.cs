@@ -18,6 +18,7 @@ namespace V12.Core.Networking
         PlayerBan,
         PlayerKick,
         PlayerAction,
+        PlayerSync,
         Error
     }
 }

@@ -532,7 +532,7 @@ namespace V12.Core
             if (isServer || connectHost == null)
             {
                 var host = new NetworkHost(port, Cables);
-                host.OnClientConnected += () =>
+                host.OnClientConnected += (playerId) =>
                 {
                     var world = SelectedWorld;
                     if (world == null)
@@ -605,6 +605,27 @@ namespace V12.Core
 
             Registry.Register("DirtyTracker", dirtyTracker);
             Console.WriteLine("[GameRoot] DirtyTracker registered.");
+
+            // Wire up a connection-state predicate so the DirtyTracker stays quiet when
+            // nobody is connected (server with no clients, or client with no live link).
+            // The host/client are registered above/below in the Registry, so we resolve
+            // them lazily on each check rather than capturing a possibly-null reference now.
+            dirtyTracker.HasConnectedPeer = () =>
+            {
+                try
+                {
+                    var host = Registry.Get<NetworkHost>("NetworkHost");
+                    if (host != null)
+                        return host.ClientCount > 0;
+
+                    var client = Registry.Get<NetworkClient>("NetworkClient");
+                    if (client != null)
+                        return client.IsConnected;
+                }
+                catch { /* registry not ready yet – treat as no peer */ }
+
+                return false;
+            };
 
             // Wire SyncManager to the NetworkCables used by this GameRoot so SyncValues are transported
             try

@@ -17,17 +17,56 @@ namespace V12.Core.NetworkCable
         private readonly int _port;
         private readonly NetworkCables _cables;
         private TcpListener? _listener;
-        private readonly ConcurrentBag<TcpClient> _clients = new ConcurrentBag<TcpClient>();
+        // Use ConcurrentDictionary instead of ConcurrentBag so we can remove disconnected clients.
+        // The value is just 'true' as a placeholder — we only care about the keys.
+        private readonly ConcurrentDictionary<TcpClient, bool> _clients = new ConcurrentDictionary<TcpClient, bool>();
         private CancellationTokenSource? _cts;
+
+        // Server-assigned unique player IDs to avoid collisions when multiple clients
+        // have locally-assigned element IDs that happen to match.
+        private readonly ConcurrentDictionary<TcpClient, long> _clientPlayerIds = new ConcurrentDictionary<TcpClient, long>();
+        private long _nextPlayerId = 1000; // Start at 1000 to avoid collision with local IDs
+
+        /// <summary>
+        /// Global debug mode flag. Set to true to enable verbose network logging.
+        /// </summary>
+        public static bool DebugMode { get; set; } = false;
 
         public bool IsRunning { get; private set; }
         public int Port => _port;
-        public int ClientCount => _clients.Count;
+        public int ClientCount
+        {
+            get
+            {
+                int count = 0;
+                foreach (var kvp in _clients)
+                    if (kvp.Key.Connected) count++;
+                return count;
+            }
+        }
+
+        /// <summary>
+        /// Get the server-assigned unique player ID for a given TcpClient.
+        /// Returns 0 if the client is not found.
+        /// </summary>
+        public long GetPlayerIdForClient(TcpClient client)
+        {
+            if (client != null && _clientPlayerIds.TryGetValue(client, out var playerId))
+                return playerId;
+            return 0;
+        }
 
         /// <summary>
         /// Raised on the accept loop thread when a new client connects.
+        /// The argument is the server-assigned player ID for the new client.
         /// </summary>
-        public event Action? OnClientConnected;
+        public event Action<long>? OnClientConnected;
+
+        /// <summary>
+        /// Raised when a client disconnects. The argument is the server-assigned player ID
+        /// that was associated with the disconnected client.
+        /// </summary>
+        public event Action<long>? OnClientDisconnected;
 
         /// <summary>
         /// Create a new network host.
@@ -90,11 +129,17 @@ namespace V12.Core.NetworkCable
                     if (finished == cancelTask)
                         throw new OperationCanceledException(token);
                     var client = await acceptTask;
+                    if (client == null) continue;
                     // Capture remote endpoint (may be null on some platforms)
-                    var remoteEndpoint = client?.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
-                    _clients.Add(client);
-                    Console.WriteLine($"[NetworkHost] Client connected from {remoteEndpoint}. Total clients: {_clients.Count}");
-                    try { OnClientConnected?.Invoke(); } catch { }
+                    var remoteEndpoint = client.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
+                    _clients[client] = true;
+
+                    // Assign a unique player ID to this client
+                    var playerId = System.Threading.Interlocked.Increment(ref _nextPlayerId);
+                    _clientPlayerIds[client] = playerId;
+
+                    Console.WriteLine($"[NetworkHost] Client connected from {remoteEndpoint}. Total clients: {_clients.Count}, assigned PlayerId: {playerId}");
+                    try { OnClientConnected?.Invoke(playerId); } catch { }
 
                     // Start handling this client
                     _ = Task.Run(async () => await HandleClientAsync(client, token), token);
@@ -151,6 +196,9 @@ namespace V12.Core.NetworkCable
                     try
                     {
                         var message = AncientCompressor.Decompress<MessageDTO>(messageBytes);
+                        // Tag the message with the originating TcpClient so BroadcastMessage
+                        // can skip echoing it back to the sender.
+                        message.SenderToken = client;
                         _cables.EnqueueIncoming(message);
                     }
                     catch (Exception ex)
@@ -169,20 +217,58 @@ namespace V12.Core.NetworkCable
             }
             finally
             {
-                var remote = client?.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
+                var remote = client.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
+                var playerId = 0L;
+                _clientPlayerIds.TryRemove(client, out playerId);
+                _clients.TryRemove(client, out _);
                 try { client.Close(); } catch { }
-                Console.WriteLine($"[NetworkHost] Client disconnected from {remote}. Total clients: {_clients.Count}");
+                Console.WriteLine($"[NetworkHost] Client disconnected from {remote} (PlayerId: {playerId}). Total clients: {ClientCount}");
+                try { OnClientDisconnected?.Invoke(playerId); } catch { }
             }
         }
 
         private void BroadcastMessage(MessageDTO message)
         {
+            // No clients connected → nothing to broadcast. Bail out before paying the
+            // serialization cost; this keeps the send path quiet when the server is idle
+            // or nobody is connected.
+            if (_clients.IsEmpty)
+            {
+                if (DebugMode)
+                    Console.WriteLine($"[NetworkHost] ⚠ BroadcastMessage called but no clients connected. Message type: {message.MessageType}");
+                return;
+            }
+
+            if (DebugMode)
+                Console.WriteLine($"[NetworkHost] 📡 Broadcasting {message.MessageType} to {_clients.Count} client(s)...");
+
             var serialized = AncientCompressor.Compress(message);
             var lengthBytes = BitConverter.GetBytes(serialized.Length);
 
-            foreach (var client in _clients)
+            if (DebugMode)
+                Console.WriteLine($"[NetworkHost]   Serialized size: {serialized.Length} bytes");
+
+            int sentCount = 0;
+            int skippedCount = 0;
+
+            foreach (var kvp in _clients)
             {
-                if (!client.Connected) continue;
+                var client = kvp.Key;
+                // Don't echo the message back to the client that sent it.
+                if (message.SenderToken != null && ReferenceEquals(client, message.SenderToken))
+                {
+                    if (DebugMode)
+                        Console.WriteLine($"[NetworkHost]   ⏭ Skipping sender client");
+                    skippedCount++;
+                    continue;
+                }
+
+                if (!client.Connected)
+                {
+                    if (DebugMode)
+                        Console.WriteLine($"[NetworkHost]   ⚠ Client not connected, skipping");
+                    continue;
+                }
 
                 try
                 {
@@ -190,13 +276,22 @@ namespace V12.Core.NetworkCable
                     stream.Write(lengthBytes, 0, 4);
                     stream.Write(serialized, 0, serialized.Length);
                     stream.Flush();
+                    sentCount++;
+                    if (DebugMode)
+                    {
+                        var rem = client?.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
+                        Console.WriteLine($"[NetworkHost]   ✅ Sent to {rem}");
+                    }
                 }
                 catch (Exception ex)
                 {
                     var rem = client?.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
-                    Console.WriteLine($"[NetworkHost] Error sending to client {rem}: {ex.GetType().Name}: {ex.Message}");
+                    Console.WriteLine($"[NetworkHost]   ❌ Error sending to client {rem}: {ex.GetType().Name}: {ex.Message}");
                 }
             }
+
+            if (DebugMode)
+                Console.WriteLine($"[NetworkHost] 📊 Broadcast complete: sent={sentCount}, skipped={skippedCount}");
         }
 
         public void Stop()
@@ -207,10 +302,11 @@ namespace V12.Core.NetworkCable
             _cts?.Cancel();
             _listener?.Stop();
 
-            foreach (var client in _clients)
+            foreach (var kvp in _clients)
             {
-                client?.Close();
+                kvp.Key?.Close();
             }
+            _clients.Clear();
 
             _cables.OnMessageSending -= BroadcastMessage;
             IsRunning = false;

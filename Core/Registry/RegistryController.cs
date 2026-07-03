@@ -74,6 +74,17 @@ namespace V12.Core.Registry
         }
 
         /// <summary>
+        /// Unregister a service by name.
+        /// </summary>
+        public bool Unregister(string serviceName)
+        {
+            var service = RegisteredServices.FirstOrDefault(x => x.name == serviceName);
+            if (service == null) return false;
+            RegisteredServices.Remove(service);
+            return true;
+        }
+
+        /// <summary>
         /// Calls <see cref="IGameService.Update"/> on every registered service that implements <see cref="IGameService"/>.
         /// </summary>
         public void Update(float deltaTime)
