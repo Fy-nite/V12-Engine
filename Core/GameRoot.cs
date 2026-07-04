@@ -52,6 +52,15 @@ namespace V12.Core
         /// </summary>
         public NetworkCables Cables { get; } = new NetworkCables();
 
+        /// <summary>
+        /// Elements that persist across all worlds — never touched by WorldSync.
+        /// The Player and PlayerCamera3D live here so world switches don't lose them.
+        /// </summary>
+        public World PersistentWorld { get; } = new World("__Persistent__");
+
+        /// <summary>Convenience accessor for the local Player element in PersistentWorld.</summary>
+        public IWorldElement? Player => PersistentWorld.Root.FirstOrDefault(e => e.Name == "Player");
+
         private Thread? _networkingThread;
         private CancellationTokenSource? _networkingCts;
         // Core-managed desktop dashboard (frontend-agnostic)
@@ -163,8 +172,6 @@ namespace V12.Core
         public List<IRenderable> GetAllRenderables()
         {
             var renderables = new List<IRenderable>();
-            if (SelectedWorld == null)
-                return renderables;
 
             void CollectRenderables(IWorldElement element)
             {
@@ -213,8 +220,16 @@ namespace V12.Core
                 }
             }
 
-            foreach (var element in SelectedWorld.Root.ToArray())
+            // Collect from persistent world first
+            foreach (var element in PersistentWorld.Root.ToArray())
                 CollectRenderables(element);
+
+            // Then from selected world
+            if (SelectedWorld != null)
+            {
+                foreach (var element in SelectedWorld.Root.ToArray())
+                    CollectRenderables(element);
+            }
 
             return renderables;
         }
@@ -222,9 +237,25 @@ namespace V12.Core
         public FrameSnapshot CaptureFrame()
         {
             var snapshot = new FrameSnapshot();
-            if (SelectedWorld == null) return snapshot;
 
-            SelectedWorld.Lock.EnterReadLock();
+            // Capture the selected world first (level geometry, entities)
+            if (SelectedWorld != null)
+                CaptureWorldFrame(snapshot, SelectedWorld);
+
+            // Then capture the persistent world (Player, camera, etc.) so
+            // the player's CameraComponent.IsCurrent=true always wins.
+            CaptureWorldFrame(snapshot, PersistentWorld);
+
+            return snapshot;
+        }
+
+        /// <summary>
+        /// Capture all renderables and audio sources from a single world into the snapshot.
+        /// Thread-safe: acquires the world's read lock.
+        /// </summary>
+        private void CaptureWorldFrame(FrameSnapshot snapshot, World world)
+        {
+            world.Lock.EnterReadLock();
             try
             {
                 // ── Walk tree for renderables ──
@@ -443,7 +474,7 @@ namespace V12.Core
                 }
 
                 var renderedIds = new HashSet<long>();
-                foreach (var root in SelectedWorld.Root.ToArray())
+                foreach (var root in world.Root.ToArray())
                     CaptureRenderables(root, renderedIds);
 
                 // ── Audio sources ──
@@ -470,11 +501,11 @@ namespace V12.Core
                             CaptureAudio(child);
                 }
 
-                foreach (var root in SelectedWorld.Root.ToArray())
+                foreach (var root in world.Root.ToArray())
                     CaptureAudio(root);
 
                 // ── Audio listener ──
-                var listenerElement = SelectedWorld.FindElementWithComponentRecursive<IAudioListener>();
+                var listenerElement = world.FindElementWithComponentRecursive<IAudioListener>();
                 if (listenerElement != null)
                 {
                     var listenerComp = listenerElement.GetComponent<IAudioListener>();
@@ -490,9 +521,7 @@ namespace V12.Core
                     }
                 }
             }
-            finally { SelectedWorld.Lock.ExitReadLock(); }
-
-            return snapshot;
+            finally { world.Lock.ExitReadLock(); }
         }
 
         private void SetupUI()
@@ -602,6 +631,9 @@ namespace V12.Core
 
             if (SelectedWorld != null)
                 dirtyTracker.TrackWorld(SelectedWorld);
+
+            // Track the persistent world so Player components are synced
+            dirtyTracker.TrackWorld(PersistentWorld);
 
             Registry.Register("DirtyTracker", dirtyTracker);
             Console.WriteLine("[GameRoot] DirtyTracker registered.");
@@ -742,6 +774,9 @@ namespace V12.Core
                 //UserSpace.Update(deltaTime);
             }
 
+            // Always update the persistent world (Player, camera, etc.)
+            PersistentWorld.Update(deltaTime);
+
             // Let the dashboard update first (if present) so UI values are
             // refreshed from the current world state before services run.
             try { _dashboard?.Update(deltaTime); } catch { }
@@ -778,7 +813,20 @@ namespace V12.Core
         {
             if (world == null) return;
             if (!Worlds.Contains(world)) return;
+
+            var oldWorld = SelectedWorld;
             SelectedWorld = world;
+
+            // Auto-track via DirtyTracker when selecting a world.
+            // If the same world is being re-selected (e.g. after ReplaceFrom),
+            // still re-track it so new elements from ReplaceFrom are picked up.
+            var tracker = Registry.Get<DirtyTracker>("DirtyTracker");
+            if (tracker != null)
+            {
+                if (oldWorld != null && oldWorld != world)
+                    tracker.UntrackWorld(oldWorld);
+                tracker.TrackWorld(world);
+            }
         }
 
         public bool SelectWorldByName(string name)
@@ -828,7 +876,7 @@ namespace V12.Core
          
 
             Worlds.Add(world);
-            SelectedWorld = world;
+            SelectWorld(world);
             return world;
         }
 

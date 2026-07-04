@@ -157,7 +157,9 @@ namespace V12.Core
         public void AddChild(IWorldElement child)
         {
             if (child == null) return;
-            var world = GameRoot.Instance?.SelectedWorld;
+            // Find which world this element belongs to by walking up to root.
+            // Default to SelectedWorld if we can't determine it (backward compat).
+            var world = FindWorldForElement();
             world?.Lock.EnterWriteLock();
             try
             {
@@ -170,10 +172,34 @@ namespace V12.Core
             finally { world?.Lock.ExitWriteLock(); }
         }
 
+        private World? FindWorldForElement()
+        {
+            var root = GameRoot.Instance;
+            if (root == null) return null;
+
+            // Walk up to the root element (one with no parent)
+            IWorldElement top = this;
+            while (top.Parent != null)
+                top = top.Parent;
+
+            // Check if this root element exists in PersistentWorld
+            if (root.PersistentWorld.Root.Contains(top))
+                return root.PersistentWorld;
+
+            // Check all worlds (typically SelectedWorld)
+            foreach (var w in root.Worlds)
+            {
+                if (w.Root.Contains(top))
+                    return w;
+            }
+
+            return root.SelectedWorld;
+        }
+
         public void RemoveChild(IWorldElement child)
         {
             if (child == null) return;
-            var world = GameRoot.Instance?.SelectedWorld;
+            var world = FindWorldForElement();
             world?.Lock.EnterWriteLock();
             try
             {

@@ -90,7 +90,7 @@ namespace V12.Core.NetworkCable
         {
             while (ReceiveQueue.TryDequeue(out var message))
             {
-                Console.WriteLine($"Processing incoming message from {message.Sender?.AbsoluteUri} of type {message.MessageType}");
+                // Console.WriteLine($"Processing incoming message from {message.Sender?.AbsoluteUri} of type {message.MessageType}");
                 OnMessageReceived?.Invoke(message);
             }
         }

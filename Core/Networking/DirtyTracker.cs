@@ -94,16 +94,47 @@ namespace V12.Core.Networking
         }
 
         /// <summary>
-        /// Subscribe to all elements in a world and their components.
+        /// Subscribe to all elements in a world and their components,
+        /// and auto-track any elements added/removed in the future.
         /// </summary>
         public void TrackWorld(World world)
         {
             if (world.Root == null) return;
 
+            // Subscribe to future element changes
+            world.ElementAdded += OnWorldElementAdded;
+            world.ElementRemoved += OnWorldElementRemoved;
+
             foreach (var element in world.Root)
             {
                 TrackElement(element);
             }
+        }
+
+        /// <summary>
+        /// Stop tracking a world and all its elements/components.
+        /// </summary>
+        public void UntrackWorld(World world)
+        {
+            if (world.Root == null) return;
+
+            world.ElementAdded -= OnWorldElementAdded;
+            world.ElementRemoved -= OnWorldElementRemoved;
+
+            foreach (var element in world.Root)
+            {
+                UntrackElement(element);
+            }
+        }
+
+        private void OnWorldElementAdded(IWorldElement element)
+        {
+            TrackElement(element);
+        }
+
+        private void OnWorldElementRemoved(IWorldElement element)
+        {
+            UntrackElement(element);
         }
 
         private void OnComponentDirty(IComponent component)
