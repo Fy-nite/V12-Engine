@@ -174,26 +174,7 @@ namespace V12.Core
 
         private World? FindWorldForElement()
         {
-            var root = GameRoot.Instance;
-            if (root == null) return null;
-
-            // Walk up to the root element (one with no parent)
-            IWorldElement top = this;
-            while (top.Parent != null)
-                top = top.Parent;
-
-            // Check if this root element exists in PersistentWorld
-            if (root.PersistentWorld.Root.Contains(top))
-                return root.PersistentWorld;
-
-            // Check all worlds (typically SelectedWorld)
-            foreach (var w in root.Worlds)
-            {
-                if (w.Root.Contains(top))
-                    return w;
-            }
-
-            return root.SelectedWorld;
+            return GameRoot.Instance?.GetWorldForElement(this);
         }
 
         public void RemoveChild(IWorldElement child)

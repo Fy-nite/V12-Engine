@@ -61,6 +61,141 @@ namespace V12.Core
         /// <summary>Convenience accessor for the local Player element in PersistentWorld.</summary>
         public IWorldElement? Player => PersistentWorld.Root.FirstOrDefault(e => e.Name == "Player");
 
+        // ── ECS-style query API ───────────────────────────────────────────────
+
+        /// <summary>
+        /// All worlds that systems and queries should consider.
+        /// Currently yields PersistentWorld then SelectedWorld.
+        /// </summary>
+        public IEnumerable<World> ActiveWorlds
+        {
+            get
+            {
+                yield return PersistentWorld;
+                if (SelectedWorld != null)
+                    yield return SelectedWorld;
+            }
+        }
+
+        /// <summary>Find the first element matching a predicate across all active worlds (recursive).</summary>
+        public IWorldElement? FindElement(Func<IWorldElement, bool> predicate)
+        {
+            foreach (var w in ActiveWorlds)
+            {
+                var result = FindInWorld(w, predicate);
+                if (result != null) return result;
+            }
+            return null;
+        }
+
+        /// <summary>Find all elements matching a predicate across all active worlds (recursive).</summary>
+        public List<IWorldElement> FindElements(Func<IWorldElement, bool> predicate)
+        {
+            var results = new List<IWorldElement>();
+            foreach (var w in ActiveWorlds)
+                CollectInWorld(w, predicate, results);
+            return results;
+        }
+
+        /// <summary>Find the first element with a component of type T across all active worlds.</summary>
+        public IWorldElement? FindElementWithComponent<T>() where T : IComponent
+        {
+            foreach (var w in ActiveWorlds)
+            {
+                var el = w.FindElementWithComponentRecursive<T>();
+                if (el != null) return el;
+            }
+            return null;
+        }
+
+        /// <summary>Find all elements with a component of type T across all active worlds.</summary>
+        public List<IWorldElement> FindElementsWithComponent<T>() where T : IComponent
+        {
+            return FindElements(e => e.GetComponent<T>() != null);
+        }
+
+        /// <summary>Find the first component of type T across all active worlds.</summary>
+        public T? FindComponent<T>() where T : IComponent
+        {
+            var el = FindElementWithComponent<T>();
+            return el != null ? el.GetComponent<T>() : default;
+        }
+
+        /// <summary>Find all components of type T across all active worlds.</summary>
+        public List<T> FindComponents<T>() where T : IComponent
+        {
+            var results = new List<T>();
+            foreach (var el in FindElementsWithComponent<T>())
+            {
+                var comp = el.GetComponent<T>();
+                if (comp != null) results.Add(comp);
+            }
+            return results;
+        }
+
+        /// <summary>Determine which world an element belongs to by checking its root.</summary>
+        public World? GetWorldForElement(IWorldElement element)
+        {
+            if (element == null) return null;
+
+            // Walk up to root
+            var top = element;
+            while (top.Parent != null)
+                top = top.Parent;
+
+            // Check _elementsById which indexes all elements (root + children)
+            if (PersistentWorld._elementsById.ContainsKey(top.Id))
+                return PersistentWorld;
+
+            foreach (var w in Worlds)
+            {
+                if (w._elementsById.ContainsKey(top.Id))
+                    return w;
+            }
+
+            return SelectedWorld;
+        }
+
+        private static IWorldElement? FindInWorld(World world, Func<IWorldElement, bool> predicate)
+        {
+            foreach (var el in world.Root)
+            {
+                if (predicate(el)) return el;
+                var found = FindInChildren(el, predicate);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static IWorldElement? FindInChildren(IWorldElement parent, Func<IWorldElement, bool> predicate)
+        {
+            foreach (var child in parent.Children)
+            {
+                if (predicate(child)) return child;
+                var found = FindInChildren(child, predicate);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static void CollectInWorld(World world, Func<IWorldElement, bool> predicate, List<IWorldElement> results)
+        {
+            foreach (var el in world.Root)
+            {
+                if (predicate(el)) results.Add(el);
+                CollectInChildren(el, predicate, results);
+            }
+        }
+
+        private static void CollectInChildren(IWorldElement parent, Func<IWorldElement, bool> predicate, List<IWorldElement> results)
+        {
+            foreach (var child in parent.Children)
+            {
+                if (predicate(child)) results.Add(child);
+                CollectInChildren(child, predicate, results);
+            }
+        }
+
         private Thread? _networkingThread;
         private CancellationTokenSource? _networkingCts;
         // Core-managed desktop dashboard (frontend-agnostic)
@@ -625,8 +760,8 @@ namespace V12.Core
 
             var dirtyTracker = new DirtyTracker(Cables, "networkcables://gameroot")
             {
-                ThrottleInterval = 0.1f,
-                MaxBatchSize = 50
+                ThrottleInterval = 0f,
+                MaxBatchSize = -1 // why the hell do we have this?
             };
 
             if (SelectedWorld != null)
@@ -827,6 +962,34 @@ namespace V12.Core
                     tracker.UntrackWorld(oldWorld);
                 tracker.TrackWorld(world);
             }
+
+            // Teleport the Player to this world's spawn position
+            TeleportPlayerToSpawn(world);
+        }
+
+        /// <summary>
+        /// Teleport the local Player to the given world's SpawnPosition.
+        /// Resets position, rotation, and velocity. If no world is specified, uses SelectedWorld.
+        /// </summary>
+        public void TeleportPlayerToSpawn(World? world = null)
+        {
+            world ??= SelectedWorld;
+            if (world == null) return;
+
+            var player = Player;
+            if (player == null) return;
+
+            var spawn = world.SpawnPosition;
+
+            player.LocalTransform = new TRS
+            {
+                Position = spawn,
+                Rotation = System.Numerics.Quaternion.Identity,
+                Scale = System.Numerics.Vector3.One
+            };
+
+            // Notify the physics system so it reads the new transform immediately
+            player.MarkDirty();
         }
 
         public bool SelectWorldByName(string name)
@@ -834,7 +997,7 @@ namespace V12.Core
             var found = Worlds.Find(w => w.WorldName == name);
             if (found != null)
             {
-                SelectedWorld = found;
+                SelectWorld(found);
                 return true;
             }
             return false;

@@ -12,6 +12,9 @@ namespace V12.Core
         public string WorldName { get; set; }
         internal Dictionary<long, IWorldElement> _elementsById = new();
 
+        /// <summary>Default spawn position when the Player enters this world.</summary>
+        public System.Numerics.Vector3 SpawnPosition { get; set; } = new System.Numerics.Vector3(0, 1.5f, 0);
+
         /// <summary>Filesystem path where this world's V12World archive was extracted.</summary>
         public string ExtractPath { get; set; }
 

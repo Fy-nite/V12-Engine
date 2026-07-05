@@ -27,7 +27,7 @@ namespace V12.Core.Networking
                 BsonSerializer.RegisterSerializer(
                     new ObjectSerializer(type =>
                         ObjectSerializer.DefaultAllowedTypes(type) ||
-                        type.Namespace?.StartsWith("V12.") == true));
+                        type.Namespace?.StartsWith("V12") == true));
 
                 // System.Uri is not handled by MongoDB out of the box.
                 // Serialize it as its AbsoluteUri string so MessageDTO.Sender round-trips cleanly.

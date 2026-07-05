@@ -26,7 +26,7 @@ namespace V12.Core.Networking
         /// <summary>
         /// Minimum time (in seconds) between sending batched updates. Set to 0 to send immediately.
         /// </summary>
-        public float ThrottleInterval { get; set; } = 0.01f; // 10Hz default
+        public float ThrottleInterval { get; set; } = 0f; // instantly send by default
 
         /// <summary>
         /// Optional predicate that returns true when there is at least one connected peer
