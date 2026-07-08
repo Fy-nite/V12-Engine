@@ -1,4 +1,5 @@
 using System;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
 
@@ -32,6 +33,16 @@ namespace V12.Core.Networking
                 // System.Uri is not handled by MongoDB out of the box.
                 // Serialize it as its AbsoluteUri string so MessageDTO.Sender round-trips cleanly.
                 BsonSerializer.RegisterSerializer(new UriAsBsonStringSerializer());
+
+                // Register serializers for types that are not handled by default in MongoDB C# driver.
+                // uint / uint[] are used by MeshComponent.CustomIndices.
+                try { BsonSerializer.RegisterSerializer(typeof(uint), new UInt32Serializer(BsonType.Int64)); } catch { }
+                try { BsonSerializer.RegisterSerializer(typeof(uint[]), new ArraySerializer<uint>()); } catch { }
+                // Also register int[] and double[] explicitly for mesh/vertex data arrays.
+                try { BsonSerializer.RegisterSerializer(typeof(int[]), new ArraySerializer<int>()); } catch { }
+                try { BsonSerializer.RegisterSerializer(typeof(double[]), new ArraySerializer<double>()); } catch { }
+                // Register common nullable types that components may carry.
+                try { BsonSerializer.RegisterSerializer(typeof(long?), new NullableSerializer<long>()); } catch { }
 
                 _initialized = true;
             }

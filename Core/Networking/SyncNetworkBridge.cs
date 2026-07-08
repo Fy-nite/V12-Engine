@@ -25,7 +25,7 @@ namespace V12.Core.Networking
                 var dto = new MessageDTO
                 {
                     Sender = _senderUri,
-                    MessageType = MessageType.WorldUpdate,
+                    MessageType = MessageType.SyncBatch,
                     Message = bytes
                 };
                 _cables.SendData(dto);
@@ -39,8 +39,9 @@ namespace V12.Core.Networking
         {
             if (message == null || message.Message == null) return;
 
-            // We treat WorldSync and WorldUpdate payloads as potential sync batches
-            if (message.MessageType == MessageType.WorldUpdate || message.MessageType == MessageType.WorldSync)
+            // Only process SyncBatch messages (dedicated MessageType for SyncManager value-level sync).
+            // This avoids conflicting with DirtyTracker's WorldUpdate/WorldSync (component-level BSON sync).
+            if (message.MessageType == MessageType.SyncBatch)
             {
                 try
                 {

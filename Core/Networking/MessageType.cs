@@ -19,6 +19,7 @@ namespace V12.Core.Networking
         PlayerKick,
         PlayerAction,
         PlayerSync,
+        SyncBatch,   // SyncManager batch (SyncValue-level updates, separate from DirtyTracker)
         Heartbeat,
         Error
     }

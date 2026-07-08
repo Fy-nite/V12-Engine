@@ -117,11 +117,19 @@ namespace V12.Core.Networking
         {
             if (comp == null) return null;
             var type = comp.GetType();
-            // Use a short name that still uniquely identifies the type across matching assemblies:
-            // "FullTypeName, AssemblyShortName" (no version/culture so it round-trips cleanly).
-            var typeName = $"{type.FullName}, {type.Assembly.GetName().Name}";
-            var data = ((object)comp).ToBson(type);
-            return new ComponentSyncDTO { TypeName = typeName, Data = data };
+            try
+            {
+                // Use a short name that still uniquely identifies the type across matching assemblies:
+                // "FullTypeName, AssemblyShortName" (no version/culture so it round-trips cleanly).
+                var typeName = $"{type.FullName}, {type.Assembly.GetName().Name}";
+                var data = ((object)comp).ToBson(type);
+                return new ComponentSyncDTO { TypeName = typeName, Data = data };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AncientCompressor] Failed to serialize {type.FullName}: {ex.GetType().Name}: {ex.Message}");
+                return null;
+            }
         }
 
         /// <summary>
@@ -130,7 +138,11 @@ namespace V12.Core.Networking
         /// </summary>
         public static IComponent? DecompressComponent(ComponentSyncDTO dto)
         {
-            if (dto == null || string.IsNullOrEmpty(dto.TypeName) || dto.Data == null) return null;
+            if (dto == null || string.IsNullOrEmpty(dto.TypeName) || dto.Data == null)
+            {
+                Console.WriteLine("[AncientCompressor] DecompressComponent: null or invalid DTO");
+                return null;
+            }
 
             // Resolve type – try exact name then short name fallback.
             var type = Type.GetType(dto.TypeName)
@@ -138,15 +150,27 @@ namespace V12.Core.Networking
                            .Select(a => { try { return a.GetType(dto.TypeName.Split(',')[0].Trim()); } catch { return null; } })
                            .FirstOrDefault(t => t != null);
 
-            if (type == null) return null;
+            if (type == null)
+            {
+                Console.WriteLine($"[AncientCompressor] DecompressComponent: could not resolve type '{dto.TypeName}'");
+                return null;
+            }
 
-            // Deserialize via BsonDocument so we don't need a generic type parameter at compile time.
-            var doc = BsonSerializer.Deserialize<BsonDocument>(dto.Data);
-            var serializer = BsonSerializer.LookupSerializer(type);
-            using var reader = new BsonDocumentReader(doc);
-            var ctx  = BsonDeserializationContext.CreateRoot(reader);
-            var args = new BsonDeserializationArgs { NominalType = type };
-            return serializer.Deserialize(ctx, args) as IComponent;
+            try
+            {
+                // Deserialize via BsonDocument so we don't need a generic type parameter at compile time.
+                var doc = BsonSerializer.Deserialize<BsonDocument>(dto.Data);
+                var serializer = BsonSerializer.LookupSerializer(type);
+                using var reader = new BsonDocumentReader(doc);
+                var ctx  = BsonDeserializationContext.CreateRoot(reader);
+                var args = new BsonDeserializationArgs { NominalType = type };
+                return serializer.Deserialize(ctx, args) as IComponent;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AncientCompressor] Failed to deserialize {type.FullName}: {ex.GetType().Name}: {ex.Message}");
+                return null;
+            }
         }
     }
 }

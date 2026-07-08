@@ -5,6 +5,7 @@ using System.Linq;
 using V12.Core.Core.Interfaces;
 using V12.Core.NetworkCable;
 using V12.Core.Networking;
+using V12.Components;
 
 namespace V12.Core.Networking
 {
@@ -66,7 +67,7 @@ namespace V12.Core.Networking
         }
 
         /// <summary>
-        /// Subscribe to a world element's dirty events.
+        /// Subscribe to a world element's dirty events, recursively tracking all children.
         /// </summary>
         public void TrackElement(IWorldElement element)
         {
@@ -77,10 +78,16 @@ namespace V12.Core.Networking
             {
                 TrackComponent(component);
             }
+
+            // Recursively track all child elements
+            foreach (var child in element.Children)
+            {
+                TrackElement(child);
+            }
         }
 
         /// <summary>
-        /// Unsubscribe from a world element's dirty events.
+        /// Unsubscribe from a world element's dirty events, recursively untracking all children.
         /// </summary>
         public void UntrackElement(IWorldElement element)
         {
@@ -90,6 +97,12 @@ namespace V12.Core.Networking
             foreach (var component in element.Components)
             {
                 UntrackComponent(component);
+            }
+
+            // Recursively untrack all child elements
+            foreach (var child in element.Children)
+            {
+                UntrackElement(child);
             }
         }
 
@@ -247,6 +260,14 @@ namespace V12.Core.Networking
 
                 foreach (var c in components)
                 {
+                    // If this component is a MeshComponent, ensure its SyncValues are
+                    // published before serialization so the SyncManager path also carries
+                    // the mesh vertex/index data to remote peers.
+                    if (c is MeshComponent mc)
+                    {
+                        try { mc.PublishMeshToSyncAuthoritative(); } catch { }
+                    }
+
                     byte[]? payload = null;
                     try
                     {

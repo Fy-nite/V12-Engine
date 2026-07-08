@@ -734,6 +734,10 @@ namespace V12.Core
                     Console.WriteLine($"[GameRoot] Client connected → sending WorldSync '{world.WorldName}' ({world.Root.Count} elements)");
                     try
                     {
+                        // Publish all MeshComponent data into SyncValues so the SyncManager
+                        // batch path carries mesh data alongside the BSON-serialized world snapshot.
+                        PublishWorldMeshSyncValues(world);
+
                         Cables.SendData(new MessageDTO
                         {
                             Sender = new Uri("networkcables://server"),
@@ -1058,6 +1062,32 @@ namespace V12.Core
             Worlds.Add(world);
             SelectedWorld = world;
             return world;
+        }
+
+        /// <summary>
+        /// Publish MeshComponent data into SyncValues for all meshes in a world (recursive).
+        /// Call this on the authoritative side before sending WorldSync so clients receive
+        /// both the BSON-serialized component (via AncientCompressor) AND the SyncValue-level
+        /// mesh data (via SyncManager batches).
+        /// </summary>
+        public void PublishWorldMeshSyncValues(World world)
+        {
+            if (world?.Root == null) return;
+            foreach (var element in world.Root)
+            {
+                PublishElementMeshSyncValues(element);
+            }
+        }
+
+        private void PublishElementMeshSyncValues(IWorldElement element)
+        {
+            var mesh = element.GetComponent<MeshComponent>();
+            mesh?.PublishMeshToSyncAuthoritative();
+
+            foreach (var child in element.Children)
+            {
+                PublishElementMeshSyncValues(child);
+            }
         }
     }
     

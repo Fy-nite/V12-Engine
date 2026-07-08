@@ -4,6 +4,9 @@ using System.Numerics;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
+using V12.Core.Networking;
+using V12.Core.NetworkCable;
+using MongoDB.Bson.Serialization.Attributes;
 
 namespace V12.Components
 {
@@ -35,8 +38,33 @@ namespace V12.Components
         private uint[] _indices;
 
         // Optional custom vertex/index data (used when Shape == Custom)
-        public double[] CustomMeshPoints { get; set; }
-        public uint[] CustomIndices { get; set; }
+        private double[] _customMeshPoints;
+        private uint[] _customIndices;
+        public double[] CustomMeshPoints
+        {
+            get => _customMeshPoints;
+            set { _customMeshPoints = value; InvalidateCache(); MarkDirty(); PublishMeshToSyncAuthoritative(); }
+        }
+        public uint[] CustomIndices
+        {
+            get => _customIndices;
+            set { _customIndices = value; InvalidateCache(); MarkDirty(); PublishMeshToSyncAuthoritative(); }
+        }
+
+        // ── SyncValue-based network sync for mesh data ───────────────────────
+        // These SyncValues are registered in SyncRegistry and synced via the
+        // SyncManager path (separate from DirtyTracker's component-level BSON sync).
+        // They provide fine-grained value-level sync for mesh vertex/index data.
+        /// <summary>SyncValue wrapper for <see cref="MeshPoints"/> — syncs the computed/generated mesh vertex data.</summary>
+        [Sync, BsonIgnore]
+        public SyncValue<double[]>? MeshPointsValue { get; set; }
+
+        /// <summary>SyncValue wrapper for <see cref="Indices"/> — syncs the computed/generated mesh index data.</summary>
+        [Sync, BsonIgnore]
+        public SyncValue<uint[]>? IndicesValue { get; set; }
+
+        /// <summary>Sync key prefix, derived from element ID and component ID.</summary>
+        private string Key => $"mesh/{Owner?.Id ?? 0}/{Id}";
 
 		public override string Name { get; set; } = "Mesh";
         public override string Description => "Primitive mesh shape";
@@ -44,25 +72,25 @@ namespace V12.Components
         public MeshShape Shape
         {
             get => _shape;
-            set { if (_shape != value) { _shape = value; InvalidateCache(); MarkDirty(); } }
+            set { if (_shape != value) { _shape = value; InvalidateCache(); MarkDirty(); PublishMeshToSyncAuthoritative(); } }
         }
 
         public float Width
         {
             get => _width;
-            set { if (Math.Abs(_width - value) > 0.0001f) { _width = value; InvalidateCache(); MarkDirty(); } }
+            set { if (Math.Abs(_width - value) > 0.0001f) { _width = value; InvalidateCache(); MarkDirty(); PublishMeshToSyncAuthoritative(); } }
         }
 
         public float Height
         {
             get => _height;
-            set { if (Math.Abs(_height - value) > 0.0001f) { _height = value; InvalidateCache(); MarkDirty(); } }
+            set { if (Math.Abs(_height - value) > 0.0001f) { _height = value; InvalidateCache(); MarkDirty(); PublishMeshToSyncAuthoritative(); } }
         }
 
         public float Depth
         {
             get => _depth;
-            set { if (Math.Abs(_depth - value) > 0.0001f) { _depth = value; InvalidateCache(); MarkDirty(); } }
+            set { if (Math.Abs(_depth - value) > 0.0001f) { _depth = value; InvalidateCache(); MarkDirty(); PublishMeshToSyncAuthoritative(); } }
         }
 
         public override void OnAttach(IWorldElement element)
@@ -74,6 +102,46 @@ namespace V12.Components
                 _width = collider.Width;
                 _height = collider.Height;
                 _depth = collider.Depth;
+            }
+
+            // Auto-create SyncValue<T> wrappers for [Sync]-marked properties
+            SyncAutoCreator.EnsureSyncValues(this, Key);
+
+            // Publish current mesh data into SyncValues (only on authoritative side;
+            // the internal check in PublishMeshToSyncAuthoritative handles this safely).
+            PublishMeshToSyncAuthoritative();
+        }
+
+        /// <summary>
+        /// Publish the current mesh data into SyncValues so remote peers receive it.
+        /// Call this explicitly on the authoritative instance (e.g. server) when mesh data changes.
+        /// SyncValues are registered in SyncRegistry and synced via SyncManager batches,
+        /// separate from the DirtyTracker's component-level BSON sync.
+        /// On client (non-authoritative) instances this should NOT be called to avoid echo loops.
+        /// </summary>
+        public void PublishMeshToSyncAuthoritative()
+        {
+            // Only publish when on server or standalone (not a network client)
+            var root = GameRoot.Instance;
+            if (root == null) return;
+            var host = root.Registry?.Get<NetworkHost>("NetworkHost");
+            var client = root.Registry?.Get<NetworkClient>("NetworkClient");
+            if (client != null && host == null) return; // pure client, don't push back
+
+            if (MeshPoints != null)
+            {
+                if (MeshPointsValue == null)
+                    MeshPointsValue = new SyncValue<double[]>($"{Key}/MeshPoints", MeshPoints, true);
+                else
+                    MeshPointsValue.Set(MeshPoints);
+            }
+
+            if (Indices != null)
+            {
+                if (IndicesValue == null)
+                    IndicesValue = new SyncValue<uint[]>($"{Key}/Indices", Indices, true);
+                else
+                    IndicesValue.Set(Indices);
             }
         }
 
