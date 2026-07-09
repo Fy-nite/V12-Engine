@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Text;
+using MongoDB.Bson.Serialization.Attributes;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 
@@ -50,8 +51,10 @@ namespace V12.Components.Renderables
 
         public RenderType RenderType => Mesh?.RenderType ?? RenderType.Mesh;
 
+        [BsonIgnore]
         public TRS LocalTransform => throw new NotImplementedException();
 
+        [BsonIgnore]
         public Matrix4x4 WorldTransform => throw new NotImplementedException();
 
         public override IWorldElement BuildUI()

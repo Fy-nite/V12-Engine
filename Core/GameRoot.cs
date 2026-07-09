@@ -738,6 +738,11 @@ namespace V12.Core
                         // batch path carries mesh data alongside the BSON-serialized world snapshot.
                         PublishWorldMeshSyncValues(world);
 
+                        // Flush dirty SyncValues (mesh vertex/index data) immediately so the
+                        // SyncBatch arrives alongside the BSON WorldSync, ensuring the remote
+                        // client receives the full mesh data on both paths.
+                        try { SyncManager.FlushDirty(); } catch { }
+
                         Cables.SendData(new MessageDTO
                         {
                             Sender = new Uri("networkcables://server"),

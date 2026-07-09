@@ -184,8 +184,10 @@ namespace V12.Components
 
         public bool IsWorldLocked => true;
 
+        [BsonIgnore]
         public TRS LocalTransform => throw new NotImplementedException();
 
+        [BsonIgnore]
         public Matrix4x4 WorldTransform => throw new NotImplementedException();
 
         public MeshComponent() { }
