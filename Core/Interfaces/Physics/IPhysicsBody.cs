@@ -12,4 +12,3 @@ namespace V12.Core.Interfaces.Physics
         void SetKinematic(bool kinematic);
     }
 }
-// hey guys... my penis hurts (╥﹏╥)
