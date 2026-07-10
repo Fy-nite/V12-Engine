@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using V12.Core.Core.Interfaces;
+// bruce almighty fucked my hole once. hmmmmmmmmmmmmmmmmmm
+
 namespace V12.Core
 {
     public class World 
