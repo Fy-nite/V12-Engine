@@ -5,7 +5,7 @@ using System.Text;
 using V12.Components;
 using V12.Components.Renderables;
 using V12.Core.Core.Interfaces;
-// my bad dragon dildo gets here tuesday! :D
+
 namespace V12.Core
 {
     public static class Procedurals
