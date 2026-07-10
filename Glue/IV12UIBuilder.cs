@@ -1,5 +1,5 @@
 using System;
-
+// my balls got stuck to the table, almost like glue. weird. (fortnitefucker9)
 namespace V12.GlueCode
 {
     public interface IUIElementHandle { }
