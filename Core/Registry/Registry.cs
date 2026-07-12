@@ -22,6 +22,17 @@ namespace V12
         }
 
         /// <summary>
+        /// Register an instance under an explicit name.
+        /// </summary>
+        public static void Register(string name, object instance)
+        {
+            var root = GameRoot.Instance;
+            if (root == null)
+                throw new InvalidOperationException("GameRoot.Instance is not set. Cannot register services before the game root is created.");
+            root.Registry.Register(name, instance);
+        }
+
+        /// <summary>
         /// Resolve the first registered service of type <typeparamref name="T"/>.
         /// Returns null if not found.
         /// </summary>
@@ -30,6 +41,17 @@ namespace V12
             var root = GameRoot.Instance;
             if (root == null) return null;
             return root.Registry.Get<T>();
+        }
+
+        /// <summary>
+        /// Resolve a named service, cast to <typeparamref name="T"/>.
+        /// Returns null if not found.
+        /// </summary>
+        public static T? Get<T>(string name) where T : class
+        {
+            var root = GameRoot.Instance;
+            if (root == null) return null;
+            return root.Registry.Get<T>(name);
         }
     }
 }
