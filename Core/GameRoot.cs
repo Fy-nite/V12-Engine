@@ -17,6 +17,7 @@ using V12.Core.UI;
 using V12.Components.UI;
 using V12.Components;
 using V12.Components.Renderables;
+using V12.Core.GamePak;
 using V12.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 using V12.WorldML;
@@ -46,6 +47,9 @@ namespace V12.Core
         /// Central service registry. Networking, DirtyTracker, and other engine services are registered here.
         /// </summary>
         public RegistryController Registry { get; } = new RegistryController("GameRoot");
+
+        /// <summary>Loader responsible for discovering and managing game paks.</summary>
+        public GamepackLoader Gamepaks { get; } = new GamepackLoader();
 
         /// <summary>
         /// The NetworkCables message bus used by this game instance.
@@ -284,7 +288,20 @@ namespace V12.Core
             }
 
         }
-            
+
+        /// <summary>
+        /// Discover, initialize, and start game paks from the given directory.
+        /// Call after <see cref="Initialize"/> so that platform services are already registered.
+        /// </summary>
+        public void LoadGamepacks(string directory)
+        {
+            Console.WriteLine($"[GameRoot] Loading gamepaks from '{directory}'...");
+            Gamepaks.LoadFromDirectory(directory);
+            Gamepaks.InitializeAll();
+            Gamepaks.StartAll();
+            Console.WriteLine($"[GameRoot] {Gamepaks.Gamepaks.Count} gamepak(s) loaded.");
+        }
+
         
         public void V12Tick()
         {
