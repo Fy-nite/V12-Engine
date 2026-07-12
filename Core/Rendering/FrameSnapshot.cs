@@ -80,6 +80,10 @@ namespace V12.Core.Rendering
         public float NearClip;
         public float FarClip;
         public bool IsCurrentCamera;
+
+        // Whether the original V12 element has a ColliderComponent.
+        // Used by renderers to decide whether to add physics shapes.
+        public bool HasCollider;
     }
 
     public struct AudioSourceSnapshot

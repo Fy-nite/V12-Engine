@@ -216,6 +216,10 @@ namespace V12.Components
                 case MeshShape.Sphere:
                     // StereoKit handles sphere generation better, but we provide points for generic renderers
                     return GenerateSpherePoints(16, 8);
+                case MeshShape.Custom:
+                    // Custom shape without vertex data — return empty so nothing renders
+                    // rather than silently falling back to a box.
+                    return Array.Empty<double>();
                 default:
                     return GenerateBoxPoints();
             }
@@ -231,6 +235,10 @@ namespace V12.Components
                     return GeneratePlaneIndices();
                 case MeshShape.Sphere:
                     return GenerateSphereIndices(16, 8);
+                case MeshShape.Custom:
+                    // Custom shape without index data — return empty so nothing renders
+                    // rather than silently falling back to box indices.
+                    return Array.Empty<uint>();
                 default:
                     return GenerateBoxIndices();
             }

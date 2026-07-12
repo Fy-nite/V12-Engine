@@ -460,6 +460,7 @@ namespace V12.Core
                                           * System.Numerics.Matrix4x4.CreateTranslation(lt.Position);
                     }
                     rs.HasLocalTransform = true;
+                    rs.HasCollider = element.GetComponent<V12.Components.ColliderComponent>() != null;
 
                     // Emit parent-chain placeholders for non-renderable ancestors
                     var ancestor = element.Parent;

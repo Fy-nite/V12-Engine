@@ -12,7 +12,7 @@ namespace V12.Components
     {
         public event Action<IComponent>? OnDirty;
 
-        public long Id { get; protected set; }
+        public long Id { get; set; }
         public long? EntityId { get; set; }
 
         [BsonIgnore]
