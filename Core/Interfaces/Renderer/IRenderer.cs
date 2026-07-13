@@ -25,6 +25,13 @@ namespace V12.Core.Interfaces
         void step();
 
         /// <summary>
+        /// When true, the renderer requests that the mouse cursor be captured
+        /// (hidden and confined to the window). Implementations or frontends
+        /// should honour this flag. Defaults to false.
+        /// </summary>
+        bool LockMouse { get; set; }
+
+        /// <summary>
         /// Process a frame snapshot produced by <see cref="GameRoot.CaptureFrame"/>.
         /// Called on the Godot main thread; creates/updates/destroys scene nodes.
         /// </summary>

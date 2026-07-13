@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Xml.Linq;
 using System.IO;
+using Serilog;
 using V12.Core.Core.Interfaces;
 using V12.Core.NetworkCable;
 using V12.Core.Networking;
@@ -33,6 +34,34 @@ namespace V12.Core
         /// Handlers receive the registered NetworkClient.
         /// </summary>
         public event Action<V12.Core.NetworkCable.NetworkClient?>? OnNetworkClientRegistered;
+
+        /// <summary>
+        /// Serilog logger for the engine. Call <see cref="ConfigureLogging"/> once
+        /// before creating the first GameRoot to set the minimum level and sinks.
+        /// </summary>
+        public static ILogger Log { get; private set; } = Serilog.Log.Logger;
+
+        /// <summary>
+        /// Configure the global Serilog logger used by the engine. Call once at
+        /// startup before creating a <see cref="GameRoot"/> instance.
+        /// When not called, the default logger writes to the console at Information.
+        /// </summary>
+        /// <param name="minimumLevel">Global minimum log level.</param>
+        /// <param name="configure">Optional extra configuration (add sinks, enrichers, etc.).</param>
+        public static void ConfigureLogging(
+            Serilog.Events.LogEventLevel minimumLevel = Serilog.Events.LogEventLevel.Information,
+            Action<LoggerConfiguration>? configure = null)
+        {
+            var config = new LoggerConfiguration()
+                .MinimumLevel.Is(minimumLevel)
+                .WriteTo.Console(
+                    outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
+
+            configure?.Invoke(config);
+
+            Log = config.CreateLogger();
+            Serilog.Log.Logger = Log;
+        }
 
         public List<World> Worlds = new List<World>();
         public static GameRoot Instance { get; private set; }
@@ -251,7 +280,7 @@ namespace V12.Core
             {
                 if (stream == null)
                 {
-                    Console.WriteLine($"Resource '{name}' not found.");
+                    Log.Warning("Resource '{Name}' not found.", name);
                     return "";
                 }
                 using (StreamReader reader = new StreamReader(stream))
@@ -266,7 +295,7 @@ namespace V12.Core
 #if DEBUG
             foreach (var World in Worlds)
             {
-                Console.WriteLine($"Initializing world: {World.WorldName}");
+                Log.Debug("Initializing world: {WorldName}", World.WorldName);
             }
             
 #endif
@@ -278,12 +307,12 @@ namespace V12.Core
 
             if (Registry.Get("IRenderer") == null)
             {
-                Console.WriteLine("starting V12 in headless mode");
+                Log.Information("Starting V12 in headless mode");
                 renderer = null;
             }
             else
             {
-                Console.WriteLine("found IRenderer, loading...");
+                Log.Information("Found IRenderer, loading...");
                 renderer = (IRenderer)Registry.Get("IRenderer").ServiceInstance;
             }
 
@@ -295,11 +324,51 @@ namespace V12.Core
         /// </summary>
         public void LoadGamepacks(string directory)
         {
-            Console.WriteLine($"[GameRoot] Loading gamepaks from '{directory}'...");
+            Log.Information("Loading gamepaks from '{Directory}'...", directory);
+            var countBefore = Gamepaks.Gamepaks.Count;
             Gamepaks.LoadFromDirectory(directory);
-            Gamepaks.InitializeAll();
-            Gamepaks.StartAll();
-            Console.WriteLine($"[GameRoot] {Gamepaks.Gamepaks.Count} gamepak(s) loaded.");
+            var discovered = Gamepaks.Gamepaks.Count - countBefore;
+            if (discovered > 0)
+            {
+                Log.Information("Initializing {Count} newly discovered gamepak(s)...", discovered);
+                Gamepaks.InitializeAll();
+            }
+            Log.Information("{Count} gamepak(s) loaded.", Gamepaks.Gamepaks.Count);
+        }
+
+        /// <summary>
+        /// Load, initialize, and start all game paks from a .NET assembly in one call.
+        /// Use this to embed a game pak directly in your application without scanning
+        /// a directory of DLLs.
+        /// </summary>
+        /// <param name="assembly">The assembly containing IV12Gamepack implementations.</param>
+        /// <returns>The number of game paks discovered and started.</returns>
+        public int LoadGamepacksFromAssembly(Assembly assembly)
+        {
+            Log.Information("Loading gamepaks from assembly '{Assembly}'...", assembly.GetName().Name);
+            var count = Gamepaks.LoadAndStart(assembly);
+            Log.Information("{Count} gamepak(s) loaded from assembly.", count);
+            return count;
+        }
+
+        /// <summary>
+        /// Load, initialize, and start a single game pak by name from an already-loaded assembly.
+        /// </summary>
+        /// <param name="assembly">The assembly to scan.</param>
+        /// <param name="pakName">The exact or case-insensitive name of the game pak to load.</param>
+        /// <returns>The game pak instance if found and started, null otherwise.</returns>
+        public IV12Gamepack? LoadGamepackByName(Assembly assembly, string pakName)
+        {
+            Log.Information("Loading gamepak '{Name}' from assembly '{Assembly}'...", pakName, assembly.GetName().Name);
+            Gamepaks.LoadFromAssembly(assembly);
+            if (Gamepaks.InitializeAndStartByName(pakName))
+            {
+                var pak = Gamepaks.FindByName(pakName);
+                Log.Information("Gamepak '{Name}' loaded and started successfully.", pakName);
+                return pak;
+            }
+            Log.Warning("Gamepak '{Name}' not found or failed to start.", pakName);
+            return null;
         }
 
         
@@ -719,7 +788,7 @@ namespace V12.Core
                     var world = SelectedWorld;
                     if (world == null)
                     {
-                        Console.WriteLine("[GameRoot] Client connected but SelectedWorld is null – no WorldSync sent.");
+                        Log.Warning("Client connected but SelectedWorld is null – no WorldSync sent.");
                         return;
                     }
 
@@ -741,15 +810,15 @@ namespace V12.Core
                                 MessageType = MessageType.WorldArchive,
                                 Message = payload
                             });
-                            Console.WriteLine($"[GameRoot] Sent V12World archive '{archiveName}' ({archiveBytes.Length} bytes)");
+                            Log.Information("Sent V12World archive '{ArchiveName}' ({Size} bytes)", archiveName, archiveBytes.Length);
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[GameRoot] ERROR sending V12World archive: {ex.GetType().Name}: {ex.Message}");
+                            Log.Error(ex, "Error sending V12World archive");
                         }
                     }
 
-                    Console.WriteLine($"[GameRoot] Client connected → sending WorldSync '{world.WorldName}' ({world.Root.Count} elements)");
+                    Log.Information("Client connected → sending WorldSync '{WorldName}' ({Count} elements)", world.WorldName, world.Root.Count);
                     try
                     {
                         // Publish all MeshComponent data into SyncValues so the SyncManager
@@ -767,21 +836,21 @@ namespace V12.Core
                             MessageType = MessageType.WorldSync,
                             Message = AncientCompressor.Compress(world)
                         });
-                        Console.WriteLine($"[GameRoot] WorldSync queued for send.");
+                        Log.Information("WorldSync queued for send.");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[GameRoot] ERROR serialising WorldSync: {ex.GetType().Name}: {ex.Message}");
+                        Log.Error(ex, "Error serialising WorldSync");
                     }
                 };
                 Registry.Register("NetworkHost", host);
-                Console.WriteLine($"[GameRoot] NetworkHost registered on port {port}.");
+                Log.Information("NetworkHost registered on port {Port}.", port);
             }
             else
             {
                 var client = new NetworkClient(connectHost, port, Cables);
                 Registry.Register("NetworkClient", client);
-                Console.WriteLine($"[GameRoot] NetworkClient registered, targeting {connectHost}:{port}.");
+                Log.Information("NetworkClient registered, targeting {Host}:{Port}.", connectHost, port);
                 try { OnNetworkClientRegistered?.Invoke(client); } catch { }
             }
 
@@ -798,7 +867,7 @@ namespace V12.Core
             dirtyTracker.TrackWorld(PersistentWorld);
 
             Registry.Register("DirtyTracker", dirtyTracker);
-            Console.WriteLine("[GameRoot] DirtyTracker registered.");
+            Log.Information("DirtyTracker registered.");
 
             // Wire up a connection-state predicate so the DirtyTracker stays quiet when
             // nobody is connected (server with no clients, or client with no live link).
@@ -826,11 +895,11 @@ namespace V12.Core
             {
                 var syncBridge = new V12.Core.Networking.SyncNetworkBridge(Cables, "networkcables://gameroot");
                 Registry.Register("SyncNetworkBridge", syncBridge);
-                Console.WriteLine("[GameRoot] SyncNetworkBridge registered.");
+                Log.Information("SyncNetworkBridge registered.");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[GameRoot] Failed to create SyncNetworkBridge: {ex.Message}");
+                Log.Error(ex, "Failed to create SyncNetworkBridge");
             }
         }
 
