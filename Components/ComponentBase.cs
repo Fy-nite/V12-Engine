@@ -42,6 +42,7 @@ namespace V12.Components
         protected void MarkDirty()
         {
             try { OnDirty?.Invoke(this); } catch { }
+            Core.GameRoot.Instance?.MarkRenderDirty();
         }
 
         private static long _nextId = 1;

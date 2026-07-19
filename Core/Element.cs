@@ -152,13 +152,12 @@ namespace V12.Core
         public void MarkDirty()
         {
             OnDirty?.Invoke(this);
+            GameRoot.Instance?.MarkRenderDirty();
         }
 
         public void AddChild(IWorldElement child)
         {
             if (child == null) return;
-            // Find which world this element belongs to by walking up to root.
-            // Default to SelectedWorld if we can't determine it (backward compat).
             var world = FindWorldForElement();
             world?.Lock.EnterWriteLock();
             try
@@ -170,6 +169,7 @@ namespace V12.Core
                     world._elementsById[child.Id] = child;
             }
             finally { world?.Lock.ExitWriteLock(); }
+            MarkDirty();
         }
 
         private World? FindWorldForElement()
@@ -190,6 +190,7 @@ namespace V12.Core
                     world._elementsById.Remove(child.Id);
             }
             finally { world?.Lock.ExitWriteLock(); }
+            MarkDirty();
         }
 
         public IComponent AddComponent(IComponent component)

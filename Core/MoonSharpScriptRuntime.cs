@@ -11,6 +11,7 @@ namespace V12.Core
         private readonly ConcurrentQueue<string> _printQueue = new();
         public event Action<string> OnPrint;
         public bool SupportsHotReload => true;
+        public string[] SupportedExtensions => new[] { ".lua" };
 
         public MoonSharpScriptRuntime()
         {

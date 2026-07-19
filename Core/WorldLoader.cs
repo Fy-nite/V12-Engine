@@ -8,6 +8,7 @@ namespace V12.Core
 {
     public static class WorldLoader
     {
+        [Obsolete("Use V12PakLoader with .v12pak archives instead. This method remains for backward compatibility with .v12world ZIP files.")]
         public static World LoadFromArchive(string archivePath)
         {
             var resolver = new V12AssetResolver();

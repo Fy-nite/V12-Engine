@@ -34,8 +34,11 @@ namespace V12.Components
             try
             {
                 var resolver = GetAssetResolver();
-                Runtime = new MoonSharpScriptRuntime();
-                Runtime.OnPrint += msg => Console.WriteLine($"[Lua:{Name}] {msg}");
+
+                // Use ScriptRuntimeRegistry to select the correct runtime for the script extension
+                var scriptRegistry = FindGameRoot()?.Registry.Get<ScriptRuntimeRegistry>();
+                Runtime = scriptRegistry?.CreateForScript(Source) ?? new MoonSharpScriptRuntime();
+                Runtime.OnPrint += msg => Console.WriteLine($"[Script:{Name}] {msg}");
 
                 // Expose owner element to Lua
                 if (Owner != null)

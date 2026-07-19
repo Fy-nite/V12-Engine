@@ -10,5 +10,11 @@ namespace V12.Core.Interfaces
         object GetGlobal(string name);
         event Action<string> OnPrint;
         bool SupportsHotReload { get; }
+
+        /// <summary>
+        /// File extensions this runtime handles (e.g. {".lua"}, {".cs"}).
+        /// Used by ScriptRuntimeRegistry to dispatch script files to the correct runtime.
+        /// </summary>
+        string[] SupportedExtensions { get; }
     }
 }

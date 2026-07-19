@@ -236,6 +236,14 @@ namespace V12.Core
         private IInputHandler? _dashboardHandler;
         public IRenderer renderer;
 
+        /// <summary>
+        /// Set to true whenever a world element or component changes in a way
+        /// that affects rendering (transform, mesh data, material, add/remove).
+        /// V12Tick only builds and sends a RenderPacket when this is true.
+        /// </summary>
+        private volatile bool _renderDirty = true;
+        public void MarkRenderDirty() => _renderDirty = true;
+
         public GameRoot() {
             //Worlds.Add(UserSpace);
             //Worlds.Add(HomeWorld);
@@ -372,22 +380,31 @@ namespace V12.Core
         }
 
         
-        public void V12Tick()
+        public void V12Tick(float deltaTime = 1f / 60f)
         {
-        
-                foreach (var service in Registry.GetAll<IGameService>())
-                    service.Update(this);
+                // Run full game update (worlds, services, dashboard)
+                Update(deltaTime);
                 
-                List<IRenderable> renderables = GetAllRenderables();
-                if (renderer != null)
+                // Only build and send a render packet when something changed
+                if (renderer != null && _renderDirty)
                 {
+                    _renderDirty = false;
+                    var packet = new RenderPacket();
+                    List<IRenderable> renderables = GetAllRenderables();
                     foreach (var r in renderables)
                     {
-                        renderer.QueueItem(r);
+                        if (r is IMeshRenderable mesh)
+                        {
+                            packet.Meshes.Add(new MeshDraw
+                            {
+                                Transform = mesh.Transform,
+                                Mesh = mesh
+                            });
+                        }
                     }
+                    renderer.QueueItems(packet);
                 }
-                renderer.step();
-                
+                renderer?.step();
         }
 
         public List<IRenderable> GetAllRenderables()

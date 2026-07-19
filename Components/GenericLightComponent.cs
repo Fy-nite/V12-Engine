@@ -4,6 +4,7 @@ using V12.Core;
 using V12.Core.Interfaces.Renderer;
 using System.Drawing;
 using System.Numerics;
+using BepuPhysics.Constraints;
 namespace V12.Components
 {
     public class GenericLightComponent : ComponentBase, ILightRenderable
