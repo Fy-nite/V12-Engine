@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using V12.Core.Binding;
 using V12.Core.Core.Interfaces;
 namespace V12.Core
 {
@@ -9,6 +10,9 @@ namespace V12.Core
     {
 
         public List<IWorldElement> Root { get; set; }
+
+        /// <summary>Binding context for this world. Lazily created by <see cref="Bind.Current"/>.</summary>
+        public BindingContext? Bindings { get; set; }
         public string WorldName { get; set; }
         internal Dictionary<long, IWorldElement> _elementsById = new();
 

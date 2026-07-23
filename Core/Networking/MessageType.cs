@@ -21,6 +21,7 @@ namespace V12.Core.Networking
         PlayerSync,
         SyncBatch,   // SyncManager batch (SyncValue-level updates, separate from DirtyTracker)
         Heartbeat,
-        Error
+        Error,
+        VNodeFileRequest
     }
 }
