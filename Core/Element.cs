@@ -7,6 +7,7 @@ using V12.Components;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 using V12.Core.NetworkCable;
+using V12.Core.Networking;
 
 namespace V12.Core
 {
@@ -201,7 +202,13 @@ namespace V12.Core
             try
             {
                 Components.Add(component);
-                component.MarkDirty();
+                // Route through the DirtyTracker so the component reaches remote
+                // peers via the batched path (safe for non-serializable components).
+                // The raw network MarkDirty extension BSON-serialises the whole
+                // component and throws on delegate-bearing types (e.g. UIButton).
+                var tracker = GameRoot.Instance?.Registry.Get<DirtyTracker>("DirtyTracker");
+                tracker?.TrackComponent(component);
+                component.RaiseDirty();
             }
             finally { world?.Lock.ExitWriteLock(); }
             return component;
@@ -215,6 +222,8 @@ namespace V12.Core
                 Components.Remove(component);
             }
             finally { world?.Lock.ExitWriteLock(); }
+            var tracker = GameRoot.Instance?.Registry.Get<DirtyTracker>("DirtyTracker");
+            tracker?.UntrackComponent(component);
             component.OnDetach(this);
         }
         public IComponent GetComponent(string name)

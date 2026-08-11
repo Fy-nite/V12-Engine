@@ -4,6 +4,7 @@ using System.Text;
 using System.Linq;
 using V12.Core.NetworkCable;
 using V12.Core.Interfaces.Renderer;
+using V12.Core.Networking;
 namespace V12.Core.Core.Interfaces
 {
     public interface IWorldElement : ISpatial
@@ -67,7 +68,9 @@ namespace V12.Core.Core.Interfaces
 
             component.OnAttach(this);
             Components.Add(component);
-            component.MarkDirty(); // mark the component as dirty after attaching to ensure it is updated in the next cycle
+            var tracker = GameRoot.Instance?.Registry.Get<DirtyTracker>("DirtyTracker");
+            tracker?.TrackComponent(component);
+            component.RaiseDirty(); // mark the component as dirty after attaching to ensure it is updated in the next cycle
         }
 
         /// <summary>
@@ -80,7 +83,9 @@ namespace V12.Core.Core.Interfaces
         {
             component.OnDetach(this); // always call detach before removing, to ensure proper cleanup
             Components.Remove(component);
-            component.MarkDirty(); // mark the component as dirty after detaching to ensure it is updated in the next cycle
+            var tracker = GameRoot.Instance?.Registry.Get<DirtyTracker>("DirtyTracker");
+            tracker?.UntrackComponent(component);
+            component.RaiseDirty(); // mark the component as dirty after detaching to ensure it is updated in the next cycle
         }
 
         /// <summary>

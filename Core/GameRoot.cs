@@ -41,6 +41,10 @@ namespace V12.Core
         /// </summary>
         public static ILogger Log { get; private set; } = Serilog.Log.Logger;
 
+        /// <summary>True once <see cref="ConfigureLogging"/> has been called; hosts can
+        /// use this to avoid reconfiguring (and dropping) an existing sink setup.</summary>
+        public static bool LoggingConfigured { get; private set; }
+
         /// <summary>
         /// Configure the global Serilog logger used by the engine. Call once at
         /// startup before creating a <see cref="GameRoot"/> instance.
@@ -61,6 +65,7 @@ namespace V12.Core
 
             Log = config.CreateLogger();
             Serilog.Log.Logger = Log;
+            LoggingConfigured = true;
         }
 
         public List<World> Worlds = new List<World>();
@@ -241,8 +246,23 @@ namespace V12.Core
         /// that affects rendering (transform, mesh data, material, add/remove).
         /// V12Tick only builds and sends a RenderPacket when this is true.
         /// </summary>
-        private volatile bool _renderDirty = true;
-        public void MarkRenderDirty() => _renderDirty = true;
+        private bool _renderDirty = true;
+
+        /// <summary>
+        /// Mark the render snapshot as stale. Called by <see cref="Element.MarkDirty"/>
+        /// and <see cref="ComponentBase.MarkDirty"/> on any render-affecting change.
+        /// Safe to call from any thread; <see cref="ConsumeRenderDirty"/> is the
+        /// single consumer that atomically clears it.
+        /// </summary>
+        public void MarkRenderDirty() => Interlocked.Exchange(ref _renderDirty, true);
+
+        /// <summary>
+        /// Atomically read and clear the render-dirty flag. Returns true when at
+        /// least one render-affecting change happened since the previous call.
+        /// Used by hosts (e.g. <c>V12Runtime</c>) to skip the full frame capture
+        /// on idle/static frames.
+        /// </summary>
+        public bool ConsumeRenderDirty() => Interlocked.Exchange(ref _renderDirty, false);
 
         public GameRoot() {
             //Worlds.Add(UserSpace);
@@ -1064,6 +1084,10 @@ namespace V12.Core
 
             var oldWorld = SelectedWorld;
             SelectedWorld = world;
+
+            // Rendering follows SelectedWorld — force a fresh snapshot so the
+            // new world's elements appear even if nothing else marks dirty.
+            MarkRenderDirty();
 
             // Auto-track via DirtyTracker when selecting a world.
             // If the same world is being re-selected (e.g. after ReplaceFrom),
