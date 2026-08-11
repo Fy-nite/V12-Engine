@@ -516,10 +516,33 @@ namespace V12.Core
             world.Lock.EnterReadLock();
             try
             {
+                // A viewport with RenderWorld=true claims this world's elements.
+                // It may live in any active world (an editor's GameView panel in
+                // PersistentWorld can claim the SelectedWorld); the first match
+                // wins. Elements under a more specific nested viewport still win
+                // via the ancestor rule in CaptureRenderables.
+                long worldViewportId = 0;
+                foreach (var scanWorld in ActiveWorlds)
+                {
+                    foreach (var rootEl in scanWorld.Root)
+                    {
+                        var found = FindWorldViewportId(rootEl);
+                        if (found != 0) { worldViewportId = found; break; }
+                    }
+                    if (worldViewportId != 0) break;
+                }
+                if (worldViewportId != 0)
+                    snapshot.ActiveViewportIds.Add(worldViewportId);
+
                 // ── Walk tree for renderables ──
-                void CaptureRenderables(IWorldElement element, HashSet<long> renderedElementIds)
+                void CaptureRenderables(IWorldElement element, HashSet<long> renderedElementIds, long viewportId)
                 {
                     if (element?.Components == null) return;
+
+                    // An element bearing a ViewportComponent claims its whole
+                    // subtree: descendants render inside that viewport.
+                    if (element.GetComponent<V12.Components.UI.ViewportComponent>() != null)
+                        viewportId = element.Id;
 
                     // Determine which components to snapshot (avoid duplicates per element)
                     bool hasMeshRenderer = false;
@@ -550,21 +573,26 @@ namespace V12.Core
                     primaryRenderable ??= transformComp;
 
                     if (primaryRenderable != null)
-                        EmitSnapshot(element, primaryRenderable, renderedElementIds);
+                        EmitSnapshot(element, primaryRenderable, renderedElementIds, viewportId);
 
                     if (element.Children != null)
                         foreach (var child in element.Children)
-                            CaptureRenderables(child, renderedElementIds);
+                            CaptureRenderables(child, renderedElementIds, viewportId);
                 }
 
-                void EmitSnapshot(IWorldElement element, IRenderable renderable, HashSet<long> renderedElementIds)
+                void EmitSnapshot(IWorldElement element, IRenderable renderable, HashSet<long> renderedElementIds, long viewportId)
                 {
                     var rs = new RenderableSnapshot();
                     rs.ElementId = element.Id;
                     rs.Name = element.Name ?? "";
+                    rs.ViewportId = viewportId;
 
-                    // ParentId for hierarchy parenting
-                    if (element.Parent != null)
+                    // ParentId for hierarchy parenting. A viewport-bearing element
+                    // roots its own scene: no parent above it (the renderer parents
+                    // it into the SubViewport via ViewportId instead).
+                    if (element.GetComponent<V12.Components.UI.ViewportComponent>() != null)
+                        rs.ParentId = 0;
+                    else if (element.Parent != null)
                         rs.ParentId = element.Parent.Id;
 
                     // World transform (for non-hierarchy renderers)
@@ -585,12 +613,18 @@ namespace V12.Core
                     rs.HasLocalTransform = true;
                     rs.HasCollider = element.GetComponent<V12.Components.ColliderComponent>() != null;
 
-                    // Emit parent-chain placeholders for non-renderable ancestors
+                    // Emit parent-chain placeholders for non-renderable ancestors.
+                    // The chain STOPS at a viewport-bearing element: that element's
+                    // node is the root of the viewport's own 3D scene, so it must
+                    // not chain into the main scene. It gets ParentId=0 and carries
+                    // its own ViewportId — the renderer parents it (and its whole
+                    // subtree) into the UI SubViewport.
                     var ancestor = element.Parent;
                     while (ancestor != null)
                     {
                         if (!renderedElementIds.Add(ancestor.Id)) break;
 
+                        bool isViewport = ancestor.GetComponent<V12.Components.UI.ViewportComponent>() != null;
                         bool hasAnyRenderable = false;
                         foreach (var comp in ancestor.Components)
                         {
@@ -602,7 +636,8 @@ namespace V12.Core
                             var parentRs = new RenderableSnapshot();
                             parentRs.ElementId = ancestor.Id;
                             parentRs.Name = ancestor.Name ?? "";
-                            parentRs.ParentId = ancestor.Parent?.Id ?? 0;
+                            parentRs.ParentId = isViewport ? 0 : (ancestor.Parent?.Id ?? 0);
+                            parentRs.ViewportId = isViewport ? ancestor.Id : viewportId;
                             parentRs.NodeType = SnapshotNodeType.RawElement;
                             var atc = ancestor.GetComponent<TransformComponent>();
                             parentRs.Transform = ancestor.WorldTransform;
@@ -619,6 +654,9 @@ namespace V12.Core
                             snapshot.Renderables.Add(parentRs);
                         }
 
+                        // Never walk above a viewport boundary — the elements above
+                        // belong to a different render surface.
+                        if (isViewport) break;
                         ancestor = ancestor.Parent;
                     }
 
@@ -734,7 +772,7 @@ namespace V12.Core
 
                 var renderedIds = new HashSet<long>();
                 foreach (var root in world.Root.ToArray())
-                    CaptureRenderables(root, renderedIds);
+                    CaptureRenderables(root, renderedIds, worldViewportId);
 
                 // ── Audio sources ──
                 void CaptureAudio(IWorldElement element)
@@ -781,6 +819,23 @@ namespace V12.Core
                 }
             }
             finally { world.Lock.ExitReadLock(); }
+        }
+
+        /// <summary>
+        /// Find the id of a <c>ViewportComponent</c> with <c>RenderWorld=true</c>
+        /// anywhere in <paramref name="el"/>'s subtree (first match, depth-first).
+        /// Returns 0 when none exists.
+        /// </summary>
+        private static long FindWorldViewportId(IWorldElement el)
+        {
+            var vp = el.GetComponent<V12.Components.UI.ViewportComponent>();
+            if (vp != null && vp.RenderWorld) return el.Id;
+            foreach (var child in el.Children)
+            {
+                var found = FindWorldViewportId(child);
+                if (found != 0) return found;
+            }
+            return 0;
         }
 
         private void SetupUI()

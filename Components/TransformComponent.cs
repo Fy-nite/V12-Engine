@@ -3,6 +3,7 @@ using System.Numerics;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -186,6 +187,29 @@ namespace V12.Components
                 MarkDirty();
             }
         }
+
+        /// <summary>Generate editable transform fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Transform");
+            inspector.Float("Position X", () => X, v => X = v);
+            inspector.Float("Position Y", () => Y, v => Y = v);
+            inspector.Float("Position Z", () => Z, v => Z = v);
+            inspector.Float("Rotation X", () => RotationX ?? 0f, v => RotationX = v);
+            inspector.Float("Rotation Y", () => RotationY ?? 0f, v => RotationY = v);
+            inspector.Float("Rotation Z", () => RotationZ ?? 0f, v => RotationZ = v);
+            if (Owner != null)
+            {
+                var scale = Owner.GetComponent<ScaleComponent>();
+                if (scale != null)
+                {
+                    inspector.Float("Scale X", () => scale.ScaleX, v => scale.ScaleX = v);
+                    inspector.Float("Scale Y", () => scale.ScaleY, v => scale.ScaleY = v);
+                    inspector.Float("Scale Z", () => scale.ScaleZ, v => scale.ScaleZ = v);
+                }
+            }
+        }
+
         public override IWorldElement BuildUI()
         {
             return new Element();

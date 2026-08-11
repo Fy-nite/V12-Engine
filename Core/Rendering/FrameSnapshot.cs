@@ -29,6 +29,14 @@ namespace V12.Core.Rendering
         public long ParentId;
         public string Name;
         public SnapshotNodeType NodeType;
+
+        /// <summary>
+        /// Id of the element whose <c>ViewportComponent</c> owns this renderable's
+        /// viewport. 0 = main screen. Elements under a viewport-bearing element
+        /// render inside that element's SubViewport instead of the main scene.
+        /// </summary>
+        public long ViewportId;
+
         public Matrix4x4 Transform;
         public Matrix4x4 LocalTransform;
         public bool HasLocalTransform;
@@ -110,5 +118,11 @@ namespace V12.Core.Rendering
         public List<RenderableSnapshot> Renderables = new();
         public List<AudioSourceSnapshot> AudioSources = new();
         public AudioListenerSnapshot Listener;
+
+        /// <summary>Ids of every viewport element that claimed world content this
+        /// frame (ViewportComponent with RenderWorld=true). Renderers use this to
+        /// keep a SubViewport alive for each declared viewport even when it has
+        /// no children of its own.</summary>
+        public HashSet<long> ActiveViewportIds = new();
     }
 }
