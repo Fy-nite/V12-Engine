@@ -2,6 +2,7 @@ using System;
 using V12.Core.Core.Interfaces;
 using V12.Core;
 using V12.Core.Interfaces.Renderer;
+using V12.Core.UI;
 using System.Drawing;
 using System.Numerics;
 using BepuPhysics.Constraints;
@@ -175,6 +176,21 @@ namespace V12.Components
         {
             return new Element();
         }
+
+        /// <summary>Generate editable light fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Light");
+            inspector.Enum("Type", () => Type, v => Type = v);
+            inspector.Float("Intensity", () => Energy, v => Energy = v);
+            inspector.Float("Red", () => ColorR, v => ColorR = v);
+            inspector.Float("Green", () => ColorG, v => ColorG = v);
+            inspector.Float("Blue", () => ColorB, v => ColorB = v);
+            inspector.Float("Range", () => Range, v => Range = v);
+            inspector.Float("Angle", () => Angle, v => Angle = v);
+            inspector.Bool("Shadows", () => ShadowEnabled, v => ShadowEnabled = v);
+        }
+
         public override string ToString() =>
             $"DirectionalLight(RGB:{ColorR:F2},{ColorG:F2},{ColorB:F2} Energy:{Energy:F2} Shadow:{ShadowEnabled} Type:{Type})";
     }

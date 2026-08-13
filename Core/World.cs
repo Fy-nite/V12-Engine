@@ -91,6 +91,7 @@ namespace V12.Core
             }
             finally { Lock.ExitWriteLock(); }
             ElementAdded?.Invoke(element);
+            GameRoot.Instance?.MarkRenderDirty();
         }
 
         /// <summary>Remove an element from the world and fire <see cref="ElementRemoved"/>.</summary>
@@ -106,7 +107,10 @@ namespace V12.Core
             }
             finally { Lock.ExitWriteLock(); }
             if (removed)
+            {
                 ElementRemoved?.Invoke(element);
+                GameRoot.Instance?.MarkRenderDirty();
+            }
         }
 
         /// <summary>
@@ -127,6 +131,7 @@ namespace V12.Core
                 }
             }
             finally { Lock.ExitWriteLock(); }
+            GameRoot.Instance?.MarkRenderDirty();
         }
 
         private void IndexElementRecursive(IWorldElement element)

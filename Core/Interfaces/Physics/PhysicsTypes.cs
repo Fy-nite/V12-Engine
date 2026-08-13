@@ -13,9 +13,11 @@ namespace V12.Core.Interfaces.Physics
         public bool IsKinematic;
         public bool IsTrigger;
         public float GravityScale;
+        public bool IsCharacterController;
 
         public PhysicsBodyDesc(Vector3 position, Quaternion rotation, MeshShape shape, Vector3 size,
-            float mass = 1f, bool isKinematic = false, bool isTrigger = false, float gravityScale = 1f)
+            float mass = 1f, bool isKinematic = false, bool isTrigger = false, float gravityScale = 1f,
+            bool isCharacterController = false)
         {
             Position = position;
             Rotation = rotation;
@@ -25,6 +27,7 @@ namespace V12.Core.Interfaces.Physics
             IsKinematic = isKinematic;
             IsTrigger = isTrigger;
             GravityScale = gravityScale;
+            IsCharacterController = isCharacterController;
         }
     }
 

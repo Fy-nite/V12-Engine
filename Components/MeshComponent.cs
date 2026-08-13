@@ -6,6 +6,7 @@ using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 using V12.Core.Networking;
 using V12.Core.NetworkCable;
+using V12.Core.UI;
 using MongoDB.Bson.Serialization.Attributes;
 
 namespace V12.Components
@@ -68,6 +69,16 @@ namespace V12.Components
 
 		public override string Name { get; set; } = "Mesh";
         public override string Description => "Primitive mesh shape";
+
+        /// <summary>Generate editable mesh fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Mesh");
+            inspector.Enum("Shape", () => Shape, v => Shape = v);
+            inspector.Float("Width", () => Width, v => Width = v);
+            inspector.Float("Height", () => Height, v => Height = v);
+            inspector.Float("Depth", () => Depth, v => Depth = v);
+        }
 
         public MeshShape Shape
         {
