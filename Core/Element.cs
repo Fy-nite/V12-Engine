@@ -14,12 +14,40 @@ namespace V12.Core
     {
         public event Action<IWorldElement>? OnDirty;
 
-        public string? Name { get; set; }
+        /// <summary>Raised (outside the world lock) when a child is added via <see cref="AddChild"/>.
+        /// The argument is the added child. Used by the DirtyTracker to replicate element spawns.</summary>
+        public event Action<IWorldElement>? ChildAdded;
+
+        /// <summary>Raised (outside the world lock) when a child is removed via <see cref="RemoveChild"/>.
+        /// The argument is the removed child. Used by the DirtyTracker to replicate element despawns.</summary>
+        public event Action<IWorldElement>? ChildRemoved;
+
+        private string? _name;
+        public string? Name
+        {
+            get => _name;
+            set
+            {
+                if (_name == value) return;
+                _name = value;
+                MarkDirty();
+            }
+        }
         // Backing field kept for compatibility: `ID`.
         public long ID { get; set; }
         // Preferred camel-cased property exposed via IWorldElement.Id.
         public long Id { get => ID; set => ID = value; }
-        public string? Description { get; set; }
+        private string? _description;
+        public string? Description
+        {
+            get => _description;
+            set
+            {
+                if (_description == value) return;
+                _description = value;
+                MarkDirty();
+            }
+        }
         public IWorldElement? Parent { get; set; }
         public List<IComponent> Components { get; set; } = new List<IComponent>();
         public List<IWorldElement> Children { get; } = new List<IWorldElement>();
@@ -158,17 +186,22 @@ namespace V12.Core
         public void AddChild(IWorldElement child)
         {
             if (child == null) return;
+            bool added = false;
             var world = FindWorldForElement();
             world?.Lock.EnterWriteLock();
             try
             {
                 child.Parent = this;
                 if (!Children.Contains(child))
+                {
                     Children.Add(child);
+                    added = true;
+                }
                 if (world != null)
                     world._elementsById[child.Id] = child;
             }
             finally { world?.Lock.ExitWriteLock(); }
+            if (added) ChildAdded?.Invoke(child);
             MarkDirty();
         }
 
@@ -180,16 +213,21 @@ namespace V12.Core
         public void RemoveChild(IWorldElement child)
         {
             if (child == null) return;
+            bool removed = false;
             var world = FindWorldForElement();
             world?.Lock.EnterWriteLock();
             try
             {
                 if (Children.Remove(child))
+                {
+                    removed = true;
                     child.Parent = null;
+                }
                 if (world != null)
                     world._elementsById.Remove(child.Id);
             }
             finally { world?.Lock.ExitWriteLock(); }
+            if (removed) ChildRemoved?.Invoke(child);
             MarkDirty();
         }
 
@@ -201,7 +239,13 @@ namespace V12.Core
             try
             {
                 Components.Add(component);
-                component.MarkDirty();
+                // Route through the DirtyTracker so the component reaches remote
+                // peers via the batched path (safe for non-serializable components).
+                // The raw network MarkDirty extension BSON-serialises the whole
+                // component and throws on delegate-bearing types (e.g. UIButton).
+                var tracker = GameRoot.Instance?.Registry.Get<DirtyTracker>("DirtyTracker");
+                tracker?.TrackComponent(component, this);
+                component.RaiseDirty();
             }
             finally { world?.Lock.ExitWriteLock(); }
             return component;
@@ -215,6 +259,10 @@ namespace V12.Core
                 Components.Remove(component);
             }
             finally { world?.Lock.ExitWriteLock(); }
+            var tracker = GameRoot.Instance?.Registry.Get<DirtyTracker>("DirtyTracker");
+            tracker?.UntrackComponent(component);
+            // Broadcast the removal to peers (host only) so remote copies drop it too.
+            tracker?.NotifyComponentRemoved(this, component);
             component.OnDetach(this);
         }
         public IComponent GetComponent(string name)

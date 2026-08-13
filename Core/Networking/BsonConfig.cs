@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
@@ -44,7 +45,44 @@ namespace V12.Core.Networking
                 // Register common nullable types that components may carry.
                 try { BsonSerializer.RegisterSerializer(typeof(long?), new NullableSerializer<long>()); } catch { }
 
+                RegisterDelegateMemberMaps();
+
                 _initialized = true;
+            }
+        }
+
+        /// <summary>
+        /// Safety net: delegate-typed members (closures, event handlers like
+        /// ButtonComponent.OnPressed) can never cross the wire, so any V12 type that exposes
+        /// one has it auto-ignored in its class map. Game code does not have to remember to
+        /// slap [BsonIgnore] on a handler property to keep world sync from crashing.
+        /// </summary>
+        private static void RegisterDelegateMemberMaps()
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type[] types;
+                try { types = asm.GetTypes(); } catch { continue; }
+                foreach (var type in types)
+                {
+                    if (type.IsAbstract || type.IsInterface || type.IsEnum || type.IsGenericTypeDefinition) continue;
+                    if (type.Namespace?.StartsWith("V12") != true) continue;
+                    try
+                    {
+                        var classMap = new BsonClassMap(type);
+                        classMap.AutoMap();
+                        var delegateMembers = classMap.AllMemberMaps
+                            .Where(m => typeof(Delegate).IsAssignableFrom(m.MemberType))
+                            .ToList();
+                        if (delegateMembers.Count == 0) continue;
+                        foreach (var m in delegateMembers)
+                            classMap.UnmapMember(m.MemberInfo);
+                        if (classMap.AllMemberMaps.Count == 0) continue;
+                        if (!BsonClassMap.IsClassMapRegistered(type))
+                            BsonClassMap.RegisterClassMap(classMap);
+                    }
+                    catch { /* never let the safety net break startup */ }
+                }
             }
         }
     }

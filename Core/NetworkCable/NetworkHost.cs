@@ -1,41 +1,32 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using LiteNetLib;
 using V12.Core.Networking;
 
 namespace V12.Core.NetworkCable
 {
     /// <summary>
-    /// TCP-based network host that accepts client connections and routes messages through NetworkCables.
+    /// LiteNetLib (UDP)-based network host that accepts client connections and routes
+    /// messages through NetworkCables. Lifecycle messages travel on a reliable, ordered
+    /// channel; continuous state updates travel on an unreliable channel so high-frequency
+    /// sync never blocks lifecycle traffic. Dead peers are reaped by LiteNetLib's
+    /// DisconnectTimeout (replacing the old TCP heartbeat monitor).
     /// </summary>
-    public class NetworkHost : IDisposable
+    public class NetworkHost : IDisposable, INetEventListener
     {
         private readonly int _port;
         private readonly NetworkCables _cables;
-        private TcpListener? _listener;
-        // Use ConcurrentDictionary instead of ConcurrentBag so we can remove disconnected clients.
-        // The value is just 'true' as a placeholder — we only care about the keys.
-        private readonly ConcurrentDictionary<TcpClient, bool> _clients = new ConcurrentDictionary<TcpClient, bool>();
-        private CancellationTokenSource? _cts;
-
-        // Server-assigned unique player IDs to avoid collisions when multiple clients
-        // have locally-assigned element IDs that happen to match.
-        private readonly ConcurrentDictionary<TcpClient, long> _clientPlayerIds = new ConcurrentDictionary<TcpClient, long>();
+        private NetManager? _net;
+        private readonly ConcurrentDictionary<NetPeer, bool> _peers = new ConcurrentDictionary<NetPeer, bool>();
+        private readonly ConcurrentDictionary<NetPeer, long> _clientPlayerIds = new ConcurrentDictionary<NetPeer, long>();
         private long _nextPlayerId = 1000; // Start at 1000 to avoid collision with local IDs
-
-        // Heartbeat tracking: last time each client sent a message (heartbeat or otherwise).
-        // Clients are expected to send a Heartbeat message at least every HeartbeatInterval seconds.
-        // If no message is received for HeartbeatTimeout seconds, the client is considered dead.
-        private readonly ConcurrentDictionary<TcpClient, DateTime> _clientLastHeartbeat = new();
-        private const int HeartbeatIntervalSeconds = 5;
-        private const int HeartbeatTimeoutSeconds = 15; // 3 missed heartbeats before we give up
-        private CancellationTokenSource? _heartbeatCts;
-        private Task? _heartbeatMonitorTask;
+        private CancellationTokenSource? _cts;
+        private readonly object _pollLock = new object();
+        private bool _pollStarted;
 
         /// <summary>
         /// Global debug mode flag. Set to true to enable verbose network logging.
@@ -44,30 +35,49 @@ namespace V12.Core.NetworkCable
 
         public bool IsRunning { get; private set; }
         public int Port => _port;
+
         public int ClientCount
         {
             get
             {
                 int count = 0;
-                foreach (var kvp in _clients)
-                    if (kvp.Key.Connected) count++;
+                foreach (var kvp in _peers)
+                    if (kvp.Key.ConnectionState == ConnectionState.Connected) count++;
                 return count;
             }
         }
 
         /// <summary>
-        /// Get the server-assigned unique player ID for a given TcpClient.
+        /// Get the server-assigned unique player ID for a given NetPeer.
         /// Returns 0 if the client is not found.
         /// </summary>
-        public long GetPlayerIdForClient(TcpClient client)
+        public long GetPlayerIdForClient(NetPeer peer)
         {
-            if (client != null && _clientPlayerIds.TryGetValue(client, out var playerId))
+            if (peer != null && _clientPlayerIds.TryGetValue(peer, out var playerId))
                 return playerId;
             return 0;
         }
 
         /// <summary>
-        /// Raised on the accept loop thread when a new client connects.
+        /// Globally-unique player ID for the host itself, drawn from the same
+        /// server-assigned namespace as clients (starts above any per-process
+        /// local element ID, so it can never collide with a peer's local IDs).
+        /// </summary>
+        public long HostPlayerId { get; private set; }
+
+        /// <summary>
+        /// Server-assigned unique player ID for the sender of <paramref name="message"/>.
+        /// Returns 0 when the sender is not a known client (e.g. host-originated messages).
+        /// </summary>
+        public long GetServerAssignedPlayerId(MessageDTO message)
+        {
+            if (message?.SenderToken is NetPeer peer && _clientPlayerIds.TryGetValue(peer, out var playerId))
+                return playerId;
+            return 0;
+        }
+
+        /// <summary>
+        /// Raised on the poll thread when a new client connects.
         /// The argument is the server-assigned player ID for the new client.
         /// </summary>
         public event Action<long>? OnClientConnected;
@@ -79,6 +89,11 @@ namespace V12.Core.NetworkCable
         public event Action<long>? OnClientDisconnected;
 
         /// <summary>
+        /// Raised when the host fails to bind/listen (e.g. port already in use).
+        /// </summary>
+        public event Action<Exception>? OnStartFailed;
+
+        /// <summary>
         /// Create a new network host.
         /// </summary>
         /// <param name="port">Port to listen on.</param>
@@ -87,228 +102,72 @@ namespace V12.Core.NetworkCable
         {
             _port = port;
             _cables = cables ?? NetworkCables.Default;
+            // Reserve the first slot of the server namespace for the host itself so the
+            // host's PlayerSync can never collide with a client's local element ID.
+            HostPlayerId = Interlocked.Increment(ref _nextPlayerId);
         }
-
-        /// <summary>
-        /// Raised when the host fails to bind/listen (e.g. port already in use).
-        /// </summary>
-        public event Action<Exception>? OnStartFailed;
 
         /// <summary>
         /// Start the host and begin accepting connections.
         /// </summary>
-        public async Task StartAsync(CancellationToken token = default)
+        public Task StartAsync(CancellationToken token = default)
         {
-            if (IsRunning) return;
+            if (IsRunning) return Task.CompletedTask;
 
             try
             {
                 _cts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                _listener = new TcpListener(IPAddress.Any, _port);
-                _listener.Start();
-                IsRunning = true;
+                _net = new NetManager(this)
+                {
+                    DisconnectTimeout = 15000,
+                    MaxConnectAttempts = 5
+                };
+                if (!_net.Start(_port))
+                {
+                    Console.WriteLine($"[NetworkHost] FAILED to start on port {_port}: bind failed.");
+                    Console.WriteLine($"[NetworkHost] Is another process already using port {_port}? Try: netstat -ano | findstr {_port}");
+                    try { OnStartFailed?.Invoke(new InvalidOperationException($"Failed to bind UDP port {_port}")); } catch { }
+                    return Task.CompletedTask;
+                }
 
-                Console.WriteLine($"[NetworkHost] Listening on port {_port}");
+                IsRunning = true;
+                Console.WriteLine($"[NetworkHost] Listening (UDP/LiteNetLib) on port {_port}");
 
                 // Subscribe to outgoing messages
                 _cables.OnMessageSending += BroadcastMessage;
 
-                // Accept clients loop
-                _ = Task.Run(async () => await AcceptClientsAsync(_cts.Token), _cts.Token);
-
-                // Heartbeat monitor: check every HeartbeatInterval seconds for dead clients
-                _heartbeatCts = new CancellationTokenSource();
-                _ = Task.Run(async () => await HeartbeatMonitorAsync(_cts.Token), _cts.Token);
+                // Single background poll loop; LiteNetLib dispatches all events from here.
+                StartPolling();
             }
             catch (Exception ex)
             {
                 IsRunning = false;
                 Console.WriteLine($"[NetworkHost] FAILED to start on port {_port}: {ex.GetType().Name}: {ex.Message}");
-                Console.WriteLine($"[NetworkHost] Is another process already using port {_port}? Try: ss -tlnp | grep {_port}");
                 try { OnStartFailed?.Invoke(ex); } catch { }
             }
 
-            await System.Threading.Tasks.Task.CompletedTask; // keep async signature
+            return Task.CompletedTask;
         }
 
-        private async Task AcceptClientsAsync(CancellationToken token)
+        private void StartPolling()
         {
-            while (!token.IsCancellationRequested && _listener != null)
+            lock (_pollLock)
             {
-                try
+                if (_pollStarted) return;
+                _pollStarted = true;
+                _ = Task.Run(() =>
                 {
-                    var acceptTask = _listener.AcceptTcpClientAsync();
-                    var cancelTask = System.Threading.Tasks.Task.Delay(-1, token);
-                    var finished = await System.Threading.Tasks.Task.WhenAny(acceptTask, cancelTask);
-                    if (finished == cancelTask)
-                        throw new OperationCanceledException(token);
-                    var client = await acceptTask;
-                    if (client == null) continue;
-                    // Capture remote endpoint (may be null on some platforms)
-                    var remoteEndpoint = client.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
-                    _clients[client] = true;
-
-                    // Assign a unique player ID to this client
-                    var playerId = System.Threading.Interlocked.Increment(ref _nextPlayerId);
-                    _clientPlayerIds[client] = playerId;
-
-                    // Record initial heartbeat time so the monitor doesn't immediately fire
-                    _clientLastHeartbeat[client] = DateTime.UtcNow;
-
-                    Console.WriteLine($"[NetworkHost] Client connected from {remoteEndpoint}. Total clients: {_clients.Count}, assigned PlayerId: {playerId}");
-                    try { OnClientConnected?.Invoke(playerId); } catch { }
-
-                    // Start handling this client
-                    _ = Task.Run(async () => await HandleClientAsync(client, token), token);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[NetworkHost] Error accepting client: {ex.GetType().Name}: {ex.Message}");
-                }
+                    while (_cts != null && !_cts.IsCancellationRequested)
+                    {
+                        try { _net?.PollEvents(); }
+                        catch (Exception ex)
+                        {
+                            if (DebugMode) Console.WriteLine($"[NetworkHost] PollEvents error: {ex.GetType().Name}: {ex.Message}");
+                        }
+                        Thread.Sleep(5);
+                    }
+                });
             }
-        }
-
-        private async Task HandleClientAsync(TcpClient client, CancellationToken token)
-        {
-            try
-            {
-                using var stream = client.GetStream();
-                var buffer = new byte[4096];
-
-                while (!token.IsCancellationRequested && client.Connected)
-                {
-                    // Read length prefix (4 bytes)
-                    var lengthBytes = new byte[4];
-                    int bytesRead = await stream.ReadAsync(lengthBytes, 0, 4, token);
-                    if (bytesRead == 0) break;
-
-                    int messageLength = BitConverter.ToInt32(lengthBytes, 0);
-                    if (messageLength <= 0 || messageLength > 10_000_000) // 10MB sanity check
-                    {
-                        Console.WriteLine($"[NetworkHost] Invalid message length: {messageLength}");
-                        break;
-                    }
-
-                    // Read message payload
-                    var messageBytes = new byte[messageLength];
-                    int totalRead = 0;
-                    while (totalRead < messageLength)
-                    {
-                        bytesRead = await stream.ReadAsync(messageBytes, totalRead, messageLength - totalRead, token);
-                        if (bytesRead == 0) break;
-                        totalRead += bytesRead;
-                    }
-
-                    if (totalRead < messageLength)
-                    {
-                        Console.WriteLine($"[NetworkHost] Incomplete message received");
-                        break;
-                    }
-
-                    // Deserialize and enqueue
-                    try
-                    {
-                        var message = AncientCompressor.Decompress<MessageDTO>(messageBytes);
-                        // Tag the message with the originating TcpClient so BroadcastMessage
-                        // can skip echoing it back to the sender.
-                        message.SenderToken = client;
-                        _cables.EnqueueIncoming(message);
-
-                        // Record that this client is alive. Any received message counts as a heartbeat.
-                        _clientLastHeartbeat[client] = DateTime.UtcNow;
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[NetworkHost] Error deserializing message: {ex.GetType().Name}: {ex.Message}");
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Normal shutdown
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[NetworkHost] Client handler error: {ex.GetType().Name}: {ex.Message}");
-            }
-            finally
-            {
-                var remote = client.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
-                var playerId = 0L;
-                _clientPlayerIds.TryRemove(client, out playerId);
-                _clients.TryRemove(client, out _);
-                _clientLastHeartbeat.TryRemove(client, out _);
-                try { client.Close(); } catch { }
-                Console.WriteLine($"[NetworkHost] Client disconnected from {remote} (PlayerId: {playerId}). Total clients: {ClientCount}");
-                try { OnClientDisconnected?.Invoke(playerId); } catch { }
-            }
-        }
-
-        /// <summary>
-        /// Background task that periodically checks for clients that have missed too many heartbeats
-        /// and fires OnClientDisconnected so a PlayerLeave message is broadcast to remaining clients.
-        /// </summary>
-        private async Task HeartbeatMonitorAsync(CancellationToken hostToken)
-        {
-            Console.WriteLine($"[NetworkHost] Heartbeat monitor started (interval={HeartbeatIntervalSeconds}s, timeout={HeartbeatTimeoutSeconds}s)");
-
-            try
-            {
-                while (!hostToken.IsCancellationRequested)
-                {
-                    try
-                    {
-                        await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(HeartbeatIntervalSeconds), hostToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-
-                    if (hostToken.IsCancellationRequested)
-                        break;
-
-                    var cutoff = DateTime.UtcNow.AddSeconds(-HeartbeatTimeoutSeconds);
-                    var staleClients = new List<TcpClient>();
-
-                    foreach (var kvp in _clientLastHeartbeat)
-                    {
-                        if (kvp.Value < cutoff)
-                            staleClients.Add(kvp.Key);
-                    }
-
-                    foreach (var staleClient in staleClients)
-                    {
-                        var remote = staleClient.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
-                        var playerId = _clientPlayerIds.TryGetValue(staleClient, out var id) ? id : 0;
-
-                        // Remove from tracking dictionaries
-                        _clientPlayerIds.TryRemove(staleClient, out _);
-                        _clients.TryRemove(staleClient, out _);
-                        _clientLastHeartbeat.TryRemove(staleClient, out _);
-
-                        // Close the connection if still open
-                        try { staleClient.Close(); } catch { }
-
-                        Console.WriteLine($"[NetworkHost] ⚠ Heartbeat timeout: client {remote} (PlayerId: {playerId}) marked dead. Firing OnClientDisconnected...");
-                        try { OnClientDisconnected?.Invoke(playerId); } catch { }
-                    }
-
-                    if (staleClients.Count > 0)
-                        Console.WriteLine($"[NetworkHost] Heartbeat monitor: removed {staleClients.Count} stale client(s). Remaining: {_clients.Count}");
-                }
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[NetworkHost] Heartbeat monitor error: {ex.GetType().Name}: {ex.Message}");
-            }
-
-            Console.WriteLine($"[NetworkHost] Heartbeat monitor stopped.");
         }
 
         private void BroadcastMessage(MessageDTO message)
@@ -316,30 +175,34 @@ namespace V12.Core.NetworkCable
             // No clients connected → nothing to broadcast. Bail out before paying the
             // serialization cost; this keeps the send path quiet when the server is idle
             // or nobody is connected.
-            if (_clients.IsEmpty)
+            if (_peers.IsEmpty || _net == null)
             {
                 if (DebugMode)
                     Console.WriteLine($"[NetworkHost] ⚠ BroadcastMessage called but no clients connected. Message type: {message.MessageType}");
                 return;
             }
 
-            if (DebugMode)
-                Console.WriteLine($"[NetworkHost] 📡 Broadcasting {message.MessageType} to {_clients.Count} client(s)...");
-
-            var serialized = AncientCompressor.Compress(message);
-            var lengthBytes = BitConverter.GetBytes(serialized.Length);
+            var bytes = LiteNetWire.Serialize(message);
+            var (method, channel) = LiteNetWire.DeliveryFor(message, bytes.Length);
 
             if (DebugMode)
-                Console.WriteLine($"[NetworkHost]   Serialized size: {serialized.Length} bytes");
+                Console.WriteLine($"[NetworkHost] 📡 Broadcasting {message.MessageType} to {_peers.Count} client(s) ({bytes.Length} bytes, {method})");
 
             int sentCount = 0;
             int skippedCount = 0;
 
-            foreach (var kvp in _clients)
+            foreach (var kvp in _peers)
             {
-                var client = kvp.Key;
+                var peer = kvp.Key;
+                if (peer.ConnectionState != ConnectionState.Connected)
+                {
+                    if (DebugMode)
+                        Console.WriteLine($"[NetworkHost]   ⚠ Client not connected, skipping");
+                    continue;
+                }
+
                 // Don't echo the message back to the client that sent it.
-                if (message.SenderToken != null && ReferenceEquals(client, message.SenderToken))
+                if (message.SenderToken != null && ReferenceEquals(peer, message.SenderToken))
                 {
                     if (DebugMode)
                         Console.WriteLine($"[NetworkHost]   ⏭ Skipping sender client");
@@ -347,30 +210,16 @@ namespace V12.Core.NetworkCable
                     continue;
                 }
 
-                if (!client.Connected)
-                {
-                    if (DebugMode)
-                        Console.WriteLine($"[NetworkHost]   ⚠ Client not connected, skipping");
-                    continue;
-                }
-
                 try
                 {
-                    var stream = client.GetStream();
-                    stream.Write(lengthBytes, 0, 4);
-                    stream.Write(serialized, 0, serialized.Length);
-                    stream.Flush();
+                    peer.Send(bytes, channel, method);
                     sentCount++;
                     if (DebugMode)
-                    {
-                        var rem = client?.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
-                        Console.WriteLine($"[NetworkHost]   ✅ Sent to {rem}");
-                    }
+                        Console.WriteLine($"[NetworkHost]   ✅ Sent to {peer.EndPoint}");
                 }
                 catch (Exception ex)
                 {
-                    var rem = client?.Client?.RemoteEndPoint?.ToString() ?? "<unknown>";
-                    Console.WriteLine($"[NetworkHost]   ❌ Error sending to client {rem}: {ex.GetType().Name}: {ex.Message}");
+                    Console.WriteLine($"[NetworkHost]   ❌ Error sending to client {peer.EndPoint}: {ex.GetType().Name}: {ex.Message}");
                 }
             }
 
@@ -378,21 +227,77 @@ namespace V12.Core.NetworkCable
                 Console.WriteLine($"[NetworkHost] 📊 Broadcast complete: sent={sentCount}, skipped={skippedCount}");
         }
 
+        // ── INetEventListener ──────────────────────────────────────────────────
+        public void OnPeerConnected(NetPeer peer)
+        {
+            _peers[peer] = true;
+
+            // Assign a unique player ID to this client
+            var playerId = Interlocked.Increment(ref _nextPlayerId);
+            _clientPlayerIds[peer] = playerId;
+
+            Console.WriteLine($"[NetworkHost] Client connected from {peer.EndPoint}. Total clients: {_peers.Count}, assigned PlayerId: {playerId}");
+            try { OnClientConnected?.Invoke(playerId); } catch { }
+        }
+
+        public void OnPeerDisconnected(NetPeer peer, DisconnectInfo disconnectInfo)
+        {
+            long playerId = 0;
+            _clientPlayerIds.TryRemove(peer, out playerId);
+            _peers.TryRemove(peer, out _);
+
+            Console.WriteLine($"[NetworkHost] Client disconnected from {peer.EndPoint} (PlayerId: {playerId}, reason: {disconnectInfo.Reason}). Total clients: {ClientCount}");
+            try { OnClientDisconnected?.Invoke(playerId); } catch { }
+        }
+
+        public void OnNetworkError(IPEndPoint endPoint, SocketError socketError)
+        {
+            Console.WriteLine($"[NetworkHost] Network error on {endPoint}: {socketError}");
+        }
+
+        public void OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channel, DeliveryMethod deliveryMethod)
+        {
+            try
+            {
+                var message = LiteNetWire.Deserialize(reader.GetRemainingBytes());
+                if (message != null)
+                {
+                    // Tag the message with the originating NetPeer so BroadcastMessage
+                    // can skip echoing it back to the sender.
+                    message.SenderToken = peer;
+                    _cables.EnqueueIncoming(message);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[NetworkHost] Error deserializing message: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                reader.Recycle();
+            }
+        }
+
+        public void OnNetworkReceiveUnconnected(IPEndPoint remoteEndPoint, NetPacketReader reader, UnconnectedMessageType messageType) { }
+
+        public void OnNetworkLatencyUpdate(NetPeer peer, int latency) { }
+
+        public void OnConnectionRequest(ConnectionRequest request)
+        {
+            request.AcceptIfKey(LiteNetWire.ConnectKey);
+        }
+
         public void Stop()
         {
-            if (!IsRunning) return;
+            if (!IsRunning && _net == null) return;
 
             Console.WriteLine($"[NetworkHost] Stopping...");
             _cts?.Cancel();
-            _listener?.Stop();
-
-            foreach (var kvp in _clients)
-            {
-                kvp.Key?.Close();
-            }
-            _clients.Clear();
-
             _cables.OnMessageSending -= BroadcastMessage;
+
+            _net?.Stop();
+            _peers.Clear();
+            _clientPlayerIds.Clear();
             IsRunning = false;
             Console.WriteLine($"[NetworkHost] Stopped.");
         }
@@ -400,10 +305,9 @@ namespace V12.Core.NetworkCable
         public void Dispose()
         {
             Stop();
-            _heartbeatCts?.Cancel();
-            _heartbeatCts?.Dispose();
             _cts?.Dispose();
-            _listener = null;
+            _cts = null;
+            _net = null;
         }
     }
 }

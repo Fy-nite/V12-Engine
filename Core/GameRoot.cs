@@ -797,7 +797,8 @@ namespace V12.Core
         /// <param name="isServer">Explicitly force server mode even when <paramref name="connectHost"/> is null.</param>
         public void SetupNetworking(int port = 7777, string? connectHost = null, bool isServer = false, string? worldArchivePath = null)
         {
-            if (isServer || connectHost == null)
+            bool isHost = isServer || connectHost == null;
+            if (isHost)
             {
                 var host = new NetworkHost(port, Cables);
                 host.OnClientConnected += (playerId) =>
@@ -873,8 +874,14 @@ namespace V12.Core
 
             var dirtyTracker = new DirtyTracker(Cables, "networkcables://gameroot")
             {
-                ThrottleInterval = 0f,
-                MaxBatchSize = -1 // why the hell do we have this?
+                ThrottleInterval = 0.033f, // ~30Hz cap: full-state batches are self-correcting, so a bounded rate keeps idle/live traffic sane
+                // MaxBatchSize <= 0 means "drain everything queued each tick" in the
+                // tracker's send loop. A bounded positive value keeps a single burst
+                // from producing an oversized message (the remainder stays queued).
+                MaxBatchSize = 50,
+                // Hosts are authoritative for element lifecycle (spawns/despawns);
+                // clients only apply the host's deltas and never broadcast their own.
+                IsAuthority = isHost
             };
 
             if (SelectedWorld != null)

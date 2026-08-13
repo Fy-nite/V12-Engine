@@ -27,10 +27,13 @@ namespace V12.Core.Networking
             return obj.ToBson();
         }
 
-        private static ElementSyncDTO CompressElement(IWorldElement el)
+        public static ElementSyncDTO CompressElement(IWorldElement el)
         {
             if (el == null) return null;
             var esDto = new ElementSyncDTO { Id = el.Id, Name = el.Name, Description = el.Description };
+            esDto.Position = el.LocalTransform.Position;
+            esDto.Rotation = el.LocalTransform.Rotation;
+            esDto.Scale = el.LocalTransform.Scale;
             if (el.Components != null)
             {
                 foreach (var comp in el.Components)
@@ -71,11 +74,17 @@ namespace V12.Core.Networking
             return BsonSerializer.Deserialize<T>(data);
         }
 
-        private static IWorldElement DecompressElement(ElementSyncDTO es)
+        public static IWorldElement DecompressElement(ElementSyncDTO es)
         {
             if (es == null) return null;
             var element = new V12.Core.Element(es.Name, es.Description);
             element.Id = es.Id;
+            element.LocalTransform = new V12.Core.Interfaces.Renderer.TRS
+            {
+                Position = es.Position,
+                Rotation = es.Rotation,
+                Scale = es.Scale
+            };
             if (es.Components != null)
             {
                 foreach (var cs in es.Components)
