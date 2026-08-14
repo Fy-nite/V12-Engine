@@ -40,6 +40,11 @@ namespace V12.Components
                 Runtime = scriptRegistry?.CreateForScript(Source) ?? new MoonSharpScriptRuntime();
                 Runtime.OnPrint += msg => Console.WriteLine($"[Script:{Name}] {msg}");
 
+                // Runtimes that need the owning element (e.g. Contract .ct scripts)
+                // receive it up front so hooks like on_init/on_update can address it.
+                if (Owner != null && Runtime is IScriptOwnerAwareRuntime ownerAware)
+                    ownerAware.SetOwner(Owner);
+
                 // Expose owner element to Lua
                 if (Owner != null)
                 {

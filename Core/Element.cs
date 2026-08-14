@@ -270,7 +270,7 @@ namespace V12.Core
         {
             foreach (var component in Components)
             {
-                if (component.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(component.Name, name, StringComparison.OrdinalIgnoreCase))
                 {
                     return component;
                 }

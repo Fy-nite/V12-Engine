@@ -23,6 +23,19 @@ namespace V12.Core.GamePak
         public IReadOnlyList<IV12Gamepack> Gamepaks => _gamepaks;
 
         /// <summary>
+        /// Register a gamepak instance directly (bypasses assembly scanning).
+        /// Used for gamepaks that are constructed at runtime rather than
+        /// discovered via reflection, e.g. a <c>.ct</c> script compiled into an
+        /// <see cref="IV12Gamepack"/> adapter. Appends to the load-order list.
+        /// </summary>
+        public void Add(IV12Gamepack pak)
+        {
+            if (pak == null) throw new ArgumentNullException(nameof(pak));
+            _gamepaks.Add(pak);
+            Log.Debug("Registered gamepak directly: '{Name}' (index {Index})", pak.Name, _gamepaks.Count - 1);
+        }
+
+        /// <summary>
         /// Find a loaded game pak by its <see cref="IV12Gamepack.Name"/> (case-insensitive).
         /// Returns null if not found.
         /// </summary>
