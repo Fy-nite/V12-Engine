@@ -2,6 +2,7 @@ using System;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -88,6 +89,16 @@ namespace V12.Components
             Runtime = null;
             IsInitialized = false;
             Initialize();
+        }
+
+        /// <summary>Generate editable script fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Script");
+            inspector.String("Source", () => Source, v => Source = v);
+            inspector.String("Script Text", () => ScriptText, v => ScriptText = v);
+            inspector.ReadOnly("Initialized", IsInitialized);
+            inspector.Button("Reload", Reload);
         }
 
         public override void OnDetach(IWorldElement worldElement)

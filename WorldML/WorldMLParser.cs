@@ -118,7 +118,10 @@ namespace V12.WorldML
             var description = node.Attributes?["description"]?.Value;
 
             var element = new Element(name, description, parent);
-            world.AddChild(element);
+            // Attach under the parsed parent so nested <Element> trees keep their
+            // hierarchy (previously every element was reparented to the world
+            // root, flattening the XML structure).
+            (parent ?? (IWorldElement)world).AddChild(element);
 
             // Collect template overrides (everything except name/description/template)
             var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

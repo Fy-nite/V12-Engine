@@ -1,6 +1,7 @@
 using System;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -32,6 +33,19 @@ namespace V12.Components
             _velX = vx; _velY = vy; _velZ = vz;
             _angX = ax; _angY = ay; _angZ = az;
         }
+
+        /// <summary>Generate editable velocity fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Velocity");
+            inspector.Float("Linear X", () => VelX, v => VelX = v);
+            inspector.Float("Linear Y", () => VelY, v => VelY = v);
+            inspector.Float("Linear Z", () => VelZ, v => VelZ = v);
+            inspector.Float("Angular X", () => AngX, v => AngX = v);
+            inspector.Float("Angular Y", () => AngY, v => AngY = v);
+            inspector.Float("Angular Z", () => AngZ, v => AngZ = v);
+        }
+
         public override IWorldElement BuildUI()
         {
             return new Element();

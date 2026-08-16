@@ -1,6 +1,7 @@
 using System;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -37,6 +38,16 @@ namespace V12.Components
         public ScaleComponent(float x, float y, float z) { _scaleX = x; _scaleY = y; _scaleZ = z; }
         /// <summary>Uniform scale shorthand.</summary>
         public ScaleComponent(float uniform) : this(uniform, uniform, uniform) { }
+
+        /// <summary>Generate editable scale fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Scale");
+            inspector.Float("Scale X", () => ScaleX, v => ScaleX = v);
+            inspector.Float("Scale Y", () => ScaleY, v => ScaleY = v);
+            inspector.Float("Scale Z", () => ScaleZ, v => ScaleZ = v);
+        }
+
         public override IWorldElement BuildUI()
         {
             return new Element();

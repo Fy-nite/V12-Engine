@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -105,6 +106,20 @@ namespace V12.Components
             _loop = loop;
             _autoplay = autoplay;
             _isPlaying = autoplay;
+        }
+
+        /// <summary>Generate editable audio source fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Audio Source");
+            inspector.String("Clip Path", () => AudioClipPath, v => AudioClipPath = v);
+            inspector.Float("Volume", () => Volume, v => Volume = v);
+            inspector.Float("Pitch", () => Pitch, v => Pitch = v);
+            inspector.Bool("Loop", () => Loop, v => Loop = v);
+            inspector.Bool("Autoplay", () => Autoplay, v => Autoplay = v);
+            inspector.Float("Max Distance", () => MaxDistance, v => MaxDistance = v);
+            inspector.Button("Play", Play);
+            inspector.Button("Stop", Stop);
         }
 
         public override string ToString() =>

@@ -1,6 +1,7 @@
 using System;
 using V12.Core.Core.Interfaces;
 using V12.Core;
+using V12.Core.UI;
 namespace V12.Components
 {
     public enum BackgroundMode { SolidColor, Skybox }
@@ -45,6 +46,21 @@ namespace V12.Components
         {
             _mode = mode; _skyR = Clamp01(skyR); _skyG = Clamp01(skyG); _skyB = Clamp01(skyB);
         }
+        /// <summary>Generate editable environment fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Environment");
+            inspector.Enum("Mode", () => Mode, v => Mode = v);
+            inspector.Float("Sky Red", () => SkyR, v => SkyR = v);
+            inspector.Float("Sky Green", () => SkyG, v => SkyG = v);
+            inspector.Float("Sky Blue", () => SkyB, v => SkyB = v);
+            inspector.Float("Ambient Red", () => AmbientR, v => AmbientR = v);
+            inspector.Float("Ambient Green", () => AmbientG, v => AmbientG = v);
+            inspector.Float("Ambient Blue", () => AmbientB, v => AmbientB = v);
+            inspector.Float("Ambient Energy", () => AmbientEnergy, v => AmbientEnergy = v);
+            inspector.String("Skybox Path", () => SkyboxPath, v => SkyboxPath = v);
+        }
+
         public override IWorldElement BuildUI()
         {
             return new Element();

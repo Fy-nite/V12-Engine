@@ -1,6 +1,7 @@
 using System;
 using V12.Core.Core.Interfaces;
 using V12.Core;
+using V12.Core.UI;
 namespace V12.Components
 {
     /// <summary>
@@ -66,6 +67,20 @@ namespace V12.Components
         }
 
         private static float Clamp01(float v) => Math.Max(0f, Math.Min(1f, v));
+
+        /// <summary>Generate editable spotlight fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Spot Light");
+            inspector.Float("Red", () => ColorR, v => ColorR = v);
+            inspector.Float("Green", () => ColorG, v => ColorG = v);
+            inspector.Float("Blue", () => ColorB, v => ColorB = v);
+            inspector.Float("Range", () => Range, v => Range = v);
+            inspector.Float("Energy", () => Energy, v => Energy = v);
+            inspector.Float("Angle", () => Angle, v => Angle = v);
+            inspector.Float("Softness", () => SpotSoftness, v => SpotSoftness = v);
+        }
+
         public override IWorldElement BuildUI()
         {
             return new Element();

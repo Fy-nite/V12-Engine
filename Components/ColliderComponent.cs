@@ -1,6 +1,7 @@
 using System;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -52,6 +53,18 @@ namespace V12.Components
         {
             _shape = shape; _width = width; _height = height; _depth = depth; _isTrigger = isTrigger;
         }
+
+        /// <summary>Generate editable collider fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Collider");
+            inspector.Enum("Shape", () => Shape, v => Shape = v);
+            inspector.Float("Width", () => Width, v => Width = v);
+            inspector.Float("Height", () => Height, v => Height = v);
+            inspector.Float("Depth", () => Depth, v => Depth = v);
+            inspector.Bool("Is Trigger", () => IsTrigger, v => IsTrigger = v);
+        }
+
         public override IWorldElement BuildUI()
         {
             return new Element();

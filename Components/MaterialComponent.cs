@@ -1,6 +1,7 @@
 using System;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -125,6 +126,29 @@ namespace V12.Components
         {
             _r = Clamp01(r); _g = Clamp01(g); _b = Clamp01(b); _a = Clamp01(a);
             _metallic = Clamp01(metallic); _roughness = Clamp01(roughness);
+        }
+
+        /// <summary>Generate editable material fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Colour");
+            inspector.Float("Red", () => R, v => R = v);
+            inspector.Float("Green", () => G, v => G = v);
+            inspector.Float("Blue", () => B, v => B = v);
+            inspector.Float("Alpha", () => A, v => A = v);
+            inspector.Float("Metallic", () => Metallic, v => Metallic = v);
+            inspector.Float("Roughness", () => Roughness, v => Roughness = v);
+            inspector.Section("UV");
+            inspector.Float("UV Offset X", () => Uv1OffsetX, v => Uv1OffsetX = v);
+            inspector.Float("UV Offset Y", () => Uv1OffsetY, v => Uv1OffsetY = v);
+            inspector.Float("UV Scale X", () => Uv1ScaleX, v => Uv1ScaleX = v);
+            inspector.Float("UV Scale Y", () => Uv1ScaleY, v => Uv1ScaleY = v);
+            inspector.Section("Textures");
+            inspector.String("Albedo", () => AlbedoTexture ?? "", v => AlbedoTexture = v);
+            inspector.String("Normal", () => NormalTexture ?? "", v => NormalTexture = v);
+            inspector.String("Metallic Map", () => MetallicTexture ?? "", v => MetallicTexture = v);
+            inspector.String("Roughness Map", () => RoughnessTexture ?? "", v => RoughnessTexture = v);
+            inspector.String("Emission Map", () => EmissionTexture ?? "", v => EmissionTexture = v);
         }
 
         public string? PrimaryTexture =>

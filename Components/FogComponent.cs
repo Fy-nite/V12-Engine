@@ -1,6 +1,7 @@
 using System;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -63,6 +64,19 @@ namespace V12.Components
         }
 
         private static float Clamp01(float v) => Math.Max(0f, Math.Min(1f, v));
+
+        /// <summary>Generate editable fog fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Fog");
+            inspector.Float("Red", () => ColorR, v => ColorR = v);
+            inspector.Float("Green", () => ColorG, v => ColorG = v);
+            inspector.Float("Blue", () => ColorB, v => ColorB = v);
+            inspector.Float("Density", () => Density, v => Density = v);
+            inspector.Float("Height", () => FogHeight, v => FogHeight = v);
+            inspector.Float("Height Falloff", () => HeightFalloff, v => HeightFalloff = v);
+        }
+
         public override IWorldElement BuildUI()
         {
             return new Element();

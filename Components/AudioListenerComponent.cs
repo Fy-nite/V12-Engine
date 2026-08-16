@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -43,6 +44,14 @@ namespace V12.Components
         }
 
         public AudioListenerComponent() { }
+
+        /// <summary>Marker component: reads the listener position from the owner.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Audio Listener");
+            inspector.ReadOnly("Position", Position);
+            inspector.ReadOnly("Forward", Forward);
+        }
 
         public override IWorldElement BuildUI() => new Element();
 

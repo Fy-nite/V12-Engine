@@ -1,6 +1,7 @@
 using System;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -45,6 +46,24 @@ namespace V12.Components
         {
             _amount = amount; _lifetime = lifetime; _speedMin = speedMin; _speedMax = speedMax;
         }
+
+        /// <summary>Generate editable particle emitter fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Particle Emitter");
+            inspector.Int("Amount", () => Amount, v => Amount = v);
+            inspector.Float("Lifetime", () => Lifetime, v => Lifetime = v);
+            inspector.Float("Emission Radius", () => EmissionRadius, v => EmissionRadius = v);
+            inspector.Float("Speed Min", () => SpeedMin, v => SpeedMin = v);
+            inspector.Float("Speed Max", () => SpeedMax, v => SpeedMax = v);
+            inspector.Float("Direction X", () => DirX, v => DirX = v);
+            inspector.Float("Direction Y", () => DirY, v => DirY = v);
+            inspector.Float("Direction Z", () => DirZ, v => DirZ = v);
+            inspector.Float("Spread Angle", () => SpreadAngle, v => SpreadAngle = v);
+            inspector.Bool("Emitting", () => Emitting, v => Emitting = v);
+            inspector.Bool("One Shot", () => OneShot, v => OneShot = v);
+        }
+
         public override IWorldElement BuildUI()
         {
             return new Element();

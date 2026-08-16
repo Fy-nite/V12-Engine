@@ -1,6 +1,7 @@
 using System;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -49,6 +50,18 @@ namespace V12.Components
             get => (_hitNX, _hitNY, _hitNZ);
             set { if (_hitNX != value.x || _hitNY != value.y || _hitNZ != value.z) { _hitNX = value.x; _hitNY = value.y; _hitNZ = value.z; MarkDirty(); } }
         }
+
+        /// <summary>Generate editable interaction fields for the inspector. Most
+        /// of these are runtime state (raycast/laser hits), shown read-only.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Interaction");
+            inspector.Bool("Is Pointing", () => IsPointing, v => IsPointing = v);
+            inspector.Bool("Is Selecting", () => IsSelecting, v => IsSelecting = v);
+            inspector.ReadOnly("Hit Entity", HitEntityId?.ToString() ?? "—");
+            inspector.ReadOnly("Hit Position", $"({_hitX:F2}, {_hitY:F2}, {_hitZ:F2})");
+        }
+
         public override IWorldElement BuildUI()
         {
             return new Element();

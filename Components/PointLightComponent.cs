@@ -3,6 +3,7 @@ using System.Numerics;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
+using V12.Core.UI;
 using Color = System.Drawing.Color;
 
 namespace V12.Components
@@ -117,6 +118,18 @@ namespace V12.Components
         }
 
         private static float Clamp01(float v) => Math.Max(0f, Math.Min(1f, v));
+
+        /// <summary>Generate editable point light fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Point Light");
+            inspector.Float("Red", () => ColorR, v => ColorR = v);
+            inspector.Float("Green", () => ColorG, v => ColorG = v);
+            inspector.Float("Blue", () => ColorB, v => ColorB = v);
+            inspector.Float("Range", () => Range, v => Range = v);
+            inspector.Float("Energy", () => Energy, v => Energy = v);
+        }
+
         public override IWorldElement BuildUI()
         {
             return new Element();

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.UI;
 
 namespace V12.Components
 {
@@ -59,6 +60,14 @@ namespace V12.Components
                     .Split(',', StringSplitOptions.RemoveEmptyEntries)
                     .Select(t => t.Trim())
                     .Where(t => t.Length > 0));
+
+        /// <summary>Generate editable tag fields for the inspector.</summary>
+        public override void BuildInspector(IInspector inspector)
+        {
+            inspector.Section("Tag");
+            inspector.String("Tags", () => Tags, v => Tags = v);
+        }
+
         public override IWorldElement BuildUI()
         {
             return new Element();
