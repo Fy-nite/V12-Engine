@@ -1,4 +1,5 @@
 using System;
+using MongoDB.Bson.Serialization.Attributes;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 
@@ -13,6 +14,7 @@ namespace V12.Components.UI
         public float Min { get; set; } = 0f;
         public float Max { get; set; } = 1f;
         public float Step { get; set; } = 0f;
+        [BsonIgnore]
         public Action<float>? OnChanged { get; set; }
         public override IWorldElement BuildUI()
         {

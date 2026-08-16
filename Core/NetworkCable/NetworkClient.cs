@@ -1,22 +1,31 @@
 using System;
-using System.IO;
+using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using LiteNetLib;
 using V12.Core.Networking;
 
 namespace V12.Core.NetworkCable
 {
     /// <summary>
-    /// TCP-based network client that connects to a NetworkHost and routes messages through NetworkCables.
+    /// LiteNetLib (UDP)-based network client that connects to a NetworkHost and routes
+    /// messages through NetworkCables. Lifecycle messages travel on a reliable, ordered
+    /// channel; continuous state updates travel on an unreliable channel. Dead
+    /// connections are detected by LiteNetLib's DisconnectTimeout instead of an
+    /// application-level heartbeat.
     /// </summary>
-    public class NetworkClient : IDisposable
+    public class NetworkClient : IDisposable, INetEventListener
     {
         private readonly string _host;
         private readonly int _port;
         private readonly NetworkCables _cables;
-        private TcpClient? _client;
+        private NetManager? _net;
+        private NetPeer? _peer;
         private CancellationTokenSource? _cts;
+        private readonly object _pollLock = new object();
+        private bool _pollStarted;
+        private bool _everConnected;
 
         public bool IsConnected
         {
@@ -24,8 +33,8 @@ namespace V12.Core.NetworkCable
             {
                 try
                 {
-                    // _client may be null or may have been disposed concurrently; guard against exceptions
-                    return _client != null && _client.Connected;
+                    // _peer may be null or may have been disposed concurrently; guard against exceptions
+                    return _peer != null && _peer.ConnectionState == ConnectionState.Connected;
                 }
                 catch (Exception ex)
                 {
@@ -38,7 +47,7 @@ namespace V12.Core.NetworkCable
         public int Port => _port;
 
         // ── Connection lifecycle events ────────────────────────────────────────
-        /// <summary>Raised when the TCP connection is successfully established.</summary>
+        /// <summary>Raised when the connection is successfully established.</summary>
         public event Action? OnConnected;
         /// <summary>Raised when the connection is closed (gracefully or by server).</summary>
         public event Action? OnDisconnected;
@@ -64,132 +73,84 @@ namespace V12.Core.NetworkCable
         /// Connection failures are surfaced via <see cref="OnConnectionFailed"/> instead of
         /// propagating as unobserved task exceptions.
         /// </summary>
-        public async Task ConnectAsync(CancellationToken token = default)
-            => await ConnectToAsync(_host, _port, token);
+        public Task ConnectAsync(CancellationToken token = default)
+            => ConnectToAsync(_host, _port, token);
 
         /// <summary>
         /// Connect to a specific host/port and start sending/receiving messages.
         /// Connection failures are surfaced via <see cref="OnConnectionFailed"/> instead of
         /// propagating as unobserved task exceptions.
         /// </summary>
-        public async Task ConnectAsync(string host, int port, CancellationToken token = default)
-            => await ConnectToAsync(host, port, token);
+        public Task ConnectAsync(string host, int port, CancellationToken token = default)
+            => ConnectToAsync(host, port, token);
 
-        private async Task ConnectToAsync(string host, int port, CancellationToken token)
+        private Task ConnectToAsync(string host, int port, CancellationToken token)
         {
-            if (IsConnected) return;
+            if (IsConnected) return Task.CompletedTask;
+
+            // Tear down any previous attempt cleanly so each retry starts fresh.
+            try { Disconnect(); } catch { }
 
             _cts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            _client = new TcpClient();
+            _everConnected = false;
 
-            Console.WriteLine($"[NetworkClient] Connecting to {host}:{port}...");
+            var net = new NetManager(this)
+            {
+                DisconnectTimeout = 15000,
+                MaxConnectAttempts = 5
+            };
+            net.Start();
+            _net = net;
+
+            Console.WriteLine($"[NetworkClient] Connecting (UDP/LiteNetLib) to {host}:{port}...");
             try
             {
-                var connectTask = _client.ConnectAsync(host, port);
-                var cancelTask  = System.Threading.Tasks.Task.Delay(-1, _cts.Token);
-                var finished    = await System.Threading.Tasks.Task.WhenAny(connectTask, cancelTask);
-
-                if (finished != connectTask)
-                {
-                    Console.WriteLine($"[NetworkClient] Connection to {host}:{port} was cancelled.");
-                    return;
-                }
-
-                await connectTask; // re-throws if the TCP connect failed
-
-                Console.WriteLine($"[NetworkClient] Connected to {host}:{port}");
-                _cables.OnMessageSending += SendMessage;
-                OnConnected?.Invoke();
-
-                _ = Task.Run(async () => await ReceiveLoopAsync(_cts.Token), _cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                Console.WriteLine($"[NetworkClient] Connection to {host}:{port} cancelled.");
+                _peer = net.Connect(host, port, LiteNetWire.ConnectKey);
             }
             catch (Exception ex)
             {
+                _peer = null;
                 Console.WriteLine($"[NetworkClient] Failed to connect to {host}:{port}: {ex.GetType().Name}: {ex.Message}");
                 try { OnConnectionFailed?.Invoke(ex); } catch { }
+                return Task.CompletedTask;
             }
+
+            _cables.OnMessageSending += SendMessage;
+            StartPolling();
+            return Task.CompletedTask;
         }
 
-        private async Task ReceiveLoopAsync(CancellationToken token)
+        private void StartPolling()
         {
-            if (_client == null) return;
-
-            try
+            lock (_pollLock)
             {
-                using var stream = _client.GetStream();
-
-                while (!token.IsCancellationRequested && _client.Connected)
+                if (_pollStarted) return;
+                _pollStarted = true;
+                _ = Task.Run(() =>
                 {
-                    // Read length prefix (4 bytes)
-                    var lengthBytes = new byte[4];
-                    int bytesRead = await stream.ReadAsync(lengthBytes, 0, 4, token);
-                    if (bytesRead == 0) break;
-
-                    int messageLength = BitConverter.ToInt32(lengthBytes, 0);
-                    if (messageLength <= 0 || messageLength > 10_000_000) // 10MB sanity check
+                    while (_cts != null && !_cts.IsCancellationRequested)
                     {
-                        Console.WriteLine($"[NetworkClient] Invalid message length: {messageLength}");
-                        break;
+                        try { _net?.PollEvents(); }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[NetworkClient] PollEvents error: {ex.GetType().Name}: {ex.Message}");
+                        }
+                        Thread.Sleep(5);
                     }
-
-                    // Read message payload
-                    var messageBytes = new byte[messageLength];
-                    int totalRead = 0;
-                    while (totalRead < messageLength)
-                    {
-                        bytesRead = await stream.ReadAsync(messageBytes, totalRead, messageLength - totalRead, token);
-                        if (bytesRead == 0) break;
-                        totalRead += bytesRead;
-                    }
-
-                    if (totalRead < messageLength)
-                    {
-                        Console.WriteLine($"[NetworkClient] Incomplete message received ({totalRead}/{messageLength} bytes)");
-                        break;
-                    }
-
-                    // Deserialize and enqueue
-                    try
-                    {
-                        var message = AncientCompressor.Decompress<MessageDTO>(messageBytes);
-                        _cables.EnqueueIncoming(message);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[NetworkClient] Error deserializing message: {ex.Message}");
-                    }
-                }
-            }
-            catch (OperationCanceledException) { /* Normal shutdown */ }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[NetworkClient] Receive error: {ex.Message}");
-            }
-            finally
-            {
-                Console.WriteLine($"[NetworkClient] Disconnected from {_host}:{_port}");
-                _cables.OnMessageSending -= SendMessage;
-                try { OnDisconnected?.Invoke(); } catch { }
+                });
             }
         }
 
         private void SendMessage(MessageDTO message)
         {
-            if (_client == null || !_client.Connected) return;
+            var peer = _peer;
+            if (_net == null || peer == null || peer.ConnectionState != ConnectionState.Connected) return;
 
             try
             {
-                var serialized = AncientCompressor.Compress(message);
-                var lengthBytes = BitConverter.GetBytes(serialized.Length);
-
-                var stream = _client.GetStream();
-                stream.Write(lengthBytes, 0, 4);
-                stream.Write(serialized, 0, serialized.Length);
-                stream.Flush();
+                var bytes = LiteNetWire.Serialize(message);
+                var (method, channel) = LiteNetWire.DeliveryFor(message, bytes.Length);
+                peer.Send(bytes, channel, method);
             }
             catch (Exception ex)
             {
@@ -197,30 +158,75 @@ namespace V12.Core.NetworkCable
             }
         }
 
+        // ── INetEventListener ──────────────────────────────────────────────────
+        public void OnPeerConnected(NetPeer peer)
+        {
+            _peer = peer;
+            _everConnected = true;
+            Console.WriteLine($"[NetworkClient] Connected to {peer.EndPoint}");
+            try { OnConnected?.Invoke(); } catch { }
+        }
+
+        public void OnPeerDisconnected(NetPeer peer, DisconnectInfo disconnectInfo)
+        {
+            Console.WriteLine($"[NetworkClient] Disconnected from {_host}:{_port} (reason: {disconnectInfo.Reason})");
+            _peer = null;
+            _cables.OnMessageSending -= SendMessage;
+
+            if (!_everConnected)
+            {
+                try { OnConnectionFailed?.Invoke(new Exception($"Connection failed: {disconnectInfo.Reason}")); } catch { }
+            }
+            else
+            {
+                try { OnDisconnected?.Invoke(); } catch { }
+            }
+        }
+
+        public void OnNetworkError(IPEndPoint endPoint, SocketError socketError)
+        {
+            Console.WriteLine($"[NetworkClient] Network error on {endPoint}: {socketError}");
+        }
+
+        public void OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channel, DeliveryMethod deliveryMethod)
+        {
+            try
+            {
+                var message = LiteNetWire.Deserialize(reader.GetRemainingBytes());
+                if (message != null)
+                    _cables.EnqueueIncoming(message);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[NetworkClient] Error deserializing message: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                reader.Recycle();
+            }
+        }
+
+        public void OnNetworkReceiveUnconnected(IPEndPoint remoteEndPoint, NetPacketReader reader, UnconnectedMessageType messageType) { }
+
+        public void OnNetworkLatencyUpdate(NetPeer peer, int latency) { }
+
+        public void OnConnectionRequest(ConnectionRequest request) { }
+
         public void Disconnect()
         {
-            bool connected = false;
-            try { connected = IsConnected; } catch { connected = false; }
-            if (!connected)
-            {
-                // Ensure we still clean up resources even if not connected
-                try { _cts?.Cancel(); } catch { }
-                try { _cables.OnMessageSending -= SendMessage; } catch { }
-                try { _client?.Close(); } catch { }
-                return;
-            }
-
             Console.WriteLine($"[NetworkClient] Disconnecting from {_host}:{_port}...");
             try { _cts?.Cancel(); } catch { }
             try { _cables.OnMessageSending -= SendMessage; } catch { }
-            try { _client?.Close(); } catch { }
+            try { _net?.Stop(); } catch { }
+            _peer = null;
         }
 
         public void Dispose()
         {
             Disconnect();
             _cts?.Dispose();
-            _client?.Dispose();
+            _cts = null;
+            _net = null;
         }
     }
 }

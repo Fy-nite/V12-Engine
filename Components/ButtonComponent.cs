@@ -1,6 +1,8 @@
 using System;
+using MongoDB.Bson.Serialization.Attributes;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.Networking;
 
 namespace V12.Components
 {
@@ -19,7 +21,9 @@ namespace V12.Components
 
         /// <summary>
         /// Invoked when the button is pressed via raycast interact.
+        /// A code reference, never serialized — presses are forwarded as RPCs.
         /// </summary>
+        [BsonIgnore]
         public Action? OnPressed { get; set; }
 
         public bool Pressed
@@ -31,6 +35,17 @@ namespace V12.Components
         public override IWorldElement BuildUI()
         {
             return new Element();
+        }
+
+        /// <summary>
+        /// Remote-callable press handler: the raycast ButtonSystem invokes this locally and
+        /// also broadcasts it, so every peer that has a matching element runs the same handler.
+        /// </summary>
+        [Remote]
+        public void Press()
+        {
+            Pressed = true;
+            try { OnPressed?.Invoke(); } catch { }
         }
     }
 }
