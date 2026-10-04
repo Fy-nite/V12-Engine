@@ -3,6 +3,7 @@ using System.Reflection;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using V12.Core.Core.Interfaces;
+using V12.Core.NetworkCable;
 
 namespace V12.Core.Networking
 {
@@ -43,6 +44,12 @@ namespace V12.Core.Networking
         private static void Send(GameRoot root, RpcCallDTO dto, object[]? args)
         {
             if (root?.Cables == null) return;
+
+            // No connected peer (single-player / headless): nothing to broadcast to, and the
+            // payload can't be serialized without a transport-configured BSON context. The
+            // caller has already applied the effect locally.
+            if (!HasConnectedPeer(root)) return;
+
             if (args != null && args.Length > 0)
             {
                 try { dto.ArgsData = ((object)args).ToBson(); }
@@ -141,6 +148,21 @@ namespace V12.Core.Networking
                 }
             }
             return bound;
+        }
+
+        /// <summary>True when a network host has at least one client, or a client is connected.</summary>
+        private static bool HasConnectedPeer(GameRoot root)
+        {
+            try
+            {
+                var host = root.Registry?.Get<NetworkHost>("NetworkHost");
+                if (host != null) return host.ClientCount > 0;
+
+                var client = root.Registry?.Get<NetworkClient>("NetworkClient");
+                if (client != null) return client.IsConnected;
+            }
+            catch { /* registry not ready – treat as no peer */ }
+            return false;
         }
     }
 

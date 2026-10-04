@@ -242,6 +242,14 @@ namespace V12.Core
         public IRenderer renderer;
 
         /// <summary>
+        /// Optional UI renderer backend, registered under "IUIRenderer" and resolved in
+        /// <see cref="Initialize"/>. When present, <see cref="V12Tick"/> hands it a captured
+        /// <see cref="UIFrame"/> (screen-space canvases + widgets) on dirty frames — the
+        /// renderer does not scout the world tree for UI.
+        /// </summary>
+        public IUIRenderer? uiRenderer;
+
+        /// <summary>
         /// Set to true whenever a world element or component changes in a way
         /// that affects rendering (transform, mesh data, material, add/remove).
         /// V12Tick only builds and sends a RenderPacket when this is true.
@@ -344,6 +352,15 @@ namespace V12.Core
                 renderer = (IRenderer)Registry.Get("IRenderer").ServiceInstance;
             }
 
+            if (Registry.Get("IUIRenderer")?.ServiceInstance is IUIRenderer ui)
+            {
+                Log.Information("Found IUIRenderer, loading...");
+                uiRenderer = ui;
+            }
+            else
+            {
+                uiRenderer = null;
+            }
         }
 
         /// <summary>
@@ -405,26 +422,226 @@ namespace V12.Core
                 // Run full game update (worlds, services, dashboard)
                 Update(deltaTime);
                 
-                // Only build and send a render packet when something changed
-                if (renderer != null && _renderDirty)
+                // Only build and send render/UI data when something changed
+                if ((renderer != null || uiRenderer != null) && _renderDirty)
                 {
                     _renderDirty = false;
-                    var packet = new RenderPacket();
-                    List<IRenderable> renderables = GetAllRenderables();
-                    foreach (var r in renderables)
+
+                    if (renderer != null)
                     {
-                        if (r is IMeshRenderable mesh)
+                        var packet = new RenderPacket();
+                        List<IRenderable> renderables = GetAllRenderables();
+                        foreach (var r in renderables)
                         {
-                            packet.Meshes.Add(new MeshDraw
+                            if (r is IMeshRenderable mesh)
                             {
-                                Transform = mesh.Transform,
-                                Mesh = mesh
-                            });
+                                packet.Meshes.Add(new MeshDraw
+                                {
+                                    Transform = mesh.Transform,
+                                    Mesh = mesh
+                                });
+                            }
                         }
+                        renderer.QueueItems(packet);
                     }
-                    renderer.QueueItems(packet);
+
+                    // Hand the UI over — the renderer does not scout the world tree for it.
+                    uiRenderer?.ApplyUI(CaptureUI());
                 }
                 renderer?.step();
+                uiRenderer?.step();
+        }
+
+        /// <summary>
+        /// Capture the current UI — screen-space <see cref="V12.Components.UI.CanvasComponent"/>
+        /// subtrees and their widget components — into a <see cref="UIFrame"/> to hand to
+        /// <see cref="uiRenderer"/>. Widgets are keyed by element id for backend reconciliation.
+        /// </summary>
+        public UIFrame CaptureUI()
+        {
+            var frame = new UIFrame();
+
+            foreach (var world in ActiveWorlds)
+            {
+                world.Lock.EnterReadLock();
+                try
+                {
+                    foreach (var root in world.Root.ToArray())
+                        CaptureUICanvases(root, frame);
+                }
+                finally { world.Lock.ExitReadLock(); }
+            }
+
+            // The UIBuilder root is a free-standing element (never added to a World), so it is
+            // not reached by the world walk above — include it explicitly.
+            if (Registry.Get("UIBuilder")?.ServiceInstance is IUIBuilder builder && builder.Root is IWorldElement builderRoot)
+                CaptureUICanvases(builderRoot, frame);
+
+            return frame;
+        }
+
+        private static void CaptureUICanvases(IWorldElement element, UIFrame frame)
+        {
+            if (element?.Components == null) return;
+
+            var canvas = element.GetComponent<V12.Components.UI.CanvasComponent>();
+            if (canvas != null)
+            {
+                CaptureCanvas(element, canvas, frame);
+                return;
+            }
+
+            foreach (var child in element.Children.ToArray())
+                CaptureUICanvases(child, frame);
+        }
+
+        private static void CaptureCanvas(IWorldElement canvasElement, V12.Components.UI.CanvasComponent canvas, UIFrame frame)
+        {
+            frame.Nodes.Add(new UINode
+            {
+                Id = canvasElement.Id,
+                ParentId = 0,
+                Name = canvasElement.Name ?? "Canvas",
+                Kind = UIWidgetKind.Canvas,
+                ScreenSpace = canvas.ScreenSpace,
+                Width = canvas.Width,
+                Height = canvas.Height,
+                AnchorX = canvas.AnchorX,
+                AnchorY = canvas.AnchorY,
+            });
+
+            foreach (var child in canvasElement.Children.ToArray())
+                CaptureUIWidgets(child, canvasElement.Id, frame);
+        }
+
+        private static void CaptureUIWidgets(IWorldElement element, long parentId, UIFrame frame)
+        {
+            if (element?.Components == null) return;
+
+            // A nested canvas starts its own root subtree.
+            var nestedCanvas = element.GetComponent<V12.Components.UI.CanvasComponent>();
+            if (nestedCanvas != null)
+            {
+                CaptureCanvas(element, nestedCanvas, frame);
+                return;
+            }
+
+            long childParent = parentId;
+            var node = BuildUINode(element);
+            if (node != null)
+            {
+                node.ParentId = parentId;
+                frame.Nodes.Add(node);
+                childParent = node.Id;
+            }
+
+            foreach (var child in element.Children.ToArray())
+                CaptureUIWidgets(child, childParent, frame);
+        }
+
+        private static UINode? BuildUINode(IWorldElement element)
+        {
+            var node = new UINode { Id = element.Id, Name = element.Name ?? "" };
+
+            var style = element.GetComponent<V12.Components.UI.UIStyleComponent>();
+            if (style != null) { node.StyleHint = style.StyleHint ?? ""; node.Flat = style.Flat; }
+
+            var layout = element.GetComponent<V12.Components.UI.LayoutElementComponent>();
+            if (layout != null)
+            {
+                node.MinWidth = layout.MinWidth; node.PreferredWidth = layout.PreferredWidth; node.FlexibleWidth = layout.FlexibleWidth;
+                node.MinHeight = layout.MinHeight; node.PreferredHeight = layout.PreferredHeight; node.FlexibleHeight = layout.FlexibleHeight;
+            }
+
+            if (element.GetComponent<V12.Components.UI.ButtonComponent>() is { } button)
+            {
+                node.Kind = UIWidgetKind.Button;
+                node.Text = button.Label;
+                node.OnClick = button.InvokeClick;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.ToggleComponent>() is { } toggle)
+            {
+                node.Kind = UIWidgetKind.Toggle;
+                node.Text = toggle.Label;
+                node.Bool = toggle.IsOn;
+                node.OnToggled = toggle.OnToggled;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.CheckboxComponent>() is { } check)
+            {
+                node.Kind = UIWidgetKind.Checkbox;
+                node.Text = check.Label;
+                node.Bool = check.Checked;
+                node.OnToggled = check.OnChanged;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.SliderComponent>() is { } slider)
+            {
+                node.Kind = UIWidgetKind.Slider;
+                node.Min = slider.Min; node.Max = slider.Max; node.Value = slider.Value; node.Step = slider.Step;
+                node.OnValueChanged = slider.OnChanged;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.ProgressBarComponent>() is { } bar)
+            {
+                node.Kind = UIWidgetKind.ProgressBar;
+                node.Value = bar.Value;
+                node.Bool = bar.Indeterminate;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.TextInputComponent>() is { } input)
+            {
+                node.Kind = UIWidgetKind.TextInput;
+                node.Text = input.Value;
+                node.Placeholder = input.Placeholder;
+                node.OnTextChanged = input.InvokeChanged;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.ImageComponent>() is { } image)
+            {
+                node.Kind = UIWidgetKind.Image;
+                node.ImageSource = image.Source;
+                node.PreserveAspect = image.PreserveAspect;
+                node.Color = image.Tint;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.IconComponent>() is { } icon)
+            {
+                node.Kind = UIWidgetKind.Icon;
+                node.ImageSource = icon.Icon;
+                node.Width = icon.Size; node.Height = icon.Size;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.LabelComponent>() is { } label)
+            {
+                node.Kind = UIWidgetKind.Label;
+                node.Text = label.Text;
+                node.FontSize = label.FontSize;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.RectComponent>() is { } rect)
+            {
+                node.Kind = UIWidgetKind.Rect;
+                node.Width = rect.Width; node.Height = rect.Height;
+                node.Color = rect.BackgroundColor;
+                node.CornerRadius = rect.CornerRadius;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.VLayoutComponent>() is { } vlayout)
+            {
+                node.Kind = UIWidgetKind.VLayout;
+                node.Spacing = vlayout.Spacing; node.Padding = vlayout.Padding;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.HLayoutComponent>() is { } hlayout)
+            {
+                node.Kind = UIWidgetKind.HLayout;
+                node.Spacing = hlayout.Spacing; node.Padding = hlayout.Padding;
+                return node;
+            }
+
+            return null;
         }
 
         public List<IRenderable> GetAllRenderables()
