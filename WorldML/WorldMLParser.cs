@@ -118,7 +118,14 @@ namespace V12.WorldML
             var description = node.Attributes?["description"]?.Value;
 
             var element = new Element(name, description, parent);
-            world.AddChild(element);
+
+            // Attach to the real parent so element nesting is preserved. Root-level nodes
+            // (parent == null) attach to the world container element. Previously every node
+            // was added to the container, which flattened the hierarchy.
+            if (parent is Element parentElement)
+                parentElement.AddChild(element);
+            else
+                world.AddChild(element);
 
             // Collect template overrides (everything except name/description/template)
             var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
