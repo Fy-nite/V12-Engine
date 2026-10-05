@@ -66,8 +66,12 @@ namespace V12.Components
                     code = ScriptText;
                 else if (!string.IsNullOrEmpty(Source))
                 {
-                    string resolvedPath = resolver?.Resolve(Source);
-                    if (resolvedPath != null && System.IO.File.Exists(resolvedPath))
+                    // Fall back to the literal Source path when there is no asset
+                    // resolver (or it can't place the file) — a plain relative or
+                    // absolute path still loads.
+                    string? resolvedPath = resolver?.Resolve(Source);
+                    if (string.IsNullOrEmpty(resolvedPath)) resolvedPath = Source;
+                    if (System.IO.File.Exists(resolvedPath))
                         code = System.IO.File.ReadAllText(resolvedPath);
                     else
                     {

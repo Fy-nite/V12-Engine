@@ -68,6 +68,9 @@ namespace V12.Core.Rendering
         public string StyleHint = "";
         public bool Flat;
 
+        /// <summary>Anchor within the parent from <c>UIStyleComponent.Anchor</c> (e.g. "center"). Empty = flow layout.</summary>
+        public string Anchor = "";
+
         // ── Value widgets ───────────────────────────────────────────────────
         public float Value;
         public float Min;

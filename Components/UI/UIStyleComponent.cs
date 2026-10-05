@@ -22,6 +22,13 @@ namespace V12.Components.UI
         /// Whether the element should be rendered "flat" (no background/border).
         /// </summary>
         public bool Flat { get; set; }
+
+        /// <summary>
+        /// Layout anchor within the parent: "center", "top-left", "top", "top-right",
+        /// "left", "right", "bottom-left", "bottom", "bottom-right". Null/empty = default flow.
+        /// A backend maps this to its own anchoring (e.g. Gum's <c>Anchor</c>).
+        /// </summary>
+        public string? Anchor { get; set; }
         public override IWorldElement BuildUI()
         {
             return new Element();

@@ -544,7 +544,7 @@ namespace V12.Core
             var node = new UINode { Id = element.Id, Name = element.Name ?? "" };
 
             var style = element.GetComponent<V12.Components.UI.UIStyleComponent>();
-            if (style != null) { node.StyleHint = style.StyleHint ?? ""; node.Flat = style.Flat; }
+            if (style != null) { node.StyleHint = style.StyleHint ?? ""; node.Flat = style.Flat; node.Anchor = style.Anchor ?? ""; }
 
             var layout = element.GetComponent<V12.Components.UI.LayoutElementComponent>();
             if (layout != null)
@@ -1321,8 +1321,12 @@ namespace V12.Core
             //     UserSpace.Update(deltaTime);
             // }
 
-            // Always update the persistent world (Player, camera, etc.)
+            // Always update the persistent world (Player, camera, etc.), then the
+            // selected world so its element components (scripts, Contract components,
+            // ...) tick too. Guard against the two aliasing the same world.
             PersistentWorld.Update(deltaTime);
+            if (SelectedWorld != null && !ReferenceEquals(SelectedWorld, PersistentWorld))
+                SelectedWorld.Update(deltaTime);
 
             // Let the dashboard update first (if present) so UI values are
             // refreshed from the current world state before services run.
