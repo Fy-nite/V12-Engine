@@ -640,6 +640,16 @@ namespace V12.Core
                 node.Spacing = hlayout.Spacing; node.Padding = hlayout.Padding;
                 return node;
             }
+            if (element.GetComponent<V12.Components.UI.ViewportComponent>() is { } viewport)
+            {
+                // Placeholder pass: viewports are captured so backends can reserve layout
+                // space and draw their own chrome (background color) until a renderer
+                // implements the full render-target-to-sprite pass.
+                node.Kind = UIWidgetKind.Viewport;
+                node.Color = viewport.BackgroundColor;
+                node.Bool = viewport.RenderWorld;
+                return node;
+            }
 
             return null;
         }

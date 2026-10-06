@@ -20,6 +20,7 @@ namespace V12.Core.Rendering
         Rect,
         HLayout,
         VLayout,
+        Viewport,
         Unknown,
     }
 
