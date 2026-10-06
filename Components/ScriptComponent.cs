@@ -62,6 +62,7 @@ namespace V12.Components
                 }
 
                 string code;
+                string scriptName = Source ?? "inline";
                 if (!string.IsNullOrEmpty(ScriptText))
                     code = ScriptText;
                 else if (!string.IsNullOrEmpty(Source))
@@ -72,7 +73,16 @@ namespace V12.Components
                     string? resolvedPath = resolver?.Resolve(Source);
                     if (string.IsNullOrEmpty(resolvedPath)) resolvedPath = Source;
                     if (System.IO.File.Exists(resolvedPath))
-                        code = System.IO.File.ReadAllText(resolvedPath);
+                    {
+                        // Compiled modules (.orbt/.oil) are read by the script
+                        // runtime itself; only text sources are read here.
+                        string ext = System.IO.Path.GetExtension(resolvedPath);
+                        bool compiled = ext.Equals(".orbt", StringComparison.OrdinalIgnoreCase)
+                            || ext.Equals(".oil", StringComparison.OrdinalIgnoreCase)
+                            || ext.Equals(".oir", StringComparison.OrdinalIgnoreCase);
+                        code = compiled ? "" : System.IO.File.ReadAllText(resolvedPath);
+                        if (compiled) scriptName = resolvedPath;
+                    }
                     else
                     {
                         Console.WriteLine($"[ScriptComponent] Script not found: {Source} (resolved: {resolvedPath})");
@@ -81,7 +91,7 @@ namespace V12.Components
                 }
                 else return;
 
-                Runtime.Load(code, Source ?? "inline");
+                Runtime.Load(code, scriptName);
                 Runtime.Call("on_init");
                 IsInitialized = true;
             }
