@@ -250,21 +250,22 @@ public interface IScriptRuntime : IDisposable
     void Load(string source, string scriptName);
     void Call(string functionName, params object[] args);
     void SetGlobal(string name, object value);
-    object GetGlobal(string name);
+    object? GetGlobal(string name);
     event Action<string> OnPrint;
     bool SupportsHotReload { get; }
 }
 
-// In ScriptRuntimeRegistry (new, static)
-public static class ScriptRuntimeRegistry
+// In ScriptRuntimeRegistry (registered as a service on GameRoot)
+public class ScriptRuntimeRegistry
 {
-    private static readonly Dictionary<string, Func<IScriptRuntime>> _factories = new(StringComparer.OrdinalIgnoreCase);
-
-    public static void Register(string extension, Func<IScriptRuntime> factory);
-    public static IScriptRuntime? CreateForExtension(string extension);
+    public ScriptRuntimeRegistry Register(Func<IScriptRuntime> factory);
+    public IScriptRuntime? CreateForExtension(string extension);
+    public IScriptRuntime CreateForScript(string scriptPath);
 }
 
 // In ScriptComponent.Initialize()
+var registry = GameRoot.Instance?.Registry.Get<ScriptRuntimeRegistry>();
+Runtime = registry?.CreateForScript(Source) ?? new MoonSharpScriptRuntime();
 string ext = Path.GetExtension(Source);
 Runtime = ScriptRuntimeRegistry.CreateForExtension(ext)
     ?? throw new InvalidOperationException($"No script runtime registered for '{ext}'");

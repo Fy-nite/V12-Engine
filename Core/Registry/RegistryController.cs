@@ -66,6 +66,23 @@ namespace V12.Core.Registry
             return Register(new RegistryService(name, instance));
         }
 
+        /// <summary>
+        /// Register a named service, replacing any existing service with the
+        /// same name. Returns true when a previous registration was replaced,
+        /// false when the name was free.
+        /// </summary>
+        public bool RegisterOrReplace(string name, object instance)
+        {
+            var existing = RegisteredServices.FirstOrDefault(x => x.name == name);
+            if (existing != null)
+            {
+                existing.ServiceInstance = instance;
+                return true;
+            }
+            RegisteredServices.Add(new RegistryService(name, instance));
+            return false;
+        }
+
         public bool Unregister(RegistryService service)
         {
             if (RegisteredServices.Where(x => x.name == service.name).FirstOrDefault() == null) return false;

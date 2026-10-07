@@ -16,6 +16,13 @@ V12 separates **UI data** from **UI rendering**:
 
 Components **describe** UI — they do not draw anything themselves. The host walks the V12 element tree, finds elements bearing UI components, and renders them via whatever backend it uses (Paper, ImGui, etc.).
 
+> **Update — the renderer no longer has to walk the tree.** V12 now captures the UI
+> (`GameRoot.CaptureUI()` → `UIFrame`) and **pushes** it to a registered `IUIRenderer`
+> (`ApplyUI`) each dirty frame, keyed by element id (`UINode.Id`). The host reconciles its own
+> retained controls from that snapshot; walking the live tree (the model described below)
+> remains an option, not a requirement. See `Core/Interfaces/Renderer/IUIRenderer.cs` and
+> `Core/Rendering/UIFrame.cs`.
+
 ---
 
 ## The One UI Primitive: `CanvasComponent`

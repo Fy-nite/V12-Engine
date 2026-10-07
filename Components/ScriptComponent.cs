@@ -41,6 +41,11 @@ namespace V12.Components
                 Runtime = scriptRegistry?.CreateForScript(Source) ?? new MoonSharpScriptRuntime();
                 Runtime.OnPrint += msg => Console.WriteLine($"[Script:{Name}] {msg}");
 
+                // Runtimes that need the owning element (e.g. Contract .ct scripts)
+                // receive it up front so hooks like on_init/on_update can address it.
+                if (Owner != null && Runtime is IScriptOwnerAwareRuntime ownerAware)
+                    ownerAware.SetOwner(Owner);
+
                 // Expose owner element to Lua
                 if (Owner != null)
                 {
@@ -58,13 +63,27 @@ namespace V12.Components
                 }
 
                 string code;
+                string scriptName = Source ?? "inline";
                 if (!string.IsNullOrEmpty(ScriptText))
                     code = ScriptText;
                 else if (!string.IsNullOrEmpty(Source))
                 {
-                    string resolvedPath = resolver?.Resolve(Source);
-                    if (resolvedPath != null && System.IO.File.Exists(resolvedPath))
-                        code = System.IO.File.ReadAllText(resolvedPath);
+                    // Fall back to the literal Source path when there is no asset
+                    // resolver (or it can't place the file) — a plain relative or
+                    // absolute path still loads.
+                    string? resolvedPath = resolver?.Resolve(Source);
+                    if (string.IsNullOrEmpty(resolvedPath)) resolvedPath = Source;
+                    if (System.IO.File.Exists(resolvedPath))
+                    {
+                        // Compiled modules (.orbt/.oil) are read by the script
+                        // runtime itself; only text sources are read here.
+                        string ext = System.IO.Path.GetExtension(resolvedPath);
+                        bool compiled = ext.Equals(".orbt", StringComparison.OrdinalIgnoreCase)
+                            || ext.Equals(".oil", StringComparison.OrdinalIgnoreCase)
+                            || ext.Equals(".oir", StringComparison.OrdinalIgnoreCase);
+                        code = compiled ? "" : System.IO.File.ReadAllText(resolvedPath);
+                        if (compiled) scriptName = resolvedPath;
+                    }
                     else
                     {
                         Console.WriteLine($"[ScriptComponent] Script not found: {Source} (resolved: {resolvedPath})");
@@ -73,7 +92,7 @@ namespace V12.Components
                 }
                 else return;
 
-                Runtime.Load(code, Source ?? "inline");
+                Runtime.Load(code, scriptName);
                 Runtime.Call("on_init");
                 IsInitialized = true;
             }

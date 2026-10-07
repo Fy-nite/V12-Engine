@@ -36,10 +36,23 @@ namespace V12.WorldML
             {
                 var doc = new XmlDocument();
                 doc.Load(file);
-                var root = doc.DocumentElement;
-                var name = root?.Attributes?["name"]?.Value ?? Path.GetFileNameWithoutExtension(file);
-                _templates[name] = doc;
+                AddDocument(doc, Path.GetFileNameWithoutExtension(file));
             }
+        }
+
+        /// <summary>
+        /// Register a template document under its <c>name</c> attribute, or the
+        /// given fallback name when the root element has no name attribute.
+        /// Used by loaders that read templates from non-file sources (e.g. pak
+        /// archives) without extracting to disk.
+        /// </summary>
+        public void AddDocument(XmlDocument doc, string? fallbackName)
+        {
+            if (doc == null) return;
+            var root = doc.DocumentElement;
+            var name = root?.Attributes?["name"]?.Value ?? fallbackName;
+            if (string.IsNullOrEmpty(name)) return;
+            _templates[name] = doc;
         }
 
         public XmlDocument GetTemplate(string name)
