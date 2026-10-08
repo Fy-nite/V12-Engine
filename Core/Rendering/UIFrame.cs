@@ -21,6 +21,9 @@ namespace V12.Core.Rendering
         HLayout,
         VLayout,
         Viewport,
+        Splitter,
+        Tree,
+        Scroll,
         Unknown,
     }
 
@@ -54,6 +57,13 @@ namespace V12.Core.Rendering
 
         public float MinWidth = -1f, PreferredWidth = -1f, FlexibleWidth;
         public float MinHeight = -1f, PreferredHeight = -1f, FlexibleHeight;
+
+        /// <summary>VLayout/HLayout/Splitter Expand flag: this container absorbs leftover
+        /// space along the axis its parent lays out.</summary>
+        public bool Expand;
+
+        /// <summary>Splitter orientation: true = Vertical (top-to-bottom). false = Horizontal.</summary>
+        public bool Vertical;
 
         // ── Content ─────────────────────────────────────────────────────────
         public string Text = "";

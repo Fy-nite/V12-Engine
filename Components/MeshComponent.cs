@@ -25,7 +25,8 @@ namespace V12.Components
     /// <summary>
     /// Controls the rendered shape of an element.
     /// Width / Height / Depth map to the three axes of the primitive.
-    /// For Sphere / Capsule, Width is used as the radius.
+    /// For Sphere and Capsule they are diameters (radius = Width/2); the
+    /// capsule's total height is Height, caps are spherical.
     /// </summary>
     public class MeshComponent : ComponentBase, IMeshRenderable
     {
@@ -227,6 +228,8 @@ namespace V12.Components
                 case MeshShape.Sphere:
                     // StereoKit handles sphere generation better, but we provide points for generic renderers
                     return GenerateSpherePoints(16, 8);
+                case MeshShape.Capsule:
+                    return GenerateCapsulePoints(6, 16);
                 case MeshShape.Custom:
                     // Custom shape without vertex data — return empty so nothing renders
                     // rather than silently falling back to a box.
@@ -246,6 +249,8 @@ namespace V12.Components
                     return GeneratePlaneIndices();
                 case MeshShape.Sphere:
                     return GenerateSphereIndices(16, 8);
+                case MeshShape.Capsule:
+                    return GenerateCapsuleIndices(6, 16);
                 case MeshShape.Custom:
                     // Custom shape without index data — return empty so nothing renders
                     // rather than silently falling back to box indices.
@@ -323,6 +328,50 @@ namespace V12.Components
             }
             return indices.ToArray();
         }
+
+        /// <summary>Unit-space capsule: top cap rows (pole→equator), then
+        /// bottom cap rows (equator→pole) — the band between the two equator
+        /// rows is the cylinder wall, so the sphere strip indexing applies to
+        /// the whole thing. The cap-radius/height ratio (rho) is baked into the
+        /// unit Y coordinates because the renderer scales the three axes
+        /// independently (Width×Height×Depth); a plain unit sphere stretched
+        /// vertically would grow ellipsoid caps instead of keeping them round.
+        /// rho is derived from the CURRENT dims and the cache is invalidated
+        /// when they change, so the shape stays exact.</summary>
+        private double[] GenerateCapsulePoints(int capStacks, int slices)
+        {
+            double r = Math.Min(_width, _depth) * 0.5;
+            double h = Math.Max(_height, 1e-4);
+            if (r > h * 0.5) r = h * 0.5;
+            double rho = r / h;
+
+            var points = new System.Collections.Generic.List<double>();
+            for (int i = 0; i <= capStacks; i++)
+            {
+                double phi = (Math.PI * 0.5) * i / capStacks;
+                AddCapsuleRing(points, 0.5 - rho + rho * Math.Cos(phi), 0.5 * Math.Sin(phi), slices);
+            }
+            for (int i = 0; i <= capStacks; i++)
+            {
+                double phi = (Math.PI * 0.5) + (Math.PI * 0.5) * i / capStacks;
+                AddCapsuleRing(points, -0.5 + rho + rho * Math.Cos(phi), 0.5 * Math.Sin(phi), slices);
+            }
+            return points.ToArray();
+        }
+
+        private static void AddCapsuleRing(System.Collections.Generic.List<double> points, double y, double radial, int slices)
+        {
+            for (int j = 0; j <= slices; j++)
+            {
+                double theta = 2 * Math.PI * j / slices;
+                points.Add(radial * Math.Cos(theta));
+                points.Add(y);
+                points.Add(radial * Math.Sin(theta));
+            }
+        }
+
+        private uint[] GenerateCapsuleIndices(int capStacks, int slices)
+            => GenerateSphereIndices(capStacks * 2 + 1, slices);
 
         public override IWorldElement BuildUI()
         {

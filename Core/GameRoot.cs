@@ -430,15 +430,15 @@ namespace V12.Core
                     if (renderer != null)
                     {
                         var packet = new RenderPacket();
-                        List<IRenderable> renderables = GetAllRenderables();
-                        foreach (var r in renderables)
+                        foreach (var (r, viewportId) in GetAllRenderablesWithViewports())
                         {
                             if (r is IMeshRenderable mesh)
                             {
                                 packet.Meshes.Add(new MeshDraw
                                 {
                                     Transform = mesh.Transform,
-                                    Mesh = mesh
+                                    Mesh = mesh,
+                                    ViewportId = viewportId
                                 });
                             }
                         }
@@ -628,26 +628,62 @@ namespace V12.Core
                 node.CornerRadius = rect.CornerRadius;
                 return node;
             }
+            // Viewport must win over plain layout components: an element like an editor's
+            // GameView can carry BOTH a VLayoutComponent (panel sizing) and a
+            // ViewportComponent (3D scene). Treating it as a layout would drop the
+            // viewport, so check it first and ALSO lift its layout Expand/spacing into
+            // the node so the renderer can size it correctly.
+            if (element.GetComponent<V12.Components.UI.ViewportComponent>() is { } viewport)
+            {
+                node.Kind = UIWidgetKind.Viewport;
+                node.Color = viewport.BackgroundColor;
+                node.Bool = viewport.RenderWorld;
+                if (element.GetComponent<V12.Components.UI.VLayoutComponent>() is { } v)
+                { node.Spacing = v.Spacing; node.Padding = v.Padding; node.Expand = v.Expand; }
+                else if (element.GetComponent<V12.Components.UI.HLayoutComponent>() is { } h)
+                { node.Spacing = h.Spacing; node.Padding = h.Padding; node.Expand = h.Expand; }
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.TreeComponent>() is not null)
+            {
+                node.Kind = UIWidgetKind.Tree;
+                if (element.GetComponent<V12.Components.UI.VLayoutComponent>() is { } tv)
+                { node.Spacing = tv.Spacing; node.Padding = tv.Padding; node.Expand = tv.Expand; }
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.SplitterComponent>() is { } splitter)
+            {
+                node.Kind = UIWidgetKind.Splitter;
+                node.Spacing = splitter.Spacing;
+                node.Vertical = splitter.Orientation == V12.Components.UI.SplitterOrientation.Vertical;
+                node.Expand = splitter.Expand;
+                return node;
+            }
+            // A scroll region wraps the sibling layout (Scroll+VLayout is the
+            // editor's panel pattern): it must win over the plain VLayout check
+            // below, or renderers lay the overflow out with no clipping.
+            if (element.GetComponent<V12.Components.UI.ScrollComponent>() is { } scroll)
+            {
+                node.Kind = UIWidgetKind.Scroll;
+                node.Vertical = scroll.Vertical;
+                if (element.GetComponent<V12.Components.UI.VLayoutComponent>() is { } sv)
+                { node.Spacing = sv.Spacing; node.Padding = sv.Padding; node.Expand = sv.Expand; }
+                else if (element.GetComponent<V12.Components.UI.HLayoutComponent>() is { } sh)
+                { node.Spacing = sh.Spacing; node.Padding = sh.Padding; node.Expand = sh.Expand; }
+                return node;
+            }
             if (element.GetComponent<V12.Components.UI.VLayoutComponent>() is { } vlayout)
             {
                 node.Kind = UIWidgetKind.VLayout;
                 node.Spacing = vlayout.Spacing; node.Padding = vlayout.Padding;
+                node.Expand = vlayout.Expand;
                 return node;
             }
             if (element.GetComponent<V12.Components.UI.HLayoutComponent>() is { } hlayout)
             {
                 node.Kind = UIWidgetKind.HLayout;
                 node.Spacing = hlayout.Spacing; node.Padding = hlayout.Padding;
-                return node;
-            }
-            if (element.GetComponent<V12.Components.UI.ViewportComponent>() is { } viewport)
-            {
-                // Placeholder pass: viewports are captured so backends can reserve layout
-                // space and draw their own chrome (background color) until a renderer
-                // implements the full render-target-to-sprite pass.
-                node.Kind = UIWidgetKind.Viewport;
-                node.Color = viewport.BackgroundColor;
-                node.Bool = viewport.RenderWorld;
+                node.Expand = hlayout.Expand;
                 return node;
             }
 
@@ -714,6 +750,94 @@ namespace V12.Core
             {
                 foreach (var element in SelectedWorld.Root.ToArray())
                     CollectRenderables(element);
+            }
+
+            return renderables;
+        }
+
+        /// <summary>
+        /// Same as <see cref="GetAllRenderables"/> but also yields the viewport id
+        /// that claimed each renderable (0 = main screen). Mirrors the capture
+        /// rules in <see cref="CaptureFrame"/>: a ViewportComponent-bearing
+        /// element claims its whole subtree, and a RenderWorld=true viewport
+        /// claims every mesh in the world.
+        /// </summary>
+        public List<(IRenderable Renderable, long ViewportId)> GetAllRenderablesWithViewports()
+        {
+            var renderables = new List<(IRenderable, long)>();
+
+            // First pass: find the RenderWorld=true viewport claim (first match wins).
+            long worldViewportId = 0;
+            foreach (var world in ActiveWorlds)
+            {
+                foreach (var rootEl in world.Root)
+                {
+                    var found = FindWorldViewportId(rootEl);
+                    if (found != 0) { worldViewportId = found; break; }
+                }
+                if (worldViewportId != 0) break;
+            }
+
+            void CollectRenderables(IWorldElement element, long viewportId)
+            {
+                if (element == null)
+                    return;
+
+                // An element bearing a ViewportComponent claims its whole subtree.
+                if (element.GetComponent<V12.Components.UI.ViewportComponent>() != null)
+                    viewportId = element.Id;
+
+                if (element.Components != null)
+                {
+                    // Only add TransformComponent as IRenderable if the element
+                    // has no other IRenderable (avoiding duplicate nodes).
+                    bool hasOtherRenderable = false;
+                    bool hasMeshRenderer = false;
+                    TransformComponent transformComp = null;
+                    foreach (var component in element.Components.ToArray())
+                    {
+                        if (component is TransformComponent tc)
+                            transformComp = tc;
+                        else if (component is V12.Components.Renderables.MeshRenderer)
+                        {
+                            hasMeshRenderer = true;
+                            hasOtherRenderable = true;
+                        }
+                        else if (component is IRenderable)
+                            hasOtherRenderable = true;
+                    }
+
+                    if (transformComp != null && !hasOtherRenderable)
+                        renderables.Add((transformComp, viewportId));
+
+                    foreach (var component in element.Components.ToArray())
+                    {
+                        if (component is IRenderable r && !(component is TransformComponent))
+                        {
+                            // Skip bare MeshComponent when a MeshRenderer wrapper exists
+                            if (component is V12.Components.MeshComponent && hasMeshRenderer)
+                                continue;
+                            renderables.Add((r, viewportId));
+                        }
+                    }
+                }
+
+                if (element.Children != null)
+                {
+                    foreach (var child in element.Children.ToArray())
+                        CollectRenderables(child, viewportId);
+                }
+            }
+
+            // Collect from persistent world first
+            foreach (var element in PersistentWorld.Root.ToArray())
+                CollectRenderables(element, worldViewportId);
+
+            // Then from selected world
+            if (SelectedWorld != null)
+            {
+                foreach (var element in SelectedWorld.Root.ToArray())
+                    CollectRenderables(element, worldViewportId);
             }
 
             return renderables;
