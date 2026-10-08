@@ -37,28 +37,9 @@ namespace V12.Core.UI
         private const float MaxDist = 200f;
         private const float DefaultDist = 7f;
 
-        /// <summary>Screen-space grab radius for an axis, in viewport pixels.</summary>
-        private const float GrabThresholdPx = 8f;
-
-        /// <summary>Gizmo shaft length as a fraction of the viewport half-height
-        /// at the target's distance — constant on screen while dollying.</summary>
-        private const float GizmoScreenFraction = 0.30f;
-
-        /// <summary>Segments per rotate-mode ring (both draw and grab test).</summary>
-        private const int RingSegments = 48;
-
-        private static readonly Vector3[] AxisDirs =
-        {
-            Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ,
-        };
-
-        // Same axis palette nova's SceneGizmo uses (both hosts look identical).
-        private static readonly DrawingColor[] AxisColors =
-        {
-            DrawingColor.FromArgb(242, 71, 71, 242),
-            DrawingColor.FromArgb(242, 89, 217, 102),
-            DrawingColor.FromArgb(242, 89, 153, 255),
-        };
+        /// <summary>Screen-space grab radius for a gizmo handle, in viewport
+        /// pixels (shared with every host via the model).</summary>
+        private const float GrabThresholdPx = TransformGizmo.GrabThresholdPx;
 
         private readonly IViewportInteractionHost _host;
         private readonly IEditorInputSource _input;
@@ -101,6 +82,7 @@ namespace V12.Core.UI
 
         private readonly List<ViewportPickMesh> _pickBuffer = new();
         private readonly List<ViewportLine> _overlayScratch = new();
+        private readonly List<TransformGizmo.Segment> _gizmoScratch = new();
 
         public ViewportInteractionService(GameRoot root, IViewportInteractionHost host, IEditorInputSource input)
         {
@@ -274,7 +256,7 @@ namespace V12.Core.UI
                 // Grab an axis arrow first — a gizmo drag consumes the press.
                 if (_gizmoTarget != null && TryGrabAxis(vpId, s.MousePosition))
                 {
-                    Console.WriteLine($"[Viewport] grabbed axis {_dragAxis} of '{_gizmoTarget.Name}' vp={vpId}");
+                    Console.WriteLine($"[Viewport] grabbed handle {_dragAxis} of '{_gizmoTarget.Name}' vp={vpId}");
                 }
                 else
                 {
@@ -433,56 +415,29 @@ namespace V12.Core.UI
 
             var w = _gizmoTarget.WorldTransform;
             var origin = new Vector3(w.M41, w.M42, w.M43);
-            float size = GizmoSize(invView.Translation, origin, proj);
+            float size = TransformGizmo.ScreenSize(invView.Translation, origin, proj);
 
-            int bestAxis = -1;
+            // Screen-space test against the canonical model's own segments —
+            // what the overlay draws is exactly what the hand grabs.
+            TransformGizmo.Build(_mode, origin, size, CameraForward(invView), _gizmoScratch);
+
+            int bestHandle = -1;
             float bestDist = GrabThresholdPx;
-
-            if (_mode == GizmoMode.Rotate)
+            foreach (var seg in _gizmoScratch)
             {
-                // Distance to each projected ring polyline (closed loop).
-                Span<Vector2> pts = stackalloc Vector2[RingSegments + 1];
-                for (int a = 0; a < 3; a++)
-                {
-                    bool ok = true;
-                    for (int i = 0; i <= RingSegments; i++)
-                    {
-                        if (_host.TryProjectToScreen(vpId, RingPoint(origin, a, size, (float)i / RingSegments), out pts[i])) continue;
-                        ok = false;
-                        break;
-                    }
-                    if (!ok) continue;
-                    for (int i = 0; i < RingSegments; i++)
-                    {
-                        float d = DistToSegment(mouse, pts[i], pts[i + 1]);
-                        if (d >= bestDist) continue;
-                        bestDist = d;
-                        bestAxis = a;
-                    }
-                }
-            }
-            else
-            {
-                // Translate / scale: the shaft from origin to the arrow tip.
-                for (int a = 0; a < 3; a++)
-                {
-                    var tip = origin + AxisDirs[a] * size;
-                    if (!_host.TryProjectToScreen(vpId, origin, out var pa)) continue;
-                    if (!_host.TryProjectToScreen(vpId, tip, out var pb)) continue;
-                    float d = DistToSegment(mouse, pa, pb);
-                    if (d < bestDist)
-                    {
-                        bestDist = d;
-                        bestAxis = a;
-                    }
-                }
+                if (!_host.TryProjectToScreen(vpId, seg.A, out var pa)) continue;
+                if (!_host.TryProjectToScreen(vpId, seg.B, out var pb)) continue;
+                float d = DistToSegment(mouse, pa, pb);
+                if (d >= bestDist) continue;
+                bestDist = d;
+                bestHandle = seg.Handle;
             }
 
-            if (bestAxis < 0) return false;
+            if (bestHandle < 0) return false;
             if (!_host.TryUnprojectRay(vpId, mouse, out var ro, out var rd)) return false;
 
             // Pin the drag to this viewport and this camera pose relationship.
-            _dragAxis = bestAxis;
+            _dragAxis = bestHandle;
             _dragViewportId = vpId;
             _dragStartPos = origin;
             _dragStartWorld = w;
@@ -491,7 +446,7 @@ namespace V12.Core.UI
             {
                 // Rotation works in the plane through the pivot whose normal is
                 // the grabbed axis — not the camera-facing drag plane.
-                _dragStartHit = RayAxisPlaneHit(origin, AxisDirs[bestAxis], ro, rd);
+                _dragStartHit = RayAxisPlaneHit(origin, TransformGizmo.AxisDirs[bestHandle], ro, rd);
             }
             else
             {
@@ -524,7 +479,33 @@ namespace V12.Core.UI
             if (!_host.TryGetViewportCamera(_dragViewportId, out var view, out _)) return;
             if (!Matrix4x4.Invert(view, out var invView)) return;
 
-            var axis = AxisDirs[_dragAxis];
+            var camFwd = CameraForward(invView);
+
+            if (_mode == GizmoMode.Scale && _dragAxis == TransformGizmo.CenterHandle)
+            {
+                // Centre cube → uniform scale. Anchor-style ratio along the
+                // look direction: factor = current/start signed distance from
+                // the pivot, so it tracks the mouse naturally (nova parity).
+                var hit = RayAxisHit(ro, rd, _dragStartPos, camFwd);
+                float d0 = Vector3.Dot(_dragStartHit - _dragStartPos, camFwd);
+                float d1 = Vector3.Dot(hit - _dragStartPos, camFwd);
+                float factor = MathF.Abs(d0) < 1e-4f ? 1f : d1 / d0;
+                factor = Math.Clamp(factor, 0.05f, 50f);
+
+                var scCenter = _gizmoTarget.GetComponent<ScaleComponent>();
+                if (scCenter == null)
+                {
+                    scCenter = new ScaleComponent();
+                    _gizmoTarget.AddComponent(scCenter);
+                }
+                scCenter.ScaleX = _dragStartScale.X * factor;
+                scCenter.ScaleY = _dragStartScale.Y * factor;
+                scCenter.ScaleZ = _dragStartScale.Z * factor;
+                return;
+            }
+
+            if (_dragAxis > 2) return;
+            var axis = TransformGizmo.AxisDirs[_dragAxis];
 
             if (_mode == GizmoMode.Rotate)
             {
@@ -550,7 +531,6 @@ namespace V12.Core.UI
             }
             else if (_mode == GizmoMode.Scale)
             {
-                var camFwd = CameraForward(invView);
                 var hit = RayAxisHit(ro, rd, _dragStartPos, camFwd);
                 float delta = Vector3.Dot(hit - _dragStartHit, axis);
                 float factor = MathF.Max(0.01f, 1f + delta / _dragRefLen);
@@ -572,7 +552,6 @@ namespace V12.Core.UI
             }
             else
             {
-                var camFwd = CameraForward(invView);
                 var hit = RayAxisHit(ro, rd, _dragStartPos, camFwd);
                 float delta = Vector3.Dot(hit - _dragStartHit, axis);
                 SetElementWorldPosition(_gizmoTarget, _dragStartPos + axis * delta);
@@ -648,8 +627,9 @@ namespace V12.Core.UI
         // ── Gizmo: overlay geometry ───────────────────────────────────────
 
         /// <summary>Called by the host per viewport after its meshes are drawn.
-        /// Returns the axis lines + arrowheads as world-space segments sized to
-        /// stay constant on screen while dollying.</summary>
+        /// Projects the canonical <see cref="TransformGizmo"/> model to
+        /// world-space segments sized to stay constant on screen while
+        /// dollying.</summary>
         private ViewportLine[]? BuildOverlay(long viewportId, Matrix4x4 view, Matrix4x4 proj)
         {
             var target = _gizmoTarget;
@@ -658,96 +638,17 @@ namespace V12.Core.UI
 
             var w = target.WorldTransform;
             var origin = new Vector3(w.M41, w.M42, w.M43);
-            float size = GizmoSize(invView.Translation, origin, proj);
+            float size = TransformGizmo.ScreenSize(invView.Translation, origin, proj);
             if (size <= 0f) return null;
 
-            var fwd = CameraForward(invView);
-            float headLen = size * 0.18f;
-            float headHalf = headLen * 0.5f;
+            TransformGizmo.Build(_mode, origin, size, CameraForward(invView), _gizmoScratch);
+            if (_gizmoScratch.Count == 0) return null;
 
             var lines = _overlayScratch;
             lines.Clear();
-
-            if (_mode == GizmoMode.Rotate)
-            {
-                // One ring per axis, in the plane ⟂ that axis; the grab test
-                // (TryGrabAxis) measures against these same segments.
-                for (int a = 0; a < 3; a++)
-                {
-                    var col = AxisColors[a];
-                    var prev = RingPoint(origin, a, size, 0f);
-                    for (int i = 1; i <= RingSegments; i++)
-                    {
-                        var p = RingPoint(origin, a, size, (float)i / RingSegments);
-                        lines.Add(new ViewportLine(prev, p, col));
-                        prev = p;
-                    }
-                }
-            }
-            else
-            {
-                for (int a = 0; a < 3; a++)
-                {
-                    var axis = AxisDirs[a];
-                    var tip = origin + axis * size;
-                    var col = AxisColors[a];
-
-                    lines.Add(new ViewportLine(origin, tip, col));
-
-                    if (_mode == GizmoMode.Scale)
-                    {
-                        // Small wire cube at the tip as the scale handle.
-                        float h = size * 0.05f;
-                        Span<Vector3> c = stackalloc Vector3[8];
-                        for (int i = 0; i < 8; i++)
-                        {
-                            c[i] = tip + new Vector3(
-                                (i & 1) == 0 ? -h : h,
-                                (i & 2) == 0 ? -h : h,
-                                (i & 4) == 0 ? -h : h);
-                        }
-                        ReadOnlySpan<int> E = stackalloc int[] { 0, 1, 2, 3, 0, 2, 1, 3, 4, 5, 6, 7, 4, 6, 5, 7, 0, 4, 1, 5, 2, 6, 3, 7 };
-                        for (int i = 0; i < E.Length; i += 2)
-                            lines.Add(new ViewportLine(c[E[i]], c[E[i + 1]], col));
-                    }
-                    else
-                    {
-                        // Arrowhead: two barbs from the tip, splayed in the
-                        // plane perpendicular to the axis, oriented by the
-                        // camera so the V reads on screen from any angle.
-                        var perp = Vector3.Cross(axis, fwd);
-                        if (perp.LengthSquared() < 1e-8f)
-                            perp = Vector3.Cross(axis, MathF.Abs(axis.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX);
-                        perp = Vector3.Normalize(perp);
-
-                        var back = tip - axis * headLen;
-                        lines.Add(new ViewportLine(tip, back + perp * headHalf, col));
-                        lines.Add(new ViewportLine(tip, back - perp * headHalf, col));
-                    }
-                }
-            }
-
-            return lines.Count > 0 ? lines.ToArray() : null;
-        }
-
-        /// <summary>Point on the rotate ring around <paramref name="axis"/>
-        /// (0=X, 1=Y, 2=Z) at parameter t ∈ [0,1] (t=1 closes the circle).</summary>
-        private static Vector3 RingPoint(Vector3 origin, int axis, float radius, float t)
-        {
-            float ang = t * MathF.PI * 2f;
-            var u = AxisDirs[(axis + 1) % 3];
-            var v = AxisDirs[(axis + 2) % 3];
-            return origin + radius * (MathF.Cos(ang) * u + MathF.Sin(ang) * v);
-        }
-
-        /// <summary>Shaft length so the gizmo keeps a constant fraction of the
-        /// viewport height at the target's distance (proj.M22 = cot(fov/2)).</summary>
-        private static float GizmoSize(Vector3 camPos, Vector3 origin, Matrix4x4 proj)
-        {
-            float dist = Vector3.Distance(camPos, origin);
-            float cotHalfFov = MathF.Abs(proj.M22) < 1e-6f ? 1f : MathF.Abs(proj.M22);
-            float halfHeight = dist / cotHalfFov;
-            return MathF.Max(0.05f, halfHeight * GizmoScreenFraction);
+            foreach (var seg in _gizmoScratch)
+                lines.Add(new ViewportLine(seg.A, seg.B, seg.Color));
+            return lines.ToArray();
         }
 
         /// <summary>2D distance from a point to a segment (viewport pixels).</summary>
