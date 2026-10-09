@@ -132,21 +132,13 @@ namespace V12.Core
         {
             get
             {
-                var tc = GetComponent<TransformComponent>();
-                if (tc != null)
-                {
-                    var local = tc.Transform;
-                    if (Parent != null)
-                        return local * Parent.WorldTransform;
-                    return local;
-                }
-                var lt = LocalTransform;
-                var local2 = Matrix4x4.CreateScale(lt.Scale)
-                          * Matrix4x4.CreateFromQuaternion(lt.Rotation)
-                          * Matrix4x4.CreateTranslation(lt.Position);
+                // Single definition of local placement lives in
+                // ElementPlacement (TransformComponent when present, else
+                // LocalTransform × ScaleComponent); ancestors compose here.
+                var local = ElementPlacement.ElementLocalMatrix(this);
                 if (Parent != null)
-                    return local2 * Parent.WorldTransform;
-                return local2;
+                    return local * Parent.WorldTransform;
+                return local;
             }
         }
 

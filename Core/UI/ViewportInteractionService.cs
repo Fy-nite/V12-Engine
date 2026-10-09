@@ -598,6 +598,17 @@ namespace V12.Core.UI
                 local = world * invParent;
             }
             if (!Matrix4x4.Decompose(local, out var s, out var q, out var p)) return;
+            // The world folds ScaleComponent (see ElementPlacement): divide it
+            // back out so a rotate gesture round-trips scale exactly instead
+            // of double-applying it.
+            var sc = el.GetComponent<ScaleComponent>();
+            if (sc != null)
+            {
+                s = new Vector3(
+                    MathF.Abs(sc.ScaleX) > 1e-6f ? s.X / sc.ScaleX : s.X,
+                    MathF.Abs(sc.ScaleY) > 1e-6f ? s.Y / sc.ScaleY : s.Y,
+                    MathF.Abs(sc.ScaleZ) > 1e-6f ? s.Z / sc.ScaleZ : s.Z);
+            }
             el.LocalTransform = new TRS { Position = p, Rotation = q, Scale = s };
         }
 

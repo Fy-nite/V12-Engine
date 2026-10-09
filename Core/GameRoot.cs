@@ -971,17 +971,9 @@ namespace V12.Core
                     rs.Transform = element.WorldTransform;
                     rs.IsWorldLocked = renderable is ITransformRenderable itr && itr.IsWorldLocked;
 
-                    // Local transform (for hierarchy-based renderers)
-                    var tc = element.GetComponent<TransformComponent>();
-                    if (tc != null)
-                        rs.LocalTransform = tc.Transform;
-                    else
-                    {
-                        var lt = element.LocalTransform;
-                        rs.LocalTransform = System.Numerics.Matrix4x4.CreateScale(lt.Scale)
-                                          * System.Numerics.Matrix4x4.CreateFromQuaternion(lt.Rotation)
-                                          * System.Numerics.Matrix4x4.CreateTranslation(lt.Position);
-                    }
+                    // Local transform (for hierarchy-based renderers): single
+                    // definition in ElementPlacement (folds ScaleComponent).
+                    rs.LocalTransform = ElementPlacement.ElementLocalMatrix(element);
                     rs.HasLocalTransform = true;
                     rs.HasCollider = element.GetComponent<V12.Components.ColliderComponent>() != null;
 
