@@ -58,6 +58,8 @@ namespace V12.WorldML
 
         private static void SerializeElement(StringBuilder sb, IWorldElement el, int depth)
         {
+            // Editor-transient subtrees (gizmo handles) are never saved.
+            if (EditorTransientComponent.IsTransient(el)) return;
             var ind = new string('\t', depth);
             sb.Append($"{ind}<Element name=\"{Escape(el.Name ?? "")}\"");
             if (!string.IsNullOrEmpty(el.Description))

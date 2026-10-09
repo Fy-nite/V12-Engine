@@ -1054,27 +1054,35 @@ namespace V12.Core
                             rs.MeshDepth = mc.Depth;
                             rs.MeshPoints = mc.MeshPoints;
                             rs.MeshIndices = mc.Indices;
-
-                            // Capture MaterialComponent if present on the same element
-                            var matComp = element.GetComponent<V12.Components.MaterialComponent>();
-                            if (matComp != null)
-                            {
-                                rs.MatR = matComp.R;
-                                rs.MatG = matComp.G;
-                                rs.MatB = matComp.B;
-                                rs.MatA = matComp.A;
-                                rs.MatMetallic = matComp.Metallic;
-                                rs.MatRoughness = matComp.Roughness;
-                                rs.MatTexturePath = matComp.PrimaryTexture ?? "";
-                                rs.MatUvOffsetX = matComp.Uv1OffsetX;
-                                rs.MatUvOffsetY = matComp.Uv1OffsetY;
-                                rs.MatUvScaleX = matComp.Uv1ScaleX;
-                                rs.MatUvScaleY = matComp.Uv1ScaleY;
-                            }
                         }
                         else
                         {
-                            rs.NodeType = SnapshotNodeType.RawElement;
+                            // Any other IMeshRenderable (BoxMesh, CylinderMesh,
+                            // …): flat triangle soup through the MeshCustom
+                            // path — points carry the dimensions, rs.Transform
+                            // (the element's world matrix) places them.
+                            rs.NodeType = SnapshotNodeType.MeshCustom;
+                            rs.MeshPoints = mesh.MeshPoints;
+                            rs.MeshIndices = mesh.Indices;
+                        }
+
+                        // Capture MaterialComponent if present on the same element
+                        var matComp = element.GetComponent<V12.Components.MaterialComponent>();
+                        if (matComp != null)
+                        {
+                            rs.MatR = matComp.R;
+                            rs.MatG = matComp.G;
+                            rs.MatB = matComp.B;
+                            rs.MatA = matComp.A;
+                            rs.MatUnlit = matComp.Unlit;
+                            rs.MatNoDepth = matComp.NoDepthTest;
+                            rs.MatMetallic = matComp.Metallic;
+                            rs.MatRoughness = matComp.Roughness;
+                            rs.MatTexturePath = matComp.PrimaryTexture ?? "";
+                            rs.MatUvOffsetX = matComp.Uv1OffsetX;
+                            rs.MatUvOffsetY = matComp.Uv1OffsetY;
+                            rs.MatUvScaleX = matComp.Uv1ScaleX;
+                            rs.MatUvScaleY = matComp.Uv1ScaleY;
                         }
                     }
                     // Camera

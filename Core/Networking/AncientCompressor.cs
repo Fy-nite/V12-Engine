@@ -30,6 +30,8 @@ namespace V12.Core.Networking
         public static ElementSyncDTO CompressElement(IWorldElement el)
         {
             if (el == null) return null;
+            // Editor-transient subtrees (gizmo handles) are never synced.
+            if (V12.Components.EditorTransientComponent.IsTransient(el)) return null;
             var esDto = new ElementSyncDTO { Id = el.Id, Name = el.Name, Description = el.Description };
             esDto.Position = el.LocalTransform.Position;
             esDto.Rotation = el.LocalTransform.Rotation;

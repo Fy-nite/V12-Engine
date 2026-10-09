@@ -333,11 +333,16 @@ namespace V12.Core.UI
                     float coneLen = size * TipConeLengthFrac;
                     float coneDia = size * TipConeDiameterFrac;
                     var coneCenter = tip - axis * (coneLen * 0.5f);
+                    // Shaft ends exactly at the cone base: a full-length shaft
+                    // would poke out through the cone flanks near the apex
+                    // (the cone interior is narrower than the shaft there).
+                    float shaftLen = size - coneLen;
+                    var arrowShaftCenter = origin + axis * (shaftLen * 0.5f);
                     into.Add(new GizmoHandleSpec(
                         a, GizmoHandleKind.Arrow, a, GizmoConstraint.Axis, col,
                         new GizmoMeshPlacement(GizmoMeshKind.Cylinder,
-                            shaftCenter, rot,
-                            new Vector3(shaftDia, size, shaftDia)),
+                            arrowShaftCenter, rot,
+                            new Vector3(shaftDia, shaftLen, shaftDia)),
                         new GizmoMeshPlacement(GizmoMeshKind.Cone, coneCenter,
                             rot, new Vector3(coneDia, coneLen, coneDia)),
                         new GizmoPickShape(GizmoPickKind.Capsule, origin, tip,

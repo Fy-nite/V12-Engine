@@ -173,7 +173,7 @@ namespace V12.Components.Renderables
                 // Front
                 0, 1, 2, 0, 2, 3,
                 // Back
-                4, 6, 5, 4, 7, 6,
+                4, 5, 6, 4, 6, 7,
                 // Top
                 8, 9, 10, 8, 10, 11,
                 // Bottom

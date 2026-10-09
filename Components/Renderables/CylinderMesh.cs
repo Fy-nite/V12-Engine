@@ -44,7 +44,10 @@ namespace V12.Components.Renderables
             {
                 if (_transformDirty)
                 {
-                    _transform = Matrix4x4.CreateScale(new Vector3(_scale.X * _radius * 2f, _scale.Y * _height, _scale.Z * _radius * 2f))
+                    // BoxMesh convention: dimensions live in the vertices, the
+                    // transform carries only placement (the renderer multiplies
+                    // Transform × MeshPoints).
+                    _transform = Matrix4x4.CreateScale(_scale)
                         * Matrix4x4.CreateFromQuaternion(_rotation)
                         * Matrix4x4.CreateTranslation(_position);
                     _transformDirty = false;
@@ -81,12 +84,13 @@ namespace V12.Components.Renderables
         {
             var s = (uint)_slices;
             var idx = new System.Collections.Generic.List<uint>(_slices * 12);
+            // Winding is CCW-outward (Godot backface-culls; MonoGame is CullNone).
             uint baseSide = 0;
-            for (uint i = 0; i < s; i++) { idx.Add(baseSide+i*4); idx.Add(baseSide+i*4+1); idx.Add(baseSide+i*4+2); idx.Add(baseSide+i*4); idx.Add(baseSide+i*4+2); idx.Add(baseSide+i*4+3); }
+            for (uint i = 0; i < s; i++) { idx.Add(baseSide+i*4); idx.Add(baseSide+i*4+2); idx.Add(baseSide+i*4+1); idx.Add(baseSide+i*4); idx.Add(baseSide+i*4+3); idx.Add(baseSide+i*4+2); }
             uint c0 = (uint)(_slices * 4);
-            for (uint i = 0; i < s; i++) { idx.Add(c0); idx.Add(c0+1 + (i+1)%s); idx.Add(c0+1 + i); }
+            for (uint i = 0; i < s; i++) { idx.Add(c0); idx.Add(c0+1 + i); idx.Add(c0+1 + (i+1)%s); }
             uint c1 = c0 + 1 + (uint)_slices;
-            for (uint i = 0; i < s; i++) { idx.Add(c1); idx.Add(c1+1 + i); idx.Add(c1+1 + (i+1)%s); }
+            for (uint i = 0; i < s; i++) { idx.Add(c1); idx.Add(c1+1 + (i+1)%s); idx.Add(c1+1 + i); }
             return idx.ToArray();
         }
 

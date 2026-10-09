@@ -59,7 +59,10 @@ namespace V12.Components.Renderables
             {
                 if (_transformDirty)
                 {
-                    _transform = Matrix4x4.CreateScale(new Vector3(_scale.X * _size.X, _scale.Y * _size.Y, _scale.Z))
+                    // BoxMesh convention: dimensions live in the vertices, the
+                    // transform carries only placement (the renderer multiplies
+                    // Transform × MeshPoints).
+                    _transform = Matrix4x4.CreateScale(_scale)
                         * Matrix4x4.CreateFromQuaternion(_rotation)
                         * Matrix4x4.CreateTranslation(_position);
                     _transformDirty = false;

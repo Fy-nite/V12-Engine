@@ -132,6 +132,9 @@ namespace V12.Core.Networking
         public void TrackElement(IWorldElement element)
         {
             if (element == null) return;
+            // Editor-transient subtrees (gizmo handles) are never subscribed:
+            // no lifecycle capture, no dirty traffic, no component tracking.
+            if (EditorTransientComponent.IsTransient(element)) return;
             if (!_trackedElements.Add(element)) return;
 
             element.OnDirty += OnElementDirty;
@@ -338,6 +341,7 @@ namespace V12.Core.Networking
 
         private void QueueCreate(IWorldElement element, long parentId, string worldName)
         {
+            if (EditorTransientComponent.IsTransient(element)) return;
             lock (_deltaLock)
             {
                 // Already pending as a create → keep the first entry.
@@ -359,6 +363,7 @@ namespace V12.Core.Networking
 
         private void QueueDelete(IWorldElement element)
         {
+            if (EditorTransientComponent.IsTransient(element)) return;
             lock (_deltaLock)
             {
                 // If the element's create is still pending, it has never been sent remotely —
@@ -382,6 +387,7 @@ namespace V12.Core.Networking
             if (element == null || component == null) return;
             if (!IsAuthority || _suppressCapture) return;
             if (IsPlayerElement(element)) return;
+            if (EditorTransientComponent.IsTransient(element)) return;
 
             lock (_deltaLock)
             {

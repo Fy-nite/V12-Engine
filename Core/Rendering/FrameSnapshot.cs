@@ -61,6 +61,8 @@ namespace V12.Core.Rendering
         public float MatG;
         public float MatB;
         public float MatA;
+        public bool MatUnlit;
+        public bool MatNoDepth;
         public float MatMetallic;
         public float MatRoughness;
         public string MatTexturePath;

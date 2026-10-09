@@ -19,6 +19,8 @@ namespace V12.Components
         private float _a        = 1f;
         private float _metallic = 0f;
         private float _roughness = 0.5f;
+        private bool _unlit;
+        private bool _noDepthTest;
         private string? _textureUrl;
         private string? _albedoTexture;
         private string? _normalTexture;
@@ -100,6 +102,21 @@ namespace V12.Components
             set { if (Math.Abs(_roughness - value) > 0.001f) { _roughness = Clamp01(value); MarkDirty(); } }
         }
 
+        /// <summary>Skip scene lighting: render the flat albedo colour
+        /// (editor gizmos, overlays).</summary>
+        public bool Unlit
+        {
+            get => _unlit;
+            set { if (_unlit != value) { _unlit = value; MarkDirty(); } }
+        }
+
+        /// <summary>Skip depth testing: always draw on top (editor gizmos).</summary>
+        public bool NoDepthTest
+        {
+            get => _noDepthTest;
+            set { if (_noDepthTest != value) { _noDepthTest = value; MarkDirty(); } }
+        }
+
         public float Uv1OffsetX
         {
             get => _uv1OffsetX;
@@ -122,10 +139,11 @@ namespace V12.Components
         }
 
         public MaterialComponent() { }
-        public MaterialComponent(float r, float g, float b, float a = 1f, float metallic = 0f, float roughness = 0.5f)
+        public MaterialComponent(float r, float g, float b, float a = 1f, float metallic = 0f, float roughness = 0.5f, bool unlit = false, bool noDepthTest = false)
         {
             _r = Clamp01(r); _g = Clamp01(g); _b = Clamp01(b); _a = Clamp01(a);
             _metallic = Clamp01(metallic); _roughness = Clamp01(roughness);
+            _unlit = unlit; _noDepthTest = noDepthTest;
         }
 
         /// <summary>Generate editable material fields for the inspector.</summary>
