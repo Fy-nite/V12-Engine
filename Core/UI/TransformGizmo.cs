@@ -45,7 +45,7 @@ namespace V12.Core.UI
         /// <summary>Axis palette (nova SceneGizmo parity — all hosts share it).</summary>
         public static readonly DrawingColor[] AxisColors =
         {
-            DrawingColor.FromArgb(242, 71, 71, 242),
+            DrawingColor.FromArgb(242, 242, 71, 71),
             DrawingColor.FromArgb(242, 89, 217, 102),
             DrawingColor.FromArgb(242, 89, 153, 255),
         };
