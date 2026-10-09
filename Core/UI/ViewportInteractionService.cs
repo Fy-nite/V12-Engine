@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Numerics;
 using V12.Core;
@@ -82,24 +82,11 @@ namespace V12.Core.UI
         private readonly List<ViewportPickMesh> _pickBuffer = new();
         private readonly List<TransformGizmo.GizmoHandleSpec> _specScratch = new();
 
-        // Transient gizmo entities: one "_EditorGizmo" root per target world
-        // with a child element per handle mesh (see SyncGizmoEntities). They
-        // render and pick through the normal pipeline; the transient marker
-        // keeps them out of saves and network sync.
-        private IWorldElement? _gizmoRoot;
-        private World? _gizmoWorld;
-        private readonly List<GizmoPart> _gizmoParts = new();
-        private IWorldElement? _gizmoBuiltTarget;
-        private GizmoMode _gizmoBuiltMode = GizmoMode.Translate;
-        private Vector3 _gizmoLastOrigin;
-        private float _gizmoLastSize;
-
-        private sealed class GizmoPart
-        {
-            public IWorldElement Element;
-            public ComponentBase Mesh;
-            public TransformGizmo.GizmoMeshKind Kind;
-        }
+        // Transient gizmo entities, shared with nova's SceneGizmo: one
+        // "_EditorGizmo" root per target world with a child element per handle
+        // mesh. They render and pick through the normal pipeline; the
+        // transient marker keeps them out of saves and network sync.
+        private readonly GizmoEntitySync _gizmo = new();
 
         public ViewportInteractionService(GameRoot root, IViewportInteractionHost host, IEditorInputSource input)
         {
@@ -149,7 +136,7 @@ namespace V12.Core.UI
         {
             if (!ReferenceEquals(el, _gizmoTarget)) _dragAxis = -1;
             _gizmoTarget = el;
-            if (el == null) DestroyGizmo();
+            if (el == null) _gizmo.Destroy();
             if (el == null || _orbiting) return;
             var w = el.WorldTransform;
             _focus = new Vector3(w.M41, w.M42, w.M43);
@@ -179,7 +166,15 @@ namespace V12.Core.UI
 
             // Keep the transient gizmo entities on the target (constant screen
             // size while dollying). Runs after the camera so sizing is exact.
-            SyncGizmoEntities();
+            var target = _gizmoTarget;
+            if (target == null) { /* destroyed eagerly in SetGizmoTarget */ }
+            else
+            {
+                var world = _root.GetWorldForElement(target);
+                if (world == null) _gizmo.Destroy();
+                else if (GizmoOriginAndSize(out var origin, out var size))
+                    _gizmo.Sync(world, target, _mode, origin, size);
+            }
         }
 
         private void TickInput()
@@ -361,7 +356,7 @@ namespace V12.Core.UI
                 var pm = _pickBuffer[i];
                 if (pm.Owner == null) continue;
                 // Gizmo handle meshes are grabbable, never selectable.
-                if (IsGizmoElement(pm.Owner)) continue;
+                if (_gizmo.IsGizmoElement(pm.Owner)) continue;
 
                 // Work in local space (meshes are small), then convert the hit
                 // back to world for a distance that is comparable across meshes.
@@ -423,6 +418,27 @@ namespace V12.Core.UI
         }
 
         // ── Gizmo: grab + drag ────────────────────────────────────────────
+
+        /// <summary>Gizmo pivot (target world position) and constant-screen
+        /// size from the editor camera. False when there is no target or no
+        /// camera yet.</summary>
+        private bool GizmoOriginAndSize(out Vector3 origin, out float size)
+        {
+            origin = Vector3.Zero;
+            size = 0f;
+            if (_gizmoTarget == null || _editorCam == null) return false;
+            var w = _gizmoTarget.WorldTransform;
+            origin = new Vector3(w.M41, w.M42, w.M43);
+            var cw = _editorCam.WorldTransform;
+            var camPos = new Vector3(cw.M41, cw.M42, cw.M43);
+            float dist = Vector3.Distance(camPos, origin);
+            float fov = 60f;
+            var cam = _editorCam.GetComponent<ICameraRenderable>();
+            if (cam != null && cam.FieldOfView > 1f && cam.FieldOfView < 179f)
+                fov = cam.FieldOfView;
+            size = TransformGizmo.ScreenSizeFromFov(dist, fov);
+            return size > 0f;
+        }
 
         /// <summary>Analytic test of the gizmo handles — ray against the
         /// canonical fat pick shapes; on a hit, pins the drag state and
@@ -643,232 +659,5 @@ namespace V12.Core.UI
             return fwd.LengthSquared() < 1e-12f ? Vector3.UnitZ : Vector3.Normalize(fwd);
         }
 
-        // ── Gizmo: transient mesh entities ──────────────────────────────────
-        //
-        // The gizmo is a "_EditorGizmo" root in the target's world with one
-        // child element per handle mesh (cylinders/cones/cubes/torus from the
-        // canonical specs). It renders and picks through the normal pipeline
-        // in every host — no overlay draw path, no renderer special-casing.
-        // The transient marker keeps it out of saves and network sync; grabs
-        // use the analytic pick shapes (TryGrabAxis), never the visual mesh.
-
-        /// <summary>True when <paramref name="el"/> is the gizmo root or one
-        /// of its parts.</summary>
-        private bool IsGizmoElement(IWorldElement? el)
-        {
-            if (el == null || _gizmoRoot == null) return false;
-            for (var cur = el; cur != null; cur = cur.Parent)
-                if (ReferenceEquals(cur, _gizmoRoot)) return true;
-            return false;
-        }
-
-        /// <summary>Gizmo pivot (target world position) and constant-screen
-        /// size from the editor camera. False when there is no target or no
-        /// camera yet.</summary>
-        private bool GizmoOriginAndSize(out Vector3 origin, out float size)
-        {
-            origin = Vector3.Zero;
-            size = 0f;
-            if (_gizmoTarget == null || _editorCam == null) return false;
-            var w = _gizmoTarget.WorldTransform;
-            origin = new Vector3(w.M41, w.M42, w.M43);
-            var cw = _editorCam.WorldTransform;
-            var camPos = new Vector3(cw.M41, cw.M42, cw.M43);
-            float dist = Vector3.Distance(camPos, origin);
-            float fov = 60f;
-            var cam = _editorCam.GetComponent<ICameraRenderable>();
-            if (cam != null && cam.FieldOfView > 1f && cam.FieldOfView < 179f)
-                fov = cam.FieldOfView;
-            size = TransformGizmo.ScreenSizeFromFov(dist, fov);
-            return size > 0f;
-        }
-
-        /// <summary>Per-frame upkeep: ensure the gizmo tree exists for the
-        /// target, rebuild it on target/mode/world change, and refresh part
-        /// transforms so the gizmo holds constant screen size while dollying.
-        /// Static frames skip untouched (element TRS assignment is
-        /// epsilon-guarded, dims are compared before assignment).</summary>
-        private void SyncGizmoEntities()
-        {
-            var target = _gizmoTarget;
-            if (target == null) return; // SetGizmoTarget(null) destroys eagerly
-            var world = _root.GetWorldForElement(target);
-            if (world == null) { DestroyGizmo(); return; }
-
-            bool needRebuild = _gizmoRoot == null
-                || !ReferenceEquals(_gizmoWorld, world)
-                || !world.Root.Contains(_gizmoRoot)
-                || !ReferenceEquals(_gizmoBuiltTarget, target)
-                || _gizmoBuiltMode != _mode;
-            if (!GizmoOriginAndSize(out var origin, out var size)) return;
-            if (needRebuild)
-            {
-                RebuildGizmo(world, target, origin, size);
-                return;
-            }
-            if (_gizmoParts.Count == 0) return;
-            if ((origin - _gizmoLastOrigin).LengthSquared() < 1e-10f
-                && MathF.Abs(size - _gizmoLastSize) < 1e-6f)
-                return; // static frame: nothing moved
-            _gizmoLastOrigin = origin;
-            _gizmoLastSize = size;
-
-            TransformGizmo.BuildHandleSpecs(_mode, origin, size, _specScratch);
-            int expected = 0;
-            foreach (var s in _specScratch)
-            {
-                if (s.Mesh0.Mesh != TransformGizmo.GizmoMeshKind.None) expected++;
-                if (s.Mesh1.Mesh != TransformGizmo.GizmoMeshKind.None) expected++;
-            }
-            if (_gizmoParts.Count != expected)
-            {
-                RebuildGizmo(world, target, origin, size);
-                return;
-            }
-            int pi = 0;
-            foreach (var s in _specScratch)
-            {
-                pi = SyncPartMesh(pi, s.Mesh0, s);
-                if (pi < 0) { RebuildGizmo(world, target, origin, size); return; }
-                pi = SyncPartMesh(pi, s.Mesh1, s);
-                if (pi < 0) { RebuildGizmo(world, target, origin, size); return; }
-            }
-        }
-
-        private void RebuildGizmo(World world, IWorldElement target, Vector3 origin, float size)
-        {
-            DestroyGizmo();
-
-            var root = new Element("_EditorGizmo");
-            root.AddComponent(new EditorTransientComponent());
-            world.AddElement(root);
-            _gizmoRoot = root;
-            _gizmoWorld = world;
-
-            TransformGizmo.BuildHandleSpecs(_mode, origin, size, _specScratch);
-            foreach (var spec in _specScratch)
-            {
-                AddPartMesh(root, spec.Mesh0, spec);
-                AddPartMesh(root, spec.Mesh1, spec);
-            }
-            _gizmoLastOrigin = origin;
-            _gizmoLastSize = size;
-            _gizmoBuiltTarget = target;
-            _gizmoBuiltMode = _mode;
-            Console.WriteLine($"[Viewport] gizmo spawned {_gizmoParts.Count} parts mode={_mode} target='{target.Name}' size={size:F2}");
-        }
-
-        private void DestroyGizmo()
-        {
-            if (_gizmoRoot == null)
-            {
-                _gizmoParts.Clear();
-                return;
-            }
-            var world = _gizmoWorld ?? _root.GetWorldForElement(_gizmoRoot);
-            if (world != null)
-            {
-                foreach (var part in _gizmoParts)
-                    _gizmoRoot.RemoveChild(part.Element);
-                world.RemoveElement(_gizmoRoot);
-            }
-            _gizmoRoot = null;
-            _gizmoWorld = null;
-            _gizmoParts.Clear();
-            _gizmoBuiltTarget = null;
-        }
-
-        private void AddPartMesh(IWorldElement root, TransformGizmo.GizmoMeshPlacement placement,
-            TransformGizmo.GizmoHandleSpec spec)
-        {
-            if (placement.Mesh == TransformGizmo.GizmoMeshKind.None) return;
-            var el = new Element($"GizmoHandle_{spec.HandleId}");
-            var mesh = CreatePartMesh(placement);
-            el.AddComponent(mesh);
-            var col = spec.Color;
-            el.AddComponent(new MaterialComponent(col.R / 255f, col.G / 255f, col.B / 255f,
-                col.A / 255f, 0f, 1f, unlit: true, noDepthTest: true));
-            el.AddComponent(new GizmoHandleComponent(spec.HandleId));
-            PlacePart(el, mesh, placement);
-            root.AddChild(el);
-            _gizmoParts.Add(new GizmoPart { Element = el, Mesh = mesh, Kind = placement.Mesh });
-        }
-
-        /// <summary>Refresh part <paramref name="pi"/> from a placement.
-        /// Returns the next part index, or -1 when the part's mesh kind no
-        /// longer matches (caller rebuilds).</summary>
-        private int SyncPartMesh(int pi, TransformGizmo.GizmoMeshPlacement placement,
-            TransformGizmo.GizmoHandleSpec spec)
-        {
-            if (placement.Mesh == TransformGizmo.GizmoMeshKind.None) return pi;
-            if (pi < 0 || pi >= _gizmoParts.Count) return -1;
-            var part = _gizmoParts[pi];
-            if (part.Kind != placement.Mesh) return -1;
-            PlacePart(part.Element, part.Mesh, placement);
-            var col = spec.Color;
-            var mat = part.Element.GetComponent<MaterialComponent>();
-            if (mat != null)
-            {
-                float r = col.R / 255f, g = col.G / 255f, b = col.B / 255f, a = col.A / 255f;
-                if (MathF.Abs(mat.R - r) > 0.002f) mat.R = r;
-                if (MathF.Abs(mat.G - g) > 0.002f) mat.G = g;
-                if (MathF.Abs(mat.B - b) > 0.002f) mat.B = b;
-                if (MathF.Abs(mat.A - a) > 0.002f) mat.A = a;
-            }
-            return pi + 1;
-        }
-
-        /// <summary>Write a placement: the ELEMENT carries position/rotation
-        /// (both renderers mirror the element tree and compose the world from
-        /// V12 data); the component only sizes its dims and stays at identity
-        /// placement. Writing both would double-apply in tree-mirroring
-        /// renderers. The gizmo root sits at identity, so local is world here.</summary>
-        private static void PlacePart(IWorldElement el, ComponentBase mesh,
-            TransformGizmo.GizmoMeshPlacement p)
-        {
-            el.LocalTransform = new TRS { Position = p.Center, Rotation = p.Rotation, Scale = Vector3.One };
-            SizePartMesh(mesh, p);
-        }
-
-        /// <summary>Write absolute dimensions (compared first: assigning
-        /// regenerates the vertex cache, so static frames must not touch).</summary>
-        private static void SizePartMesh(ComponentBase mesh, TransformGizmo.GizmoMeshPlacement p)
-        {
-            switch (mesh)
-            {
-                case CylinderMesh c:
-                    float cr = p.Size.X * 0.5f;
-                    if (MathF.Abs(c.Radius - cr) > 1e-6f) c.Radius = cr;
-                    if (MathF.Abs(c.Height - p.Size.Y) > 1e-6f) c.Height = p.Size.Y;
-                    break;
-                case ConeMesh k:
-                    float kr = p.Size.X * 0.5f;
-                    if (MathF.Abs(k.Radius - kr) > 1e-6f) k.Radius = kr;
-                    if (MathF.Abs(k.Height - p.Size.Y) > 1e-6f) k.Height = p.Size.Y;
-                    break;
-                case BoxMesh b:
-                    if ((b.Size - p.Size).LengthSquared() > 1e-12f) b.Size = p.Size;
-                    break;
-                case TorusSegmentMesh t:
-                    float rr = p.Size.X * 0.5f, tr = p.Size.Y * 0.5f;
-                    if (MathF.Abs(t.RingRadius - rr) > 1e-6f) t.RingRadius = rr;
-                    if (MathF.Abs(t.TubeRadius - tr) > 1e-6f) t.TubeRadius = tr;
-                    break;
-            }
-        }
-
-        private static ComponentBase CreatePartMesh(TransformGizmo.GizmoMeshPlacement p)
-        {
-            ComponentBase mesh = p.Mesh switch
-            {
-                TransformGizmo.GizmoMeshKind.Cylinder => new CylinderMesh(),
-                TransformGizmo.GizmoMeshKind.Cone => new ConeMesh(),
-                TransformGizmo.GizmoMeshKind.Cube => new BoxMesh(),
-                TransformGizmo.GizmoMeshKind.Torus => new TorusSegmentMesh(),
-                _ => throw new ArgumentOutOfRangeException(nameof(p), "No mesh for placement kind None"),
-            };
-            SizePartMesh(mesh, p);
-            return mesh;
-        }
     }
 }

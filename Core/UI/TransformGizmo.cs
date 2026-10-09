@@ -374,7 +374,7 @@ namespace V12.Core.UI
         /// winning handle id and ray distance, or false when nothing is hit.
         /// The visual mesh is never raycast.</summary>
         public static bool TryHitHandles(Vector3 rayOrigin, Vector3 rayDirection,
-            List<GizmoHandleSpec> specs, out int handleId, out float distance)
+            IReadOnlyList<GizmoHandleSpec> specs, out int handleId, out float distance)
         {
             handleId = -1;
             distance = float.MaxValue;
