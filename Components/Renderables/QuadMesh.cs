@@ -1,3 +1,4 @@
+using Assimp;
 using System;
 using System.Numerics;
 using V12.Core.Core.Interfaces;

@@ -1,3 +1,4 @@
+using Assimp;
 using System;
 using System.Numerics;
 using V12.Core.Core.Interfaces;
@@ -69,9 +70,9 @@ namespace V12.Components.Renderables
             var s = (uint)_slices;
             var idx = new System.Collections.Generic.List<uint>(_slices * 6);
             uint tip = 0;
-            for (uint i = 0; i < s; i++) idx.Add(tip); idx.Add(1 + (i+1)%s); idx.Add(1 + i);
+            for (uint i = 0; i < s; i++) { idx.Add(tip); idx.Add(1 + (i+1)%s); idx.Add(1 + i); }
             uint basec = 1 + s;
-            for (uint i = 0; i < s; i++) idx.Add(basec); idx.Add(basec+1 + i); idx.Add(basec+1 + (i+1)%s);
+            for (uint i = 0; i < s; i++) { idx.Add(basec); idx.Add(basec+1 + i); idx.Add(basec+1 + (i+1)%s); }
             return idx.ToArray();
         }
 
