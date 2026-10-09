@@ -69,11 +69,20 @@ namespace V12.Core.Interfaces.Renderer
 
     public interface ITransformRenderable : IRenderable
     {
+        /// <summary>Mesh-LOCAL matrix: dimensions plus the component's offset
+        /// relative to its element. Never contains element or world placement —
+        /// V12 composes the world matrix (mesh-local × element
+        /// <c>WorldTransform</c>, inner-to-outer row-vector order, like
+        /// <c>local × parent</c> everywhere else) and renderers consume that.
+        /// See <see cref="ISpatial"/>.</summary>
         public Matrix4x4 Transform { get; }
         public bool IsWorldLocked { get; }  // true = world space, false = body/hand-locked for XR
     }
 
-    public interface IMeshRenderable : ITransformRenderable
+    /// <summary>Meshes never carry transforms: placement lives only on
+    /// elements (<see cref="ISpatial"/> / element <c>WorldTransform</c>).
+    /// A mesh is pure geometry (verts/indices) parameterized by dims.</summary>
+    public interface IMeshRenderable : IRenderable
     {
         public string Name { get; }
         public double[] MeshPoints { get; }

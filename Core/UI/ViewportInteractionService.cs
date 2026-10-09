@@ -107,9 +107,6 @@ namespace V12.Core.UI
             _host = host;
             _input = input;
             _dialog = new ViewportFileDialog(root);
-            // No overlay callback: the gizmo is transient mesh entities in the
-            // target's world now, drawn by the normal render path in every host.
-            _host.ViewportOverlay = null;
         }
 
         public void Initialize(GameRoot gameRoot) { }
@@ -810,30 +807,15 @@ namespace V12.Core.UI
             return pi + 1;
         }
 
-        /// <summary>Write a placement to both transform channels the hosts
-        /// read: the element's LocalTransform (nova positions nodes by element
-        /// world) and the component's own Position/Rotation (MonoGame draws by
-        /// component Transform). The gizmo root sits at identity, so local is
-        /// world here.</summary>
+        /// <summary>Write a placement: the ELEMENT carries position/rotation
+        /// (both renderers mirror the element tree and compose the world from
+        /// V12 data); the component only sizes its dims and stays at identity
+        /// placement. Writing both would double-apply in tree-mirroring
+        /// renderers. The gizmo root sits at identity, so local is world here.</summary>
         private static void PlacePart(IWorldElement el, ComponentBase mesh,
             TransformGizmo.GizmoMeshPlacement p)
         {
             el.LocalTransform = new TRS { Position = p.Center, Rotation = p.Rotation, Scale = Vector3.One };
-            switch (mesh)
-            {
-                case CylinderMesh c:
-                    c.Position = p.Center; c.Rotation = p.Rotation;
-                    break;
-                case ConeMesh k:
-                    k.Position = p.Center; k.Rotation = p.Rotation;
-                    break;
-                case BoxMesh b:
-                    b.Position = p.Center; b.Rotation = p.Rotation;
-                    break;
-                case TorusSegmentMesh t:
-                    t.Position = p.Center; t.Rotation = p.Rotation;
-                    break;
-            }
             SizePartMesh(mesh, p);
         }
 

@@ -8,9 +8,9 @@ namespace V12.Components.Renderables
 {
     /// <summary>Procedural torus (ring) mesh, built with the ring in the XZ
     /// plane and its axis along +Y — the same convention as the cylinder and
-    /// cone primitives, so a gizmo-handle rotation mapping +Y onto the handle
-    /// axis orients it. Dimensions live in the vertices (BoxMesh convention);
-    /// <see cref="Transform"/> carries only placement.</summary>
+    /// cone primitives, so an element rotation mapping +Y onto the handle
+    /// axis orients it. Pure geometry: dimensions live in the vertices,
+    /// placement lives only on the element.</summary>
     public class TorusSegmentMesh : ComponentBase, IMeshRenderable
     {
         private float _ringRadius = 0.5f;
@@ -18,14 +18,9 @@ namespace V12.Components.Renderables
         private float _arcRadians = MathF.PI * 2f;
         private int _radialSegments = 10;
         private int _tubularSegments = 32;
-        private Vector3 _position = Vector3.Zero;
-        private Quaternion _rotation = Quaternion.Identity;
-        private Vector3 _scale = Vector3.One;
         private double[] _meshPoints;
         private uint[] _indices;
         private Material _material;
-        private Matrix4x4 _transform;
-        private bool _transformDirty = true;
 
         public RenderType RenderType => RenderType.Mesh;
         public double[] MeshPoints => _meshPoints ??= GenerateVertices();
@@ -33,7 +28,7 @@ namespace V12.Components.Renderables
         public Material Material => _material ??= new Material();
         public bool IsWorldLocked => true;
         public TRS LocalTransform => throw new NotImplementedException();
-        public Matrix4x4 WorldTransform => throw new NotImplementedException();
+        public Matrix4x4 WorldTransform => Owner?.WorldTransform ?? Matrix4x4.Identity;
 
         public TorusSegmentMesh() { }
         public TorusSegmentMesh(string name) { Name = name; }
@@ -47,30 +42,11 @@ namespace V12.Components.Renderables
         public float ArcRadians { get => _arcRadians; set { _arcRadians = Math.Clamp(value, 0.05f, MathF.PI * 2f); InvalidateMesh(); } }
         public int RadialSegments { get => _radialSegments; set { _radialSegments = Math.Max(3, value); InvalidateMesh(); } }
         public int TubularSegments { get => _tubularSegments; set { _tubularSegments = Math.Max(3, value); InvalidateMesh(); } }
-        public Vector3 Position { get => _position; set { _position = value; _transformDirty = true; } }
-        public Quaternion Rotation { get => _rotation; set { _rotation = value; _transformDirty = true; } }
-        public Vector3 Scale { get => _scale; set { _scale = value; _transformDirty = true; } }
-
-        public Matrix4x4 Transform
-        {
-            get
-            {
-                if (_transformDirty)
-                {
-                    _transform = Matrix4x4.CreateScale(_scale)
-                        * Matrix4x4.CreateFromQuaternion(_rotation)
-                        * Matrix4x4.CreateTranslation(_position);
-                    _transformDirty = false;
-                }
-                return _transform;
-            }
-        }
 
         private void InvalidateMesh()
         {
             _meshPoints = null;
             _indices = null;
-            _transformDirty = true;
         }
 
         private double[] GenerateVertices()

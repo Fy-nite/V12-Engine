@@ -1,16 +1,14 @@
-using System;
 using System.Collections.Generic;
 using System.Numerics;
 using V12.Core.Core.Interfaces;
-using DrawingColor = System.Drawing.Color;
 
 namespace V12.Core.UI
 {
     /// <summary>
     /// Renderer-side primitives the viewport interaction needs: viewport
-    /// hit-testing, camera matrices, screen-space projection, pickable meshes
-    /// and the overlay line hook. Implemented by the host renderer (the
-    /// MonoGame host ships <c>MonogameViewportHost</c>) so the editor logic in
+    /// hit-testing, camera matrices, screen-space projection and pickable
+    /// meshes. Implemented by the host renderer (the MonoGame host ships
+    /// <c>MonogameViewportHost</c>) so the editor logic in
     /// <see cref="ViewportInteractionService"/> stays renderer-agnostic.
     ///
     /// (Distinct from <c>V12.UI.IViewportHost</c>, the viewport *widget*.)
@@ -36,12 +34,6 @@ namespace V12.Core.UI
         /// <summary>Fill <paramref name="into"/> with the meshes drawn in
         /// <paramref name="viewportId"/> this frame (cleared first).</summary>
         void CollectPickMeshes(long viewportId, List<ViewportPickMesh> into);
-
-        /// <summary>Invoked once per rendered viewport after its meshes are
-        /// drawn, with the pass's camera. Return world-space line segments to
-        /// be drawn undepth-tested over the pass, or null for nothing. Keep it
-        /// cheap — called every frame.</summary>
-        Func<long, Matrix4x4, Matrix4x4, ViewportLine[]?>? ViewportOverlay { get; set; }
     }
 
     /// <summary>One mesh eligible for editor picking: world transform plus raw
@@ -59,21 +51,6 @@ namespace V12.Core.UI
             Points = points;
             Indices = indices;
             Owner = owner;
-        }
-    }
-
-    /// <summary>A world-space line segment for the viewport overlay.</summary>
-    public readonly struct ViewportLine
-    {
-        public readonly Vector3 A;
-        public readonly Vector3 B;
-        public readonly DrawingColor Color;
-
-        public ViewportLine(Vector3 a, Vector3 b, DrawingColor color)
-        {
-            A = a;
-            B = b;
-            Color = color;
         }
     }
 }

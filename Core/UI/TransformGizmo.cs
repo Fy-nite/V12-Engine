@@ -103,11 +103,13 @@ namespace V12.Core.UI
         /// future plane/square handles.</summary>
         public enum GizmoConstraint { Axis, Plane, Free }
 
-        /// <summary>One visual mesh of a handle, in world space. The
-        /// primitive's local +Y is the handle axis (<see cref="Rotation"/>
-        /// maps +Y onto it); <see cref="Size"/> holds full extents:
-        /// cylinder/cone = (diameter, length, diameter), cube = edge × 3,
-        /// torus = (ring diameter, tube diameter, tube diameter).</summary>
+        /// <summary>One visual mesh of a handle, in world space. Meshes carry
+        /// no transforms: <see cref="Center"/>/<see cref="Rotation"/> go on
+        /// the handle element's TRS (the primitive's local +Y is the handle
+        /// axis — Rotation maps +Y onto it); <see cref="Size"/> holds full
+        /// extents and sizes the geometry dims: cylinder/cone =
+        /// (diameter, length, diameter), cube = edge × 3, torus = (ring
+        /// diameter, tube diameter, tube diameter).</summary>
         public readonly struct GizmoMeshPlacement
         {
             public readonly GizmoMeshKind Mesh;

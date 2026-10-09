@@ -11,14 +11,9 @@ namespace V12.Components.Renderables
         private float _radius = 0.5f;
         private float _height = 1f;
         private int _slices = 24;
-        private Vector3 _position = Vector3.Zero;
-        private Quaternion _rotation = Quaternion.Identity;
-        private Vector3 _scale = Vector3.One;
         private double[] _meshPoints;
         private uint[] _indices;
         private Material _material;
-        private Matrix4x4 _transform;
-        private bool _transformDirty = true;
 
         public RenderType RenderType => RenderType.Mesh;
         public double[] MeshPoints => _meshPoints ??= GenerateVertices();
@@ -26,35 +21,14 @@ namespace V12.Components.Renderables
         public Material Material => _material ??= new Material();
         public bool IsWorldLocked => true;
         public TRS LocalTransform => throw new NotImplementedException();
-        public Matrix4x4 WorldTransform => throw new NotImplementedException();
+        public Matrix4x4 WorldTransform => Owner?.WorldTransform ?? Matrix4x4.Identity;
 
         public CylinderMesh() { }
         public CylinderMesh(string name) { Name = name; }
 
-        public float Radius { get => _radius; set { _radius = Math.Max(1e-4f, value); _meshPoints = null; _indices = null; _transformDirty = true; } }
-        public float Height { get => _height; set { _height = Math.Max(1e-4f, value); _meshPoints = null; _indices = null; _transformDirty = true; } }
+        public float Radius { get => _radius; set { _radius = Math.Max(1e-4f, value); _meshPoints = null; _indices = null; } }
+        public float Height { get => _height; set { _height = Math.Max(1e-4f, value); _meshPoints = null; _indices = null; } }
         public int Slices { get => _slices; set { _slices = Math.Max(3, value); _meshPoints = null; _indices = null; } }
-        public Vector3 Position { get => _position; set { _position = value; _transformDirty = true; } }
-        public Quaternion Rotation { get => _rotation; set { _rotation = value; _transformDirty = true; } }
-        public Vector3 Scale { get => _scale; set { _scale = value; _transformDirty = true; } }
-
-        public Matrix4x4 Transform
-        {
-            get
-            {
-                if (_transformDirty)
-                {
-                    // BoxMesh convention: dimensions live in the vertices, the
-                    // transform carries only placement (the renderer multiplies
-                    // Transform × MeshPoints).
-                    _transform = Matrix4x4.CreateScale(_scale)
-                        * Matrix4x4.CreateFromQuaternion(_rotation)
-                        * Matrix4x4.CreateTranslation(_position);
-                    _transformDirty = false;
-                }
-                return _transform;
-            }
-        }
 
         private double[] GenerateVertices()
         {

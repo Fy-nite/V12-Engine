@@ -160,7 +160,7 @@ namespace V12.Components
             }
         }
 
-        public Matrix4x4 WorldTransform => Transform;
+        public Matrix4x4 WorldTransform => Owner == null ? Transform : Owner.WorldTransform;
 
         public TransformComponent()
         {

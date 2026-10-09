@@ -77,34 +77,7 @@ namespace V12.Components.Renderables
 
         public Material Material => Mesh?.Material;
 
-        public Matrix4x4 Transform
-        {
-            get
-            {
-                if (Owner != null)
-                {
-                    var t = Owner.GetComponent<TransformComponent>();
-                    var s = Owner.GetComponent<ScaleComponent>();
-                    
-                    Matrix4x4 scale = s != null ? Matrix4x4.CreateScale(s.ScaleX, s.ScaleY, s.ScaleZ) : Matrix4x4.Identity;
-                    
-                    if (t != null)
-                    {
-                        return scale
-                             * Matrix4x4.CreateFromYawPitchRoll(t.RY, t.RX, t.RZ)
-                             * Matrix4x4.CreateTranslation(t.X, t.Y, t.Z);
-                    }
-                    // Fallback: use Element's LocalTransform
-                    var lt = Owner.LocalTransform;
-                    return scale
-                         * Matrix4x4.CreateFromQuaternion(lt.Rotation)
-                         * Matrix4x4.CreateTranslation(lt.Position);
-                }
-                return Mesh?.Transform ?? Matrix4x4.Identity;
-            }
-        }
-
-        public bool IsWorldLocked => Mesh?.IsWorldLocked ?? true;
+        public bool IsWorldLocked => true;
 
         public RenderType RenderType => Mesh?.RenderType ?? RenderType.Mesh;
 
@@ -112,7 +85,7 @@ namespace V12.Components.Renderables
         public TRS LocalTransform => throw new NotImplementedException();
 
         [BsonIgnore]
-        public Matrix4x4 WorldTransform => throw new NotImplementedException();
+        public Matrix4x4 WorldTransform => Owner?.WorldTransform ?? Matrix4x4.Identity;
 
         public override IWorldElement BuildUI()
         {

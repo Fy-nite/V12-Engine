@@ -165,42 +165,15 @@ namespace V12.Components
 
         public Material Material => null; // Use MaterialComponent from element
 
-        public Matrix4x4 Transform
-        {
-            get
-            {
-                if (Owner != null)
-                {
-                    var t = Owner.GetComponent<TransformComponent>();
-                    var s = Owner.GetComponent<ScaleComponent>();
-                    
-                    float scaleX = Width * (s?.ScaleX ?? 1f);
-                    float scaleY = Height * (s?.ScaleY ?? 1f);
-                    float scaleZ = Depth * (s?.ScaleZ ?? 1f);
-
-                    if (t != null)
-                    {
-                        return Matrix4x4.CreateScale(scaleX, scaleY, scaleZ)
-                             * Matrix4x4.CreateFromYawPitchRoll(t.RY, t.RX, t.RZ)
-                             * Matrix4x4.CreateTranslation(t.X, t.Y, t.Z);
-                    }
-                    // Fallback: use Element's LocalTransform
-                    var lt = Owner.LocalTransform;
-                    return Matrix4x4.CreateScale(scaleX, scaleY, scaleZ)
-                         * Matrix4x4.CreateFromQuaternion(lt.Rotation)
-                         * Matrix4x4.CreateTranslation(lt.Position);
-                }
-                return Matrix4x4.Identity;
-            }
-        }
-
         public bool IsWorldLocked => true;
 
         [BsonIgnore]
         public TRS LocalTransform => throw new NotImplementedException();
 
+        /// <summary>Fully composed world matrix: the element's world (meshes
+        /// carry no transforms; dims live in the vertices).</summary>
         [BsonIgnore]
-        public Matrix4x4 WorldTransform => throw new NotImplementedException();
+        public Matrix4x4 WorldTransform => Owner?.WorldTransform ?? Matrix4x4.Identity;
 
         public MeshComponent() { }
         public MeshComponent(MeshShape shape, float width = 1f, float height = 1f, float depth = 1f)
@@ -262,14 +235,16 @@ namespace V12.Components
 
         private double[] GenerateBoxPoints()
         {
-            // Unit box points (transform handles scaling)
+            // Absolute dims: meshes carry no transforms, placement lives only
+            // on the element, so dimensions bake into the vertices.
+            float hx = _width * 0.5f, hy = _height * 0.5f, hz = _depth * 0.5f;
             return new double[] {
-                -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5, // Front
-                -0.5, -0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5, -0.5, -0.5, // Back
-                -0.5,  0.5, -0.5, -0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5, -0.5, // Top
-                -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5, -0.5,  0.5, -0.5, -0.5,  0.5, // Bottom
-                 0.5, -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5, // Right
-                -0.5, -0.5, -0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5, -0.5  // Left
+                -hx, -hy,  hz,  hx, -hy,  hz,  hx,  hy,  hz, -hx,  hy,  hz, // Front
+                -hx, -hy, -hz, -hx,  hy, -hz,  hx,  hy, -hz,  hx, -hy, -hz, // Back
+                -hx,  hy, -hz, -hx,  hy,  hz,  hx,  hy,  hz,  hx,  hy, -hz, // Top
+                -hx, -hy, -hz,  hx, -hy, -hz,  hx, -hy,  hz, -hx, -hy,  hz, // Bottom
+                 hx, -hy, -hz,  hx,  hy, -hz,  hx,  hy,  hz,  hx, -hy,  hz, // Right
+                -hx, -hy, -hz, -hx, -hy,  hz, -hx,  hy,  hz, -hx,  hy, -hz  // Left
             };
         }
 
@@ -283,11 +258,12 @@ namespace V12.Components
 
         private double[] GeneratePlanePoints()
         {
+            float hx = _width * 0.5f, hz = _depth * 0.5f;
             return new double[] {
-                -0.5, 0, -0.5,
-                 0.5, 0, -0.5,
-                 0.5, 0,  0.5,
-                -0.5, 0,  0.5
+                -hx, 0, -hz,
+                 hx, 0, -hz,
+                 hx, 0,  hz,
+                -hx, 0,  hz
             };
         }
 
@@ -298,6 +274,8 @@ namespace V12.Components
 
         private double[] GenerateSpherePoints(int stacks, int slices)
         {
+            // Absolute diameters (no mesh transform exists to scale these).
+            float rx = _width * 0.5f, ry = _height * 0.5f, rz = _depth * 0.5f;
             var points = new System.Collections.Generic.List<double>();
             for (int i = 0; i <= stacks; i++)
             {
@@ -305,9 +283,9 @@ namespace V12.Components
                 for (int j = 0; j <= slices; j++)
                 {
                     double theta = 2 * Math.PI * j / slices;
-                    points.Add(0.5 * Math.Sin(phi) * Math.Cos(theta));
-                    points.Add(0.5 * Math.Cos(phi));
-                    points.Add(0.5 * Math.Sin(phi) * Math.Sin(theta));
+                    points.Add(rx * Math.Sin(phi) * Math.Cos(theta));
+                    points.Add(ry * Math.Cos(phi));
+                    points.Add(rz * Math.Sin(phi) * Math.Sin(theta));
                 }
             }
             return points.ToArray();
@@ -329,32 +307,28 @@ namespace V12.Components
             return indices.ToArray();
         }
 
-        /// <summary>Unit-space capsule: top cap rows (pole→equator), then
-        /// bottom cap rows (equator→pole) — the band between the two equator
-        /// rows is the cylinder wall, so the sphere strip indexing applies to
-        /// the whole thing. The cap-radius/height ratio (rho) is baked into the
-        /// unit Y coordinates because the renderer scales the three axes
-        /// independently (Width×Height×Depth); a plain unit sphere stretched
-        /// vertically would grow ellipsoid caps instead of keeping them round.
-        /// rho is derived from the CURRENT dims and the cache is invalidated
-        /// when they change, so the shape stays exact.</summary>
+        /// <summary>Absolute capsule: total height <see cref="_height"/>, cap
+        /// radius from the smaller of width/depth (spherical caps, circular
+        /// section). Rows run top pole→equator then equator→bottom pole; the
+        /// band between the two equator rows is the cylinder wall, so the
+        /// sphere strip indexing applies to the whole thing.</summary>
         private double[] GenerateCapsulePoints(int capStacks, int slices)
         {
             double r = Math.Min(_width, _depth) * 0.5;
             double h = Math.Max(_height, 1e-4);
             if (r > h * 0.5) r = h * 0.5;
-            double rho = r / h;
+            double straight = h * 0.5 - r; // half-length of the cylinder section
 
             var points = new System.Collections.Generic.List<double>();
             for (int i = 0; i <= capStacks; i++)
             {
                 double phi = (Math.PI * 0.5) * i / capStacks;
-                AddCapsuleRing(points, 0.5 - rho + rho * Math.Cos(phi), 0.5 * Math.Sin(phi), slices);
+                AddCapsuleRing(points, straight + r * Math.Cos(phi), r * Math.Sin(phi), slices);
             }
             for (int i = 0; i <= capStacks; i++)
             {
                 double phi = (Math.PI * 0.5) + (Math.PI * 0.5) * i / capStacks;
-                AddCapsuleRing(points, -0.5 + rho + rho * Math.Cos(phi), 0.5 * Math.Sin(phi), slices);
+                AddCapsuleRing(points, -straight + r * Math.Cos(phi), r * Math.Sin(phi), slices);
             }
             return points.ToArray();
         }

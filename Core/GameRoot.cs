@@ -430,18 +430,39 @@ namespace V12.Core
                     if (renderer != null)
                     {
                         var packet = new RenderPacket();
-                        foreach (var (r, viewportId) in GetAllRenderablesWithViewports())
+                        foreach (var (el, r, viewportId) in GetAllRenderablesWithViewports())
                         {
                             if (r is IMeshRenderable mesh)
                             {
                                 packet.Meshes.Add(new MeshDraw
                                 {
-                                    Transform = mesh.Transform,
+                                    ElementId = el.Id,
                                     Mesh = mesh,
                                     ViewportId = viewportId
                                 });
                             }
                         }
+                        // Hierarchy mirror: every element's local placement so
+                        // renderers mirror the V12 tree (placement decisions
+                        // live here, never in renderer code).
+                        void CollectNodes(IWorldElement element)
+                        {
+                            if (element == null) return;
+                            packet.Nodes.Add(new NodePlacement
+                            {
+                                ElementId = element.Id,
+                                ParentId = element.Parent?.Id ?? 0,
+                                Local = ElementPlacement.ElementLocalMatrix(element),
+                            });
+                            if (element.Children != null)
+                                foreach (var child in element.Children.ToArray())
+                                    CollectNodes(child);
+                        }
+                        foreach (var rootEl in PersistentWorld.Root.ToArray())
+                            CollectNodes(rootEl);
+                        if (SelectedWorld != null)
+                            foreach (var rootEl in SelectedWorld.Root.ToArray())
+                                CollectNodes(rootEl);
                         renderer.QueueItems(packet);
                     }
 
@@ -762,9 +783,9 @@ namespace V12.Core
         /// element claims its whole subtree, and a RenderWorld=true viewport
         /// claims every mesh in the world.
         /// </summary>
-        public List<(IRenderable Renderable, long ViewportId)> GetAllRenderablesWithViewports()
+        public List<(IWorldElement Element, IRenderable Renderable, long ViewportId)> GetAllRenderablesWithViewports()
         {
-            var renderables = new List<(IRenderable, long)>();
+            var renderables = new List<(IWorldElement, IRenderable, long)>();
 
             // First pass: find the RenderWorld=true viewport claim (first match wins).
             long worldViewportId = 0;
@@ -808,7 +829,7 @@ namespace V12.Core
                     }
 
                     if (transformComp != null && !hasOtherRenderable)
-                        renderables.Add((transformComp, viewportId));
+                        renderables.Add((element, transformComp, viewportId));
 
                     foreach (var component in element.Components.ToArray())
                     {
@@ -817,7 +838,7 @@ namespace V12.Core
                             // Skip bare MeshComponent when a MeshRenderer wrapper exists
                             if (component is V12.Components.MeshComponent && hasMeshRenderer)
                                 continue;
-                            renderables.Add((r, viewportId));
+                            renderables.Add((element, r, viewportId));
                         }
                     }
                 }
@@ -1059,8 +1080,8 @@ namespace V12.Core
                         {
                             // Any other IMeshRenderable (BoxMesh, CylinderMesh,
                             // …): flat triangle soup through the MeshCustom
-                            // path — points carry the dimensions, rs.Transform
-                            // (the element's world matrix) places them.
+                            // path. Meshes carry no transforms — points are
+                            // absolute and the element transform places them.
                             rs.NodeType = SnapshotNodeType.MeshCustom;
                             rs.MeshPoints = mesh.MeshPoints;
                             rs.MeshIndices = mesh.Indices;

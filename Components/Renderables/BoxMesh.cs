@@ -9,17 +9,12 @@ namespace V12.Components.Renderables
 {
     public class BoxMesh : ComponentBase, IMeshRenderable
     {
-        // Box dimensions
+        // Box dimensions (pure geometry — placement lives on the element).
         private Vector3 _size = Vector3.One;
-        private Vector3 _position = Vector3.Zero;
-        private Quaternion _rotation = Quaternion.Identity;
-        private Vector3 _scale = Vector3.One;
         // Cached mesh data
         private double[] _meshPoints;
         private uint[] _indices;
         private Material _material;
-        private Matrix4x4 _transform;
-        private bool _transformDirty = true;
 
         public RenderType RenderType => RenderType.Mesh;
 
@@ -33,37 +28,13 @@ namespace V12.Components.Renderables
         {
             Name = name;
         }
-        public BoxMesh(Vector3 size, Vector3 position, Quaternion rotation, Vector3 scale, string name, double[] meshPoints, uint[] indices, Material material, Matrix4x4 transform, bool transformDirty)
+        public BoxMesh(Vector3 size, string name, double[] meshPoints, uint[] indices, Material material)
         {
             Size = size;
-            Position = position;
-            Rotation = rotation;
-            Scale = scale;
             Name = name;
             _meshPoints = meshPoints;
             _indices = indices;
             _material = material;
-            _transform = transform;
-            _transformDirty = transformDirty;
-            Size = size;
-            Position = position;
-            Rotation = rotation;
-            Scale = scale;
-        }
-
-        public Matrix4x4 Transform
-        {
-            get
-            {
-                if (_transformDirty)
-                {
-                    _transform = Matrix4x4.CreateScale(_scale)
-                        * Matrix4x4.CreateFromQuaternion(_rotation)
-                        * Matrix4x4.CreateTranslation(_position);
-                    _transformDirty = false;
-                }
-                return _transform;
-            }
         }
 
         public bool IsWorldLocked => true;
@@ -75,43 +46,12 @@ namespace V12.Components.Renderables
             {
                 _size = value;
                 _meshPoints = null; // Invalidate cache
-                _transformDirty = true;
-            }
-        }
-
-        public Vector3 Position
-        {
-            get => _position;
-            set
-            {
-                _position = value;
-                _transformDirty = true;
-            }
-        }
-
-        public Quaternion Rotation
-        {
-            get => _rotation;
-            set
-            {
-                _rotation = value;
-                _transformDirty = true;
-            }
-        }
-
-        public Vector3 Scale
-        {
-            get => _scale;
-            set
-            {
-                _scale = value;
-                _transformDirty = true;
             }
         }
 
         public TRS LocalTransform => throw new NotImplementedException();
 
-        public Matrix4x4 WorldTransform => throw new NotImplementedException();
+        public Matrix4x4 WorldTransform => Owner?.WorldTransform ?? Matrix4x4.Identity;
 
         private double[] GenerateBoxVertices()
 
