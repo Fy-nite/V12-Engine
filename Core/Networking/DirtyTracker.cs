@@ -35,6 +35,13 @@ namespace V12.Core.Networking
 
         // ── Element lifecycle delta state ─────────────────────────────────────
         private readonly object _deltaLock = new();
+
+        /// <summary>Guards subscription state (<see cref="_trackedElements"/>,
+        /// world handler maps, event attach/detach): tracking runs on both the
+        /// game thread (world setup) and the UI thread (editor tree rebuilds),
+        /// and an unguarded <c>HashSet.Add</c> resize throws
+        /// <c>IndexOutOfRangeException</c> under races.</summary>
+        private readonly object _trackLock = new();
         private bool _suppressCapture;
         private readonly List<PendingCreate> _pendingCreates = new();
         private readonly List<long> _pendingDeletes = new();
@@ -135,14 +142,17 @@ namespace V12.Core.Networking
             // Editor-transient subtrees (gizmo handles) are never subscribed:
             // no lifecycle capture, no dirty traffic, no component tracking.
             if (EditorTransientComponent.IsTransient(element)) return;
-            if (!_trackedElements.Add(element)) return;
-
-            element.OnDirty += OnElementDirty;
-
-            if (element is Element el)
+            lock (_trackLock)
             {
-                el.ChildAdded += OnElementChildAdded;
-                el.ChildRemoved += OnElementChildRemoved;
+                if (!_trackedElements.Add(element)) return;
+
+                element.OnDirty += OnElementDirty;
+
+                if (element is Element el)
+                {
+                    el.ChildAdded += OnElementChildAdded;
+                    el.ChildRemoved += OnElementChildRemoved;
+                }
             }
 
             // Also track all components
@@ -164,13 +174,16 @@ namespace V12.Core.Networking
         public void UntrackElement(IWorldElement element)
         {
             if (element == null) return;
-            _trackedElements.Remove(element);
-            element.OnDirty -= OnElementDirty;
-
-            if (element is Element el)
+            lock (_trackLock)
             {
-                el.ChildAdded -= OnElementChildAdded;
-                el.ChildRemoved -= OnElementChildRemoved;
+                _trackedElements.Remove(element);
+                element.OnDirty -= OnElementDirty;
+
+                if (element is Element el)
+                {
+                    el.ChildAdded -= OnElementChildAdded;
+                    el.ChildRemoved -= OnElementChildRemoved;
+                }
             }
 
             // Also untrack all components
@@ -193,14 +206,17 @@ namespace V12.Core.Networking
         public void TrackWorld(World world)
         {
             if (world?.Root == null) return;
-            if (_worldAddedHandlers.ContainsKey(world)) return; // already tracking
+            lock (_trackLock)
+            {
+                if (_worldAddedHandlers.ContainsKey(world)) return; // already tracking
 
-            Action<IWorldElement> onAdded = el => OnWorldElementAdded(world, el);
-            Action<IWorldElement> onRemoved = el => OnWorldElementRemoved(world, el);
-            world.ElementAdded += onAdded;
-            world.ElementRemoved += onRemoved;
-            _worldAddedHandlers[world] = onAdded;
-            _worldRemovedHandlers[world] = onRemoved;
+                Action<IWorldElement> onAdded = el => OnWorldElementAdded(world, el);
+                Action<IWorldElement> onRemoved = el => OnWorldElementRemoved(world, el);
+                world.ElementAdded += onAdded;
+                world.ElementRemoved += onRemoved;
+                _worldAddedHandlers[world] = onAdded;
+                _worldRemovedHandlers[world] = onRemoved;
+            }
 
             foreach (var element in world.Root)
             {
@@ -215,15 +231,18 @@ namespace V12.Core.Networking
         {
             if (world?.Root == null) return;
 
-            if (_worldAddedHandlers.TryGetValue(world, out var onAdded))
+            lock (_trackLock)
             {
-                world.ElementAdded -= onAdded;
-                _worldAddedHandlers.Remove(world);
-            }
-            if (_worldRemovedHandlers.TryGetValue(world, out var onRemoved))
-            {
-                world.ElementRemoved -= onRemoved;
-                _worldRemovedHandlers.Remove(world);
+                if (_worldAddedHandlers.TryGetValue(world, out var onAdded))
+                {
+                    world.ElementAdded -= onAdded;
+                    _worldAddedHandlers.Remove(world);
+                }
+                if (_worldRemovedHandlers.TryGetValue(world, out var onRemoved))
+                {
+                    world.ElementRemoved -= onRemoved;
+                    _worldRemovedHandlers.Remove(world);
+                }
             }
 
             foreach (var element in world.Root)

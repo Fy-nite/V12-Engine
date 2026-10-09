@@ -42,6 +42,28 @@ namespace V12.Core.UI
         /// <summary>Specs from the last sync (for analytic hit tests).</summary>
         public IReadOnlyList<TransformGizmo.GizmoHandleSpec> Specs => _specs;
 
+        /// <summary>Direct-drive view of one live part: element id + world
+        /// placement, for hosts that write node transforms themselves to skip
+        /// snapshot interpolation (no render lag at any drag speed).</summary>
+        public readonly struct PartDrive
+        {
+            public readonly long ElementId;
+            public readonly Vector3 Center;
+            public readonly Quaternion Rotation;
+            public PartDrive(long elementId, Vector3 center, Quaternion rotation)
+            {
+                ElementId = elementId;
+                Center = center;
+                Rotation = rotation;
+            }
+        }
+
+        private readonly List<PartDrive> _drives = new();
+
+        /// <summary>Live parts with current world placements (rebuilt every
+        /// sync).</summary>
+        public IReadOnlyList<PartDrive> PartDrives => _drives;
+
         /// <summary>Per-frame upkeep: ensure the tree exists, rebuild it on
         /// target/mode/world change, refresh part transforms so the gizmo
         /// holds constant screen size. Static frames skip untouched. A null
@@ -95,6 +117,7 @@ namespace V12.Core.UI
             if (_gizmoRoot == null)
             {
                 _gizmoParts.Clear();
+                _drives.Clear();
                 return;
             }
             var world = _gizmoWorld ?? GameRoot.Instance?.GetWorldForElement(_gizmoRoot);
@@ -107,6 +130,7 @@ namespace V12.Core.UI
             _gizmoRoot = null;
             _gizmoWorld = null;
             _gizmoParts.Clear();
+            _drives.Clear();
             _builtTarget = null;
         }
 
@@ -166,6 +190,7 @@ namespace V12.Core.UI
             PlacePart(el, mesh, placement);
             root.AddChild(el);
             _gizmoParts.Add(new GizmoPart { Element = el, Mesh = mesh, Kind = placement.Mesh });
+            _drives.Add(new PartDrive(el.Id, placement.Center, placement.Rotation));
         }
 
         /// <summary>Refresh part <paramref name="pi"/> from a placement.
@@ -179,6 +204,7 @@ namespace V12.Core.UI
             var part = _gizmoParts[pi];
             if (part.Kind != placement.Mesh) return -1;
             PlacePart(part.Element, part.Mesh, placement);
+            _drives[pi] = new PartDrive(part.Element.Id, placement.Center, placement.Rotation);
             var col = spec.Color;
             var mat = part.Element.GetComponent<MaterialComponent>();
             if (mat != null)
