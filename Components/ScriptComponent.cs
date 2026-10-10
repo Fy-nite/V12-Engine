@@ -1,4 +1,5 @@
 using System;
+using MongoDB.Bson.Serialization.Attributes;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces;
@@ -11,6 +12,9 @@ namespace V12.Components
         public string Source { get; set; }
         public string ScriptText { get; set; }
 
+        /// <summary>Live interpreter handle — never crosses the wire (receivers
+        /// rebuild it from <see cref="ScriptText"/> in OnAttach).</summary>
+        [BsonIgnore]
         public IScriptRuntime Runtime { get; private set; }
         public bool IsInitialized { get; private set; }
 

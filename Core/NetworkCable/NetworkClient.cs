@@ -62,9 +62,27 @@ namespace V12.Core.NetworkCable
         /// <param name="cables">NetworkCables instance to use. If null, uses NetworkCables.Default.</param>
         public NetworkClient(string host, int port, NetworkCables? cables = null)
         {
-            _host = host;
+            // Defend against hosts that already carry ":port" and/or trailing
+            // dots (env vars / CLI typos like "localhost:7777."): without this
+            // the endpoint renders doubled ("localhost:7777.:7777") and DNS
+            // fails instantly on every attempt.
+            _host = NormalizeHost(host);
             _port = port;
             _cables = cables ?? NetworkCables.Default;
+        }
+
+        private static string NormalizeHost(string host)
+        {
+            var h = (host ?? string.Empty).Trim().TrimEnd('.');
+            // Strip an embedded ":port" suffix, keeping the explicit port arg.
+            // Bracketed IPv6 ("[::1]:7777") and bare multi-colon hosts are left alone.
+            if (!h.StartsWith("[", StringComparison.Ordinal) && h.IndexOf(':') == h.LastIndexOf(':'))
+            {
+                int sep = h.LastIndexOf(':');
+                if (sep > 0 && int.TryParse(h.Substring(sep + 1).TrimEnd('.'), out _))
+                    h = h.Substring(0, sep).Trim().TrimEnd('.');
+            }
+            return h;
         }
 
         /// <summary>
