@@ -29,6 +29,12 @@ namespace V12.Core.Interfaces.Renderer
         public long ParentId;
         public Matrix4x4 Local;
     }
+    public struct RenderNode
+    {
+        public long ElementId;
+        public long ParentId;
+        public Matrix4x4 Local;
+    }
     public struct MeshDraw
     {
         public long ElementId;
