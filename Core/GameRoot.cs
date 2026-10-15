@@ -417,6 +417,31 @@ namespace V12.Core
         }
 
         
+        private static void CaptureRenderNodes(IWorldElement element, long parentId, RenderPacket packet)
+        {
+            if (element == null) return;
+
+            bool isViewport = element.GetComponent<ViewportComponent>() != null;
+            var local = element.GetComponent<TransformComponent>()?.Transform;
+            if (local == null)
+            {
+                var transform = element.LocalTransform;
+                local = System.Numerics.Matrix4x4.CreateScale(transform.Scale)
+                      * System.Numerics.Matrix4x4.CreateFromQuaternion(transform.Rotation)
+                      * System.Numerics.Matrix4x4.CreateTranslation(transform.Position);
+            }
+
+            packet.Nodes.Add(new RenderNode
+            {
+                ElementId = element.Id,
+                ParentId = isViewport ? 0 : parentId,
+                Local = local.Value
+            });
+
+            foreach (var child in element.Children.ToArray())
+                CaptureRenderNodes(child, element.Id, packet);
+        }
+
         public void V12Tick(float deltaTime = 1f / 60f)
         {
                 // Run full game update (worlds, services, dashboard)
@@ -430,13 +455,24 @@ namespace V12.Core
                     if (renderer != null)
                     {
                         var packet = new RenderPacket();
-                        foreach (var (el, r, viewportId) in GetAllRenderablesWithViewports())
+                        foreach (var world in ActiveWorlds)
+                        {
+                            world.Lock.EnterReadLock();
+                            try
+                            {
+                                foreach (var element in world.Root.ToArray())
+                                    CaptureRenderNodes(element, 0, packet);
+                            }
+                            finally { world.Lock.ExitReadLock(); }
+                        }
+                        foreach (var (r, viewportId) in GetAllRenderablesWithViewports())
                         {
                             if (r is IMeshRenderable mesh)
                             {
                                 packet.Meshes.Add(new MeshDraw
                                 {
-                                    ElementId = el.Id,
+                                    ElementId = (mesh as ComponentBase)?.Owner?.Id ?? 0,
+                                    Transform = mesh.Transform,
                                     Mesh = mesh,
                                     ViewportId = viewportId
                                 });

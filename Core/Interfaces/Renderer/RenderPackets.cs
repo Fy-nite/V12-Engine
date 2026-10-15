@@ -33,7 +33,6 @@ namespace V12.Core.Interfaces.Renderer
     {
         public long ElementId;
         public IMeshRenderable Mesh;
-        /// <summary>Viewport that owns this draw; 0 = main screen.</summary>
         public long ViewportId;
     }
     public struct SpriteDraw
