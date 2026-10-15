@@ -239,7 +239,7 @@ namespace V12.Core.GamePak
             var sw = Stopwatch.StartNew();
             int success = 0, failed = 0;
 
-            foreach (var pak in _gamepaks)
+            foreach (var pak in _gamepaks.ToArray())
             {
                 try
                 {
@@ -270,7 +270,7 @@ namespace V12.Core.GamePak
             var sw = Stopwatch.StartNew();
             int success = 0, failed = 0;
 
-            foreach (var pak in _gamepaks)
+            foreach (var pak in _gamepaks.ToArray())
             {
                 try
                 {

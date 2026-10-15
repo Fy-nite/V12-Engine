@@ -81,7 +81,7 @@ namespace V12.Components.Renderables
         /// <summary>
         /// Loads the scene once and caches it.
         /// </summary>
-        private Scene LoadScene()
+        private Assimp.Scene LoadScene()
         {
             try
             {

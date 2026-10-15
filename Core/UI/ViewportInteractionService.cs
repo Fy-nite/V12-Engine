@@ -201,8 +201,10 @@ namespace V12.Core.UI
 
             if (_editorCam == null || !s.WindowActive || s.MouseLocked)
             {
-                if (s.LeftDown && !_prevLeftDown)
-                    Console.WriteLine($"[Viewport] click dropped by guard: cam={_editorCam != null} active={s.WindowActive} lockMouse={s.MouseLocked}");
+                // No editor viewport to interact with (normal in-game): drop
+                // silently. Edge state still syncs so a held button never
+                // re-fires as a fresh press.
+                _prevLeftDown = s.LeftDown;
                 return;
             }
 

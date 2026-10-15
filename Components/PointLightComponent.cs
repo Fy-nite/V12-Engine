@@ -6,6 +6,8 @@ using V12.Core.Interfaces.Renderer;
 using V12.Core.UI;
 using Color = System.Drawing.Color;
 
+using MongoDB.Bson.Serialization.Attributes;
+
 namespace V12.Components
 {
     /// <summary>
@@ -51,6 +53,12 @@ namespace V12.Components
         }
 
         // ── ILightRenderable ──
+        /// <summary>
+        /// Derived view over <see cref="ColorR"/>/<see cref="ColorG"/>/<see cref="ColorB"/>.
+        /// Never serialized: it round-trips as an empty document whose
+        /// all-zero default would overwrite the real floats on deserialize.
+        /// </summary>
+        [BsonIgnore]
         public Color Color
         {
             get => Color.FromArgb(
