@@ -8,6 +8,8 @@ namespace V12.Core.Input
     {
         public InputEventType Type { get; set; }
         public string Name { get; set; } = string.Empty; // logical name e.g. "Jump", "MoveX"
+        /// <summary>Physical key for raw key edges (null for named actions/axes).</summary>
+        public InputKey? Key { get; set; }
         public float Value { get; set; } = 0f; // axis or analog magnitude
         public System.Numerics.Vector2 Pointer { get; set; }
         public bool IsPressed { get; set; }

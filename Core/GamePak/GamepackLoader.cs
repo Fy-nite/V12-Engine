@@ -283,6 +283,11 @@ namespace V12.Core.GamePak
                 {
                     failed++;
                     Log.Error(ex, "Failed to start gamepak '{Name}'", pak.Name);
+                    // Surface to the console too: Serilog sinks may not be
+                    // visible in the launcher window, and a script that fails
+                    // to compile/start otherwise dies with zero diagnostics
+                    // (game boots, world loads, script silently absent).
+                    Console.Error.WriteLine($"[Gamepak] FAILED to start '{pak.Name}': {ex.Message}");
                 }
             }
 
