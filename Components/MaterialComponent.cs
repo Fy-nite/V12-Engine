@@ -21,8 +21,6 @@ namespace V12.Components
         private float _roughness = 0.5f;
         private bool _unlit;
         private bool _noDepthTest;
-        private bool _unlit;
-        private bool _noDepthTest;
         private string? _textureUrl;
         private string? _albedoTexture;
         private string? _normalTexture;

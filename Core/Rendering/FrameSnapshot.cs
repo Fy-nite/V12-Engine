@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Numerics;
+using V12.Core.Interfaces.Renderer;
 
 namespace V12.Core.Rendering
 {
@@ -90,6 +91,8 @@ namespace V12.Core.Rendering
         public float NearClip;
         public float FarClip;
         public bool IsCurrentCamera;
+        public CameraProjection Projection;
+        public float OrthoSize;
 
         // Whether the original V12 element has a ColliderComponent.
         // Used by renderers to decide whether to add physics shapes.

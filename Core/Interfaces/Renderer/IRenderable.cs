@@ -49,6 +49,12 @@ namespace V12.Core.Interfaces.Renderer
         Spot,
         AreaLight
     }
+    public enum CameraProjection
+    {
+        Perspective,
+        Orthographic
+    }
+
     public interface ICameraRenderable : ITransformRenderable
     {
         public float FieldOfView { get; }
@@ -56,6 +62,8 @@ namespace V12.Core.Interfaces.Renderer
         public float NearClip { get; }
         public float FarClip { get; }
         public bool IsCurrent { get; }
+        public CameraProjection Projection { get; }
+        public float OrthoSize { get; }
     }
     public interface ILightRenderable : ITransformRenderable
     {
