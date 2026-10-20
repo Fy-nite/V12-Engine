@@ -17,8 +17,8 @@ namespace V12.Core.UI
     /// uniform-scale centre cube (scale mode only). Every drawn segment is
     /// grabbable — what you see is what you can drag.
     ///
-    /// The interaction (grab tests, drag math) lives in
-    /// <see cref="ViewportInteractionService"/>; hosts only project and draw
+    /// The interaction (grab tests, drag math) lives in the Studio-side
+    /// <c>ViewportInteractionService</c>; hosts only project and draw
     /// the segments this model returns.
     /// </summary>
     public static class TransformGizmo

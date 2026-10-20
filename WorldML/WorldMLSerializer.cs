@@ -29,6 +29,7 @@ namespace V12.WorldML
         {
             // ComponentBase plumbing
             "Id", "EntityId", "Owner", "Name", "Description", "Active", "IsDirty",
+            "IsPersistent", // authoring switch: false = omitted entirely, true = default on load
             // Render interfaces / handled separately
             "Transform", "WorldTransform", "LocalTransform", "RenderType",
             "IsWorldLocked", "Material", "PrimaryTexture", "Mesh", "MeshPoints",
@@ -59,7 +60,7 @@ namespace V12.WorldML
         private static void SerializeElement(StringBuilder sb, IWorldElement el, int depth)
         {
             // Editor-transient subtrees (gizmo handles) are never saved.
-            if (EditorTransientComponent.IsTransient(el)) return;
+            if (NonPersistentComponent.IsTransient(el)) return;
             var ind = new string('\t', depth);
             sb.Append($"{ind}<Element name=\"{Escape(el.Name ?? "")}\"");
             if (!string.IsNullOrEmpty(el.Description))
@@ -75,9 +76,10 @@ namespace V12.WorldML
             // Transform: emit the element's TransformComponent if it has one,
             // otherwise synthesize one from its LocalTransform so position and
             // rotation survive the round-trip. A non-identity scale becomes a
-            // ScaleComponent.
+            // ScaleComponent. A non-persistent TransformComponent is treated as
+            // absent (the synthesized fallback still carries the element's pose).
             var tc = el.GetComponent<TransformComponent>();
-            if (tc != null)
+            if (tc != null && tc.IsPersistent)
             {
                 EmitComponent(sb, ind, tc, null);
             }
@@ -93,6 +95,7 @@ namespace V12.WorldML
             foreach (var comp in el.Components)
             {
                 if (comp is TransformComponent) continue; // emitted above
+                if (!comp.IsPersistent) continue;         // runtime/editor-only: not part of the saved world
                 EmitComponent(sb, ind, comp, null);
             }
 

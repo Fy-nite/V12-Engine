@@ -23,6 +23,11 @@ namespace V12.Components
         public bool IsDirty => OnDirty != null;
         public bool Active {  get; set; } = true;
 
+        /// <summary>When false this component is runtime/editor-only: the WorldML
+        /// serializer omits it on save/export, so it never round-trips through a
+        /// saved world. Toggle it in the inspector's component block.</summary>
+        public bool IsPersistent { get; set; } = true;
+
         protected ComponentBase()
         {
             Id = GenerateId();

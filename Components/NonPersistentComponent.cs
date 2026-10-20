@@ -7,9 +7,9 @@ namespace V12.Components
     /// (DirtyTracker deltas, full-sync snapshots) and never replicated.
     /// The editor gizmo root carries this; the check covers descendants, so
     /// parts only need the marker on their root.</summary>
-    public class EditorTransientComponent : ComponentBase
+    public class NonPersistentComponent : ComponentBase
     {
-        public EditorTransientComponent() { }
+        public NonPersistentComponent() { }
 
         /// <summary>True when <paramref name="el"/> carries the marker itself
         /// or sits under a marked ancestor.</summary>
@@ -17,7 +17,7 @@ namespace V12.Components
         {
             for (var cur = el; cur != null; cur = cur.Parent)
             {
-                if (cur.GetComponent<EditorTransientComponent>() != null)
+                if (cur.GetComponent<NonPersistentComponent>() != null)
                     return true;
             }
             return false;

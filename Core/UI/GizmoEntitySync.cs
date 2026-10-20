@@ -16,10 +16,16 @@ namespace V12.Core.UI
     /// these per frame (the MonoGame viewport service and nova's SceneGizmo);
     /// the tree renders and picks through the normal pipeline in every host.
     ///
-    /// Meshes carry no transforms: the element TRS carries position/rotation,
-    /// components only size their dims. The transient marker keeps the tree
-    /// out of saves and network sync; grabs use the analytic pick shapes,
-    /// never the visual mesh.
+    /// The tree is built ONCE at unit size around a local origin. Constant
+    /// screen size comes from a single uniform SCALE + POSITION on the root
+    /// (see <see cref="ApplyRootTransform"/>), not from re-deriving every
+    /// arm's world placement each frame. Parts carry a fixed unit placement
+    /// and never move again — one number on one node tracks the camera
+    /// distance, so the size can't drift out of sync the way per-arm writes
+    /// could. Meshes carry no transforms: the element TRS carries
+    /// position/rotation/scale, components only size their dims. The
+    /// transient marker keeps the tree out of saves and network sync; grabs
+    /// use the analytic pick shapes, never the visual mesh.
     /// </summary>
     public sealed class GizmoEntitySync
     {
@@ -42,30 +48,40 @@ namespace V12.Core.UI
         /// <summary>Specs from the last sync (for analytic hit tests).</summary>
         public IReadOnlyList<TransformGizmo.GizmoHandleSpec> Specs => _specs;
 
-        /// <summary>Direct-drive view of one live part: element id + world
-        /// placement, for hosts that write node transforms themselves to skip
-        /// snapshot interpolation (no render lag at any drag speed).</summary>
-        public readonly struct PartDrive
+        /// <summary>Direct-drive view of the gizmo ROOT: the whole tree scales
+        /// from this one node (position + uniform scale). Hosts that write node
+        /// transforms themselves to skip snapshot interpolation drive THIS
+        /// instead of every arm — the parts are fixed at unit size and ride the
+        /// root's transform.</summary>
+        public readonly struct RootDrive
         {
             public readonly long ElementId;
-            public readonly Vector3 Center;
-            public readonly Quaternion Rotation;
-            public PartDrive(long elementId, Vector3 center, Quaternion rotation)
+            public readonly Vector3 Position;
+            public readonly float UniformScale;
+            public RootDrive(long elementId, Vector3 position, float uniformScale)
             {
                 ElementId = elementId;
-                Center = center;
-                Rotation = rotation;
+                Position = position;
+                UniformScale = uniformScale;
             }
         }
 
-        private readonly List<PartDrive> _drives = new();
+        /// <summary>Live root placement (position + uniform scale), or false
+        /// when no tree exists.</summary>
+        public bool TryGetRootDrive(out RootDrive drive)
+        {
+            if (_gizmoRoot == null) { drive = default; return false; }
+            drive = new RootDrive(_gizmoRoot.Id, _lastOrigin, _lastSize);
+            return true;
+        }
 
-        /// <summary>Live parts with current world placements (rebuilt every
-        /// sync).</summary>
-        public IReadOnlyList<PartDrive> PartDrives => _drives;
+        /// <summary>The live gizmo root element (null when no tree exists).
+        /// Hosts direct-drive this so position + scale land the same frame the
+        /// target moves, instead of waiting on the snapshot pipeline.</summary>
+        public IWorldElement? Root => _gizmoRoot;
 
         /// <summary>Per-frame upkeep: ensure the tree exists, rebuild it on
-        /// target/mode/world change, refresh part transforms so the gizmo
+        /// target/mode/world change, then move + rescale the ROOT so the gizmo
         /// holds constant screen size. Static frames skip untouched. A null
         /// world/target or non-positive size destroys the tree.</summary>
         public void Sync(World? world, IWorldElement? target, GizmoMode mode, Vector3 origin, float size)
@@ -86,29 +102,14 @@ namespace V12.Core.UI
             if ((origin - _lastOrigin).LengthSquared() < 1e-10f
                 && MathF.Abs(size - _lastSize) < 1e-6f)
                 return; // static frame: nothing moved
+
             _lastOrigin = origin;
             _lastSize = size;
 
+            // Pick specs track the real world placement (origin + uniform
+            // scale); the visual tree is already correct via the root scale.
             TransformGizmo.BuildHandleSpecs(mode, origin, size, _specs);
-            int expected = 0;
-            foreach (var s in _specs)
-            {
-                if (s.Mesh0.Mesh != TransformGizmo.GizmoMeshKind.None) expected++;
-                if (s.Mesh1.Mesh != TransformGizmo.GizmoMeshKind.None) expected++;
-            }
-            if (_gizmoParts.Count != expected)
-            {
-                Rebuild(world, target, mode, origin, size);
-                return;
-            }
-            int pi = 0;
-            foreach (var s in _specs)
-            {
-                pi = SyncPartMesh(pi, s.Mesh0, s);
-                if (pi < 0) { Rebuild(world, target, mode, origin, size); return; }
-                pi = SyncPartMesh(pi, s.Mesh1, s);
-                if (pi < 0) { Rebuild(world, target, mode, origin, size); return; }
-            }
+            ApplyRootTransform();
         }
 
         /// <summary>Remove the tree from its world, if any.</summary>
@@ -117,7 +118,6 @@ namespace V12.Core.UI
             if (_gizmoRoot == null)
             {
                 _gizmoParts.Clear();
-                _drives.Clear();
                 return;
             }
             var world = _gizmoWorld ?? GameRoot.Instance?.GetWorldForElement(_gizmoRoot);
@@ -130,7 +130,6 @@ namespace V12.Core.UI
             _gizmoRoot = null;
             _gizmoWorld = null;
             _gizmoParts.Clear();
-            _drives.Clear();
             _builtTarget = null;
         }
 
@@ -153,26 +152,49 @@ namespace V12.Core.UI
             return false;
         }
 
+        /// <summary>Write the whole-tree transform: root sits at the gizmo
+        /// origin with a UNIFORM scale of the screen size. The unit-built parts
+        /// under it land exactly on BuildHandleSpecs(origin, size), because that
+        /// spec builder is linear in size.</summary>
+        private void ApplyRootTransform()
+        {
+            if (_gizmoRoot == null) return;
+            _gizmoRoot.LocalTransform = new TRS
+            {
+                Position = _lastOrigin,
+                Rotation = Quaternion.Identity,
+                Scale = new Vector3(_lastSize, _lastSize, _lastSize),
+            };
+        }
+
         private void Rebuild(World world, IWorldElement target, GizmoMode mode, Vector3 origin, float size)
         {
             Destroy();
 
             var root = new Element("_EditorGizmo");
-            root.AddComponent(new EditorTransientComponent());
+            root.AddComponent(new NonPersistentComponent());
             world.AddElement(root);
             _gizmoRoot = root;
             _gizmoWorld = world;
 
-            TransformGizmo.BuildHandleSpecs(mode, origin, size, _specs);
+            // Build the tree at UNIT size around a local origin; the root's
+            // transform carries the real origin + uniform scale. This is the
+            // only place meshes are created/sized.
+            TransformGizmo.BuildHandleSpecs(mode, Vector3.Zero, 1f, _specs);
             foreach (var spec in _specs)
             {
                 AddPartMesh(root, spec.Mesh0, spec);
                 AddPartMesh(root, spec.Mesh1, spec);
             }
+
             _lastOrigin = origin;
             _lastSize = size;
             _builtTarget = target;
             _builtMode = mode;
+            ApplyRootTransform();
+
+            // Re-derive pick specs at the real placement for hit tests.
+            TransformGizmo.BuildHandleSpecs(mode, origin, size, _specs);
             Console.WriteLine($"[Gizmo] spawned {_gizmoParts.Count} parts mode={mode} target='{target.Name}' size={size:F2}");
         }
 
@@ -190,37 +212,11 @@ namespace V12.Core.UI
             PlacePart(el, mesh, placement);
             root.AddChild(el);
             _gizmoParts.Add(new GizmoPart { Element = el, Mesh = mesh, Kind = placement.Mesh });
-            _drives.Add(new PartDrive(el.Id, placement.Center, placement.Rotation));
         }
 
-        /// <summary>Refresh part <paramref name="pi"/> from a placement.
-        /// Returns the next part index, or -1 when the part's mesh kind no
-        /// longer matches (caller rebuilds).</summary>
-        private int SyncPartMesh(int pi, TransformGizmo.GizmoMeshPlacement placement,
-            TransformGizmo.GizmoHandleSpec spec)
-        {
-            if (placement.Mesh == TransformGizmo.GizmoMeshKind.None) return pi;
-            if (pi < 0 || pi >= _gizmoParts.Count) return -1;
-            var part = _gizmoParts[pi];
-            if (part.Kind != placement.Mesh) return -1;
-            PlacePart(part.Element, part.Mesh, placement);
-            _drives[pi] = new PartDrive(part.Element.Id, placement.Center, placement.Rotation);
-            var col = spec.Color;
-            var mat = part.Element.GetComponent<MaterialComponent>();
-            if (mat != null)
-            {
-                float r = col.R / 255f, g = col.G / 255f, b = col.B / 255f, a = col.A / 255f;
-                if (MathF.Abs(mat.R - r) > 0.002f) mat.R = r;
-                if (MathF.Abs(mat.G - g) > 0.002f) mat.G = g;
-                if (MathF.Abs(mat.B - b) > 0.002f) mat.B = b;
-                if (MathF.Abs(mat.A - a) > 0.002f) mat.A = a;
-            }
-            return pi + 1;
-        }
-
-        /// <summary>Write a placement: the ELEMENT carries position/rotation;
-        /// the component only sizes its dims. The gizmo root sits at identity,
-        /// so local is world here.</summary>
+        /// <summary>Write a unit placement: the ELEMENT carries the fixed
+        /// position/rotation; the component only sizes its dims. The root's
+        /// uniform scale turns this unit pose into the real world pose.</summary>
         private static void PlacePart(IWorldElement el, ComponentBase mesh,
             TransformGizmo.GizmoMeshPlacement p)
         {
@@ -228,8 +224,8 @@ namespace V12.Core.UI
             SizePartMesh(mesh, p);
         }
 
-        /// <summary>Write absolute dimensions (compared first: assigning
-        /// regenerates the vertex cache, so static frames must not touch).</summary>
+        /// <summary>Write UNIT dimensions (compared first: assigning regenerates
+        /// the vertex cache, so static frames must not touch).</summary>
         private static void SizePartMesh(ComponentBase mesh, TransformGizmo.GizmoMeshPlacement p)
         {
             switch (mesh)

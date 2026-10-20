@@ -4,5 +4,13 @@ namespace V12.UI
     {
         void AddChild(IWidget child);
         void RemoveChild(IWidget child);
+
+        /// <summary>
+        /// Layout hint: when false the host keeps this box at its minimum
+        /// content size on the parent container's main axis instead of
+        /// expanding it to absorb spare space (e.g. a narrow sidebar rail
+        /// in a row). Defaults to true.
+        /// </summary>
+        bool Expand { get; set; }
     }
 }

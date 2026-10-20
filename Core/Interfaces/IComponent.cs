@@ -79,6 +79,14 @@ namespace V12.Core.Core.Interfaces
         void BuildInspector(V12.Core.UI.IInspector inspector) { }
 
         /// <summary>
+        /// Persistence switch: when false the component is runtime/editor-only and
+        /// is never written to WorldML on save/export. Default true. The default
+        /// setter here is a no-op for implementations that don't declare the
+        /// property; <see cref="V12.Components.ComponentBase"/> provides the real one.
+        /// </summary>
+        bool IsPersistent { get => true; set { } }
+
+        /// <summary>
         /// Copy the serializable state from <paramref name="other"/> into this component.
         /// Called by the networking layer after deserialising an incoming component snapshot
         /// so the live component reflects the latest server values.

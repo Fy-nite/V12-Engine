@@ -36,6 +36,19 @@ namespace V12.UI
         // --- Modal dialogs ---
         IModal ShowModal(string title, string content);
 
+        // --- Editor-grade controls ---
+        ITreeView CreateTreeView();
+        IAssetGrid CreateAssetGrid();
+        ICheckbox CreateCheckbox(string text, bool value);
+        IToggle CreateToggle(string text, bool toggled);
+        ISlider CreateSlider(float min, float max, float step, float value);
+        INumericField CreateNumericField(float value, string format = "F2");
+        ISplitter CreateSplitter(SplitterOrientation orientation);
+        IContextMenu CreateContextMenu();
+
+        // --- Native file dialogs ---
+        IFilePicker CreateFilePicker();
+
         // --- Root window ---
         IWindow RootWindow { get; }
 

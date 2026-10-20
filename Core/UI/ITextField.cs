@@ -6,6 +6,7 @@ namespace V12.UI
     {
         string Text { get; set; }
         string Placeholder { get; set; }
+        bool Enabled { get; set; }
         void SetOnChanged(Action<string> onChanged);
     }
 }

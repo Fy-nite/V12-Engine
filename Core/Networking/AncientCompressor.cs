@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using MongoDB.Bson;
 using MongoDB.Bson.IO;
@@ -31,7 +31,7 @@ namespace V12.Core.Networking
         {
             if (el == null) return null;
             // Editor-transient subtrees (gizmo handles) are never synced.
-            if (V12.Components.EditorTransientComponent.IsTransient(el)) return null;
+            if (V12.Components.NonPersistentComponent.IsTransient(el)) return null;
             var esDto = new ElementSyncDTO { Id = el.Id, Name = el.Name, Description = el.Description };
             esDto.Position = el.LocalTransform.Position;
             esDto.Rotation = el.LocalTransform.Rotation;
@@ -118,7 +118,7 @@ namespace V12.Core.Networking
             return element;
         }
 
-        // ── Component serialization helpers ───────────────────────────────────
+        // -- Component serialization helpers -----------------------------------
 
         /// <summary>
         /// Serialize a single component to a <see cref="ComponentSyncDTO"/> suitable for wire transport.
@@ -155,7 +155,7 @@ namespace V12.Core.Networking
                 return null;
             }
 
-            // Resolve type – try exact name then short name fallback.
+            // Resolve type � try exact name then short name fallback.
             var type = Type.GetType(dto.TypeName)
                     ?? AppDomain.CurrentDomain.GetAssemblies()
                            .Select(a => { try { return a.GetType(dto.TypeName.Split(',')[0].Trim()); } catch { return null; } })
