@@ -222,6 +222,27 @@ namespace V12.Components
         public override void OnAttach(IWorldElement worldElement)
         {
             base.OnAttach(worldElement);
+
+            // A TransformComponent read from WorldML arrives already populated (the
+            // parser sets X/Y/Z/rotation attributes before attaching). Publish that
+            // pose onto the element so components attached later — the camera in
+            // particular, which reads Owner.LocalTransform in its own OnAttach — see
+            // the authored position instead of the zero default, and so
+            // ElementPlacement and the serializer can read it back.
+            var lt = worldElement.LocalTransform;
+            bool isZeroPose = lt.Position == Vector3.Zero && lt.Rotation == Quaternion.Identity;
+            bool hasAuthoredPose = _x != 0f || _y != 0f || _z != 0f
+                || _rotation != 0f || _rotationX.HasValue || _rotationY.HasValue || _rotationZ.HasValue;
+            if (isZeroPose && hasAuthoredPose)
+            {
+                worldElement.LocalTransform = new TRS
+                {
+                    Position = new Vector3(_x, _y, _z),
+                    Rotation = Quaternion.CreateFromYawPitchRoll(RY, RX, RZ),
+                    Scale = Vector3.One
+                };
+            }
+
             Console.WriteLine($"[TransformComponent] Attached to {worldElement.Name}");
         }
 
