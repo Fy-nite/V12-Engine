@@ -12,6 +12,10 @@ namespace V12.UI
         /// <param name="extensions">Extensions without dots, e.g. "v12pak", "worldml". Empty = all files.</param>
         void ShowOpen(string title, string description, string[] extensions, Action<string?> onResult);
 
+        /// <summary>Pick a directory rather than a file. The callback receives
+        /// the chosen directory path, or null when the user cancels.</summary>
+        void ShowFolder(string title, Action<string?> onResult);
+
         /// <param name="suggestedFileName">Suggested file name including extension; may be empty.</param>
         void ShowSave(string title, string description, string[] extensions, string suggestedFileName, Action<string?> onResult);
 
