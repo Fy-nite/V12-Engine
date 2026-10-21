@@ -10,6 +10,13 @@ namespace V12.Core.UI
         void Int(string label, Func<int> getter, Action<int> setter);
         void Float(string label, Func<float> getter, Action<float> setter);
         void String(string label, Func<string> getter, Action<string> setter);
+
+        /// <summary>A string field holding an asset path/URI (texture, mesh,
+        /// audio…). Hosts may render a browse affordance; the default is a
+        /// plain string row. <paramref name="extensions"/> filters the picker
+        /// (without dots, e.g. "png"); null means any file.</summary>
+        void AssetPath(string label, Func<string> getter, Action<string> setter, string[]? extensions = null)
+            => String(label, getter, setter);
         void Vector2(string label, Func<object> getter, Action<object> setter); // Placeholder
         void Vector3(string label, Func<object> getter, Action<object> setter);
         void Color(string label, Func<object> getter, Action<object> setter);

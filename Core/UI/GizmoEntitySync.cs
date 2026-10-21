@@ -173,6 +173,9 @@ namespace V12.Core.UI
 
             var root = new Element("_EditorGizmo");
             root.AddComponent(new NonPersistentComponent());
+            // Editor plumbing, not user content: hides the whole gizmo tree
+            // (IsEditorOnly walks ancestors) from the hierarchy outliner.
+            root.AddComponent(new EditorOnlyComponent());
             world.AddElement(root);
             _gizmoRoot = root;
             _gizmoWorld = world;

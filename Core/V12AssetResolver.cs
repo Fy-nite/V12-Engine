@@ -52,6 +52,12 @@ namespace V12.Core
                 string local = path.Substring(slashIndex + 1);
                 if (_mounts.TryGetValue(mount, out string basePath))
                     return Path.Combine(basePath, local);
+
+                // First segment is not a registered mount: treat the whole
+                // remaining path as relative to the default mount (the pack
+                // root), so v12://textures/crate.png resolves from the root.
+                if (_defaultMount != null && _mounts.TryGetValue(_defaultMount, out string defaultBase))
+                    return Path.Combine(defaultBase, path);
             }
             else if (_defaultMount != null && _mounts.TryGetValue(_defaultMount, out string defaultPath))
             {

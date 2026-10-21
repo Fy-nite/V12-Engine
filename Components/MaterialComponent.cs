@@ -162,12 +162,19 @@ namespace V12.Components
             inspector.Float("UV Scale X", () => Uv1ScaleX, v => Uv1ScaleX = v);
             inspector.Float("UV Scale Y", () => Uv1ScaleY, v => Uv1ScaleY = v);
             inspector.Section("Textures");
-            inspector.String("Albedo", () => AlbedoTexture ?? "", v => AlbedoTexture = v);
-            inspector.String("Normal", () => NormalTexture ?? "", v => NormalTexture = v);
-            inspector.String("Metallic Map", () => MetallicTexture ?? "", v => MetallicTexture = v);
-            inspector.String("Roughness Map", () => RoughnessTexture ?? "", v => RoughnessTexture = v);
-            inspector.String("Emission Map", () => EmissionTexture ?? "", v => EmissionTexture = v);
+            // AssetPath (not String) so hosts can offer a project-asset
+            // picker; values may be relative paths or v12:// URIs.
+            inspector.AssetPath("Albedo", () => AlbedoTexture ?? "", v => AlbedoTexture = v, TextureExtensions);
+            inspector.AssetPath("Normal", () => NormalTexture ?? "", v => NormalTexture = v, TextureExtensions);
+            inspector.AssetPath("Metallic Map", () => MetallicTexture ?? "", v => MetallicTexture = v, TextureExtensions);
+            inspector.AssetPath("Roughness Map", () => RoughnessTexture ?? "", v => RoughnessTexture = v, TextureExtensions);
+            inspector.AssetPath("Emission Map", () => EmissionTexture ?? "", v => EmissionTexture = v, TextureExtensions);
         }
+
+        private static readonly string[] TextureExtensions =
+        {
+            "png", "jpg", "jpeg", "webp", "bmp", "tga", "ktx", "ktx2", "exr", "hdr"
+        };
 
         public string? PrimaryTexture =>
             AlbedoTexture ?? NormalTexture ?? MetallicTexture ?? RoughnessTexture ?? EmissionTexture ?? TextureUrl;
