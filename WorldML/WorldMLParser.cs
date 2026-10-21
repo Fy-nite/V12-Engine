@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Numerics;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -11,6 +13,7 @@ using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Components;
 using V12.Core.Interfaces;
+using V12.Core.Interfaces.Renderer;
 
 namespace V12.WorldML
 {
@@ -57,7 +60,7 @@ namespace V12.WorldML
                 Console.WriteLine("Loaded XML document with root: " + root?.Name);
                 //Console.WriteLine("XML Contenets:" + Environment.NewLine + doc.OuterXml);
                 if (root == null) throw new Exception("Invalid XML: No root element found.");
-                var worldName = root.Attributes?["name"]?.Value ?? "World";
+                var worldName = GetAttr(root, "name") ?? GetAttr(root, "WorldName") ?? "World";
                 var world = new Element(worldName);
 
                 // Collect inline <Templates> before parsing elements
@@ -114,14 +117,11 @@ namespace V12.WorldML
         /// </summary>
         private IWorldElement ParseElement(XmlNode node, Element world, IWorldElement? parent)
         {
-            var name = node.Attributes?["name"]?.Value;
-            var description = node.Attributes?["description"]?.Value;
+            var name = GetAttr(node, "name");
+            var description = GetAttr(node, "description");
 
             var element = new Element(name, description, parent);
 
-            // Attach to the real parent so element nesting is preserved. Root-level nodes
-            // (parent == null) attach to the world container element. Previously every node
-            // was added to the container, which flattened the hierarchy.
             if (parent is Element parentElement)
                 parentElement.AddChild(element);
             else
@@ -142,15 +142,20 @@ namespace V12.WorldML
             }
 
             // If this element has a template, expand it first
-            bool hasTemplateAttr = false;
-            string templateName = node.Attributes?["template"]?.Value;
+            string templateName = GetAttr(node, "template");
             if (!string.IsNullOrEmpty(templateName) && TemplateProvider != null)
             {
-                hasTemplateAttr = true;
                 ExpandTemplate(templateName, overrides, element, world);
             }
 
             var deferredList = new List<DeferredPropertySet>();
+            // The <LocalTransform> block is recorded here and applied AFTER every
+            // component is attached, so it survives whichever dialect wrote the
+            // file: it wins over a synthesized TransformComponent, and a
+            // TransformComponent written as attributes wins over it (see ApplyLocalTransform).
+            var explicitTransform = ReadLocalTransform(node);
+
+            bool transformSeen = false;
 
             // Process component child nodes and nested elements
             foreach (XmlNode child in node.ChildNodes)
@@ -159,10 +164,15 @@ namespace V12.WorldML
 
                 var childName = child.Name;
 
+                // <LocalTransform> is a value block, never an element.
+                if (string.Equals(childName, "LocalTransform", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(childName, "Transform", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 // <Instance template="name" /> — inline template expansion
                 if (string.Equals(childName, "Instance", StringComparison.OrdinalIgnoreCase))
                 {
-                    string instTmpl = child.Attributes?["template"]?.Value;
+                    string instTmpl = GetAttr(child, "template");
                     if (!string.IsNullOrEmpty(instTmpl) && TemplateProvider != null)
                     {
                         var instOverrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -180,13 +190,14 @@ namespace V12.WorldML
                     continue;
                 }
 
-                if (string.Equals(childName, "Component", StringComparison.OrdinalIgnoreCase)
-                    || childName.EndsWith("Component", StringComparison.OrdinalIgnoreCase))
+                if (IsComponentNode(childName))
                 {
                     var comp = CreateComponentFromNode(child, deferredList);
                     if (comp != null)
                     {
                         element.AddComponent(comp);
+                        if (string.Equals(comp.Name, "Transform", StringComparison.OrdinalIgnoreCase))
+                            transformSeen = true;
                     }
                     continue;
                 }
@@ -194,6 +205,8 @@ namespace V12.WorldML
                 // Otherwise treat as nested element
                 ParseElement(child, world, element);
             }
+
+            ApplyLocalTransform(element, explicitTransform, transformSeen);
 
             // Resolve deferred properties for this element
             foreach (var ds in deferredList)
@@ -210,6 +223,17 @@ namespace V12.WorldML
             }
 
             return element;
+        }
+
+        /// <summary>True when the node is a component to attach rather than a nested
+        /// element: the canonical <c>&lt;Component type="…" /&gt;</c>, the terse
+        /// <c>&lt;TransformComponent … /&gt;</c> shorthand, or the old dialect's
+        /// <c>&lt;Component&gt;&lt;Type&gt;MeshComponent&lt;/Type&gt;…</c> value
+        /// block, whose component is named in a child element.</summary>
+        private static bool IsComponentNode(string tag)
+        {
+            return tag.Equals("Component", StringComparison.OrdinalIgnoreCase)
+                || tag.EndsWith("Component", StringComparison.OrdinalIgnoreCase);
         }
 
         private void ExpandTemplate(string templateName, Dictionary<string, string> overrides, Element parent, Element world)
@@ -279,7 +303,14 @@ namespace V12.WorldML
         /// </summary>
         private IComponent? CreateComponentFromNode(XmlNode node, List<DeferredPropertySet> deferredList)
         {
-            var typeName = node.Attributes?["type"]?.Value ?? node.Attributes?["typename"]?.Value ?? node.Name;
+            var typeName = GetAttr(node, "type") ?? GetAttr(node, "typename");
+            if (string.IsNullOrWhiteSpace(typeName))
+            {
+                // Old dialect: the component is named in a <Type> child block.
+                typeName = ChildElementValue(node, "Type");
+            }
+            if (string.IsNullOrWhiteSpace(typeName))
+                typeName = node.LocalName ?? node.Name;
             if (string.IsNullOrWhiteSpace(typeName)) return null;
 
             // Try to find a type that implements IComponent
@@ -290,7 +321,13 @@ namespace V12.WorldML
                     (string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase)
                      || string.Equals(t.FullName, typeName, StringComparison.OrdinalIgnoreCase)));
 
-            if (compType == null) return null;
+            if (compType == null)
+            {
+                // Silence here used to hide a whole dialect mismatch: every element
+                // came back as a component-less shell with nothing on the console.
+                Console.WriteLine($"[WorldMLParser] WARNING: Unknown component type '{typeName}' (element <{node.ParentNode?.Name}>) - component skipped. Is its assembly loaded?");
+                return null;
+            }
 
             object? instance = null;
             try { instance = Activator.CreateInstance(compType); } catch { return null; }
@@ -303,29 +340,48 @@ namespace V12.WorldML
             if (node.Attributes != null)
             {
                 // Explicitly check for 'name' attribute to set component instance name
-                var nameAttr = node.Attributes["name"];
+                var nameAttr = GetAttr(node, "name");
                 if (nameAttr != null && component is ComponentBase cb)
                 {
-                    cb.Name = nameAttr.Value;
+                    cb.Name = nameAttr;
                 }
 
                 foreach (XmlAttribute attr in node.Attributes)
                 {
-                    if (attr.Name == "type" || attr.Name == "typename" || attr.Name == "name") continue;
+                    if (string.Equals(attr.Name, "type", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(attr.Name, "typename", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(attr.Name, "name", StringComparison.OrdinalIgnoreCase)) continue;
                     SetPropertyIfExists(instance, attr.Name, attr.Value, deferredList);
                 }
             }
 
-            // 2) child Property nodes
+            // 2) child Property nodes, and the old dialect's direct child-element
+            //    values (<Energy>1.2</Energy>, <Shape>Box</Shape>) alongside them.
             foreach (XmlNode child in node.ChildNodes)
             {
                 if (child.NodeType != XmlNodeType.Element) continue;
-                if (!string.Equals(child.Name, "Property", StringComparison.OrdinalIgnoreCase)) continue;
 
-                var propName = child.Attributes?["name"]?.Value;
-                var propValue = child.Attributes?["value"]?.Value ?? child.InnerText;
-                if (string.IsNullOrEmpty(propName)) continue;
-                SetPropertyIfExists(instance, propName, propValue, deferredList);
+                if (string.Equals(child.LocalName, "Property", StringComparison.OrdinalIgnoreCase))
+                {
+                    var propName = GetAttr(child, "name");
+                    var propValue = GetAttr(child, "value") ?? child.InnerText;
+                    if (string.IsNullOrEmpty(propName)) continue;
+                    SetPropertyIfExists(instance, propName, propValue, deferredList);
+                    continue;
+                }
+
+                // <Type> already named the component; skip it here.
+                if (string.Equals(child.LocalName, "Type", StringComparison.OrdinalIgnoreCase)) continue;
+
+                // Only capture leaves; a nested block (e.g. <Position>) is not a value.
+                var text = child.InnerText;
+                if (string.IsNullOrWhiteSpace(text)) continue;
+                bool hasElementChild = false;
+                foreach (XmlNode gc in child.ChildNodes)
+                    if (gc.NodeType == XmlNodeType.Element) { hasElementChild = true; break; }
+                if (hasElementChild) continue;
+
+                SetPropertyIfExists(instance, child.LocalName, text.Trim(), deferredList);
             }
 
             // 3) If the component has an SvgContent string property, capture
@@ -436,6 +492,151 @@ namespace V12.WorldML
         private IEnumerable<Type> SafeGetTypes(Assembly a)
         {
             try { return a.GetTypes(); } catch { return Array.Empty<Type>(); }
+        }
+
+        /// <summary>Case-insensitive attribute lookup. .NET's XmlDocument indexer
+        /// is case-sensitive, so <c>Attributes["name"]</c> silently returns null for
+        /// an SDK-style <c>Name="…"</c> — which used to drop every element name and
+        /// every component type in that dialect without a warning.</summary>
+        private static string? GetAttr(XmlNode node, string name)
+        {
+            if (node.Attributes == null) return null;
+            foreach (XmlAttribute attr in node.Attributes)
+                if (string.Equals(attr.Name, name, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(attr.LocalName, name, StringComparison.OrdinalIgnoreCase))
+                    return attr.Value;
+            return null;
+        }
+
+        /// <summary>Value of a direct child element named <paramref name="name"/>.</summary>
+        private static string? ChildElementValue(XmlNode node, string name)
+        {
+            foreach (XmlNode child in node.ChildNodes)
+            {
+                if (child.NodeType != XmlNodeType.Element) continue;
+                if (string.Equals(child.LocalName ?? child.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return child.InnerText?.Trim();
+            }
+            return null;
+        }
+
+        /// <summary>Read the SDK dialect's <c>&lt;LocalTransform&gt;</c> value block
+        /// (<c>&lt;Position&gt;0,2.6,7&lt;/Position&gt;</c> etc.).</summary>
+        private static TRS? ReadLocalTransform(XmlNode node)
+        {
+            XmlNode? block = null;
+            foreach (XmlNode child in node.ChildNodes)
+            {
+                if (child.NodeType != XmlNodeType.Element) continue;
+                var n = child.LocalName ?? child.Name;
+                if (string.Equals(n, "LocalTransform", StringComparison.OrdinalIgnoreCase))
+                {
+                    block = child;
+                    break;
+                }
+            }
+            if (block == null) return null;
+
+            var trs = new TRS { Position = Vector3.Zero, Rotation = Quaternion.Identity, Scale = Vector3.One };
+            foreach (XmlNode field in block.ChildNodes)
+            {
+                if (field.NodeType != XmlNodeType.Element) continue;
+                var fname = field.LocalName ?? field.Name;
+                var raw = field.InnerText?.Trim();
+                if (string.IsNullOrEmpty(raw)) continue;
+
+                if (string.Equals(fname, "Position", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (TryParseVector3(raw, out var p)) trs.Position = p;
+                }
+                else if (string.Equals(fname, "Scale", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (TryParseVector3(raw, out var s)) trs.Scale = s;
+                }
+                else if (string.Equals(fname, "Rotation", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (TryParseQuaternion(raw, out var q)) trs.Rotation = q;
+                }
+            }
+            return trs;
+        }
+
+        /// <summary>Apply a parsed transform to the element. A TransformComponent
+        /// written as attributes always wins (it is the canonical sheet); otherwise
+        /// the value block is pushed through <see cref="Element.LocalTransform"/>,
+        /// which mirrors into the TransformComponent when one exists.</summary>
+        private static void ApplyLocalTransform(Element element, TRS? explicitTransform, bool transformSeen)
+        {
+            if (explicitTransform == null) return;
+            if (transformSeen)
+            {
+                // Canonical files carry both; the attributes already applied.
+                // Only adopt the block when it actually says something different.
+                var lt = element.LocalTransform;
+                if (!TRSApproximatelyEqual(lt, explicitTransform.Value))
+                {
+                    Console.WriteLine($"[WorldMLParser] NOTE: '{element.Name}' has both a TransformComponent and a <LocalTransform>; using the TransformComponent.");
+                }
+                return;
+            }
+            element.LocalTransform = explicitTransform.Value;
+        }
+
+        private static bool TRSApproximatelyEqual(TRS a, TRS b)
+        {
+            const float eps = 1e-3f;
+            return MathF.Abs(a.Position.X - b.Position.X) < eps
+                && MathF.Abs(a.Position.Y - b.Position.Y) < eps
+                && MathF.Abs(a.Position.Z - b.Position.Z) < eps
+                && MathF.Abs(a.Scale.X - b.Scale.X) < eps
+                && MathF.Abs(a.Scale.Y - b.Scale.Y) < eps
+                && MathF.Abs(a.Scale.Z - b.Scale.Z) < eps
+                && QuaternionApproximatelyEqual(a.Rotation, b.Rotation);
+        }
+
+        private static bool QuaternionApproximatelyEqual(Quaternion a, Quaternion b)
+        {
+            const float eps = 1e-3f;
+            return (MathF.Abs(a.X - b.X) < eps && MathF.Abs(a.Y - b.Y) < eps
+                 && MathF.Abs(a.Z - b.Z) < eps && MathF.Abs(a.W - b.W) < eps)
+                || (MathF.Abs(a.X + b.X) < eps && MathF.Abs(a.Y + b.Y) < eps
+                 && MathF.Abs(a.Z + b.Z) < eps && MathF.Abs(a.W + b.W) < eps);
+        }
+
+        private static bool TryParseVector3(string raw, out Vector3 value)
+        {
+            value = Vector3.Zero;
+            var parts = SplitComponents(raw);
+            if (parts.Length != 3) return false;
+            value = new Vector3(parts[0], parts[1], parts[2]);
+            return true;
+        }
+
+        /// <summary>Accepts either <c>x,y,z</c> or <c>(x, y, z)</c>.</summary>
+        private static float[] SplitComponents(string raw)
+        {
+            var cleaned = raw.Trim().Trim('(', ')', '[', ']');
+            var parts = cleaned.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var result = new float[parts.Length];
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out result[i]))
+                    return Array.Empty<float>();
+            }
+            return result;
+        }
+
+        /// <summary>Quaternions are read as <c>x,y,z,w</c>. The degenerate
+        /// <c>0,0,0,0</c> block (how the old template wrote "no rotation") is read
+        /// as identity rather than as a zero quaternion.</summary>
+        private static bool TryParseQuaternion(string raw, out Quaternion value)
+        {
+            value = Quaternion.Identity;
+            var parts = SplitComponents(raw);
+            if (parts.Length != 4) return false;
+            if (parts[0] == 0 && parts[1] == 0 && parts[2] == 0 && parts[3] == 0) return true;
+            value = Quaternion.Normalize(new Quaternion(parts[0], parts[1], parts[2], parts[3]));
+            return true;
         }
 
         private static double? TryParseDouble(string? value)

@@ -27,6 +27,19 @@ namespace V12.UI
         bool Visible { get; set; }
     }
 
+    /// <summary>Where a dropped item landed relative to the hovered item.</summary>
+    public enum TreeDropPosition
+    {
+        /// <summary>Dropped on empty space: move to the root.</summary>
+        Root,
+        /// <summary>On the item's upper band: insert as the previous sibling.</summary>
+        Before,
+        /// <summary>On the item's body: make it a child of the item.</summary>
+        Child,
+        /// <summary>On the item's lower band: insert as the next sibling.</summary>
+        After,
+    }
+
     /// <summary>
     /// Collapsible item tree with selection, drag-and-drop reparenting, inline
     /// rename and per-item context menus. The tree does not interpret the
@@ -58,8 +71,9 @@ namespace V12.UI
         /// <summary>Enables dragging items onto other items.</summary>
         void SetDropEnabled(bool enabled);
 
-        /// <summary>Raised when an item is dropped on another item: (dragged, target).</summary>
-        void SetOnItemDropped(Action<ITreeItem, ITreeItem> onItemDropped);
+        /// <summary>Raised when an item is dropped: (dragged, target, position).
+        /// Target is null for a drop on empty space (position is Root).</summary>
+        void SetOnItemDropped(Action<ITreeItem, ITreeItem?, TreeDropPosition> onItemDropped);
 
         /// <summary>
         /// Asked when the user requests a context menu on an item. Return the menu
