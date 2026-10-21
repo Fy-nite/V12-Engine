@@ -49,6 +49,15 @@ namespace V12.UI
         // --- Native file dialogs ---
         IFilePicker CreateFilePicker();
 
+        // --- Theming ---
+        /// <summary>
+        /// Apply a named theme variation to the widget's native control (e.g.
+        /// "SectionLabel", "ComponentCard", "DangerButton"). Variations are
+        /// host-defined styling hooks; a host that does not know the name
+        /// leaves the widget on its default styling.
+        /// </summary>
+        void ApplyVariation(IWidget widget, string variation);
+
         // --- Root window ---
         IWindow RootWindow { get; }
 
