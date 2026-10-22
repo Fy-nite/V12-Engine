@@ -8,6 +8,7 @@ namespace V12.Components.UI
     /// Frontends that read this component should arrange all children
     /// of the owning element top-to-bottom.
     /// </summary>
+    [ComponentEntry("UI", "VLayout component", SingleInstance = true)]
     public class VLayoutComponent : ComponentBase
     {
         public override string Name => "VLayout";

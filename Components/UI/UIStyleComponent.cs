@@ -8,6 +8,7 @@ namespace V12.Components.UI
     /// Metadata component for UI elements to carry style hints and layout attributes
     /// that are not captured by specific layout components.
     /// </summary>
+    [ComponentEntry("UI", "UIStyle component", SingleInstance = true)]
     public class UIStyleComponent : ComponentBase
     {
         public override string Name => "UIStyle";

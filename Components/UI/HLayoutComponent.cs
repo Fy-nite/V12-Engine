@@ -8,6 +8,7 @@ namespace V12.Components.UI
     /// Frontends that read this component should arrange all children
     /// of the owning element left-to-right.
     /// </summary>
+    [ComponentEntry("UI", "HLayout component", SingleInstance = true)]
     public class HLayoutComponent : ComponentBase
     {
         public override string Name => "HLayout";

@@ -13,6 +13,7 @@ namespace V12.Components.UI
     /// instead of the main screen, giving panels like an editor's game view
     /// their own camera and scene.
     /// </summary>
+    [ComponentEntry("UI", "Viewport component", SingleInstance = true)]
     public class ViewportComponent : ComponentBase
     {
         public override string Name => "Viewport";

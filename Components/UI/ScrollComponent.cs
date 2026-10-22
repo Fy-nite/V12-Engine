@@ -10,7 +10,8 @@ namespace V12.Components.UI;
 /// preferred height, or FlexibleHeight inside a layout) bounds the viewport;
 /// children that overflow it scroll vertically.
 /// </summary>
-public class ScrollComponent : ComponentBase
+[ComponentEntry("UI", "Scroll component", SingleInstance = true)]
+    public class ScrollComponent : ComponentBase
 {
     public override string Name => "Scroll";
     public override string Description => "Scrollable region for its children";

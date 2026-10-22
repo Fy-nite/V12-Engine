@@ -10,6 +10,8 @@ namespace V12.Components.UI
     /// A clickable button UI element. Frontends render this as a pressable widget.
     /// The <see cref="OnClick"/> delegate is invoked when the user activates the button.
     /// </summary>
+    
+    [ComponentEntry("UI", "Button component", SingleInstance = true)]
     public class ButtonComponent : ComponentBase
     {
         public override string Name => "Button";

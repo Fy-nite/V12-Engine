@@ -5,6 +5,7 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI
 {
+    [ComponentEntry("UI", "Checkbox component", SingleInstance = true)]
     public class CheckboxComponent : ComponentBase
     {
         public override string Name => "Checkbox";

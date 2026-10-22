@@ -3,6 +3,7 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI
 {
+    [ComponentEntry("UI", "Icon component", SingleInstance = true)]
     public class IconComponent : ComponentBase
     {
         public override string Name => "Icon";

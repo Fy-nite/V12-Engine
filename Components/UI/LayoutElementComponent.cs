@@ -4,7 +4,8 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI;
 
-public class LayoutElementComponent: ComponentBase
+[ComponentEntry("UI", "LayoutElement component", SingleInstance = true)]
+    public class LayoutElementComponent: ComponentBase
 {
     public override string Name => "LayoutElement";
     public override string Description => "Layout sizing hints for layout systems";

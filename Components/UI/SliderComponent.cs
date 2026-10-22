@@ -5,6 +5,7 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI
 {
+    [ComponentEntry("UI", "Slider component", SingleInstance = true)]
     public class SliderComponent : ComponentBase
     {
         public override string Name => "Slider";

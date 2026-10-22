@@ -8,6 +8,7 @@ namespace V12.Components.UI
     /// A single-line text input field. Frontends render an editable text box and
     /// call <see cref="InvokeChanged"/> when the user commits a new value.
     /// </summary>
+    [ComponentEntry("UI", "TextInput component", SingleInstance = true)]
     public class TextInputComponent : ComponentBase
     {
         public override string Name => "TextInput";
