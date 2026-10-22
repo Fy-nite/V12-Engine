@@ -447,24 +447,44 @@ namespace V12.WorldML
         {
             if (value == null) return;
             var pi = target.GetType().GetProperty(propName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-            
-            if (pi == null || !pi.CanWrite) 
-                return;
-
-            try
+            if (pi != null && pi.CanWrite)
             {
-                // Defer if property type is a component/interface and value is a string
-                if ((pi.PropertyType.IsInterface || typeof(IComponent).IsAssignableFrom(pi.PropertyType)) && pi.PropertyType != typeof(string))
+                try
                 {
-                    deferredList.Add(new DeferredPropertySet { Target = target, Property = pi, ComponentName = value });
+                    // Defer if property type is a component/interface and value is a string
+                    if ((pi.PropertyType.IsInterface || typeof(IComponent).IsAssignableFrom(pi.PropertyType)) && pi.PropertyType != typeof(string))
+                    {
+                        deferredList.Add(new DeferredPropertySet { Target = target, Property = pi, ComponentName = value });
+                        return;
+                    }
+
+                    var converted = ConvertToType(value, pi.PropertyType);
+                    pi.SetValue(target, converted);
+                    //Console.WriteLine($"[WorldMLParser] Set {propName} to {value} on {target.GetType().Name}");
                     return;
                 }
-
-                var converted = ConvertToType(value, pi.PropertyType);
-                pi.SetValue(target, converted);
-                //Console.WriteLine($"[WorldMLParser] Set {propName} to {value} on {target.GetType().Name}");
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[WorldMLParser] Error setting {propName}: {ex.Message}");
+                    return;
+                }
             }
-            catch (Exception ex) 
+
+            var fi = target.GetType().GetField(propName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (fi == null) return;
+            try
+            {
+                if ((fi.FieldType.IsInterface || typeof(IComponent).IsAssignableFrom(fi.FieldType)) && fi.FieldType != typeof(string))
+                {
+                    var param = new DeferredPropertySet { Target = target };
+                    // Property required by DeferredPropertySet - build a helper isn't necessary
+                    // just skip; fields to component references are rare
+                    return;
+                }
+                var converted = ConvertToType(value, fi.FieldType);
+                fi.SetValue(target, converted);
+            }
+            catch (Exception ex)
             {
                 Console.WriteLine($"[WorldMLParser] Error setting {propName}: {ex.Message}");
             }

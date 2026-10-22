@@ -10,6 +10,7 @@ namespace V12.Components
     /// Shape mirrors MeshShape so a box element can also be a box collider etc.
     /// IsTrigger = true → overlap-only (no physics response).
     /// </summary>
+    [ComponentEntry("PHYSICS", "Collider", SingleInstance = true, SortOrder = 11)]
     public class ColliderComponent : ComponentBase
     {
         private MeshShape _shape    = MeshShape.Box;

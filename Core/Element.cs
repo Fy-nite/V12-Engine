@@ -241,6 +241,7 @@ namespace V12.Core
                 component.RaiseDirty();
             }
             finally { world?.Lock.ExitWriteLock(); }
+            MarkDirty(); // re-capture a frame so the renderer materializes the new component's node
             return component;
         }
         public void RemoveComponent(IComponent component)
@@ -257,6 +258,7 @@ namespace V12.Core
             // Broadcast the removal to peers (host only) so remote copies drop it too.
             tracker?.NotifyComponentRemoved(this, component);
             component.OnDetach(this);
+            MarkDirty(); // re-capture a frame so the renderer drops the removed component's node
         }
         public IComponent GetComponent(string name)
         {

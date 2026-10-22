@@ -10,6 +10,7 @@ namespace V12.Components
     /// Direction X/Y/Z define the emission direction vector (normalised on the Godot side).
     /// SpreadAngle (degrees) adds randomness around that direction.
     /// </summary>
+    [ComponentEntry("GAMEPLAY", "Particle Emitter", SingleInstance = false, SortOrder = 19)]
     public class ParticleEmitterComponent : ComponentBase
     {
         private int   _amount        = 32;

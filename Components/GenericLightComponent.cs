@@ -9,6 +9,7 @@ using BepuPhysics.Constraints;
 using MongoDB.Bson.Serialization.Attributes;
 namespace V12.Components
 {
+    [ComponentEntry("LIGHTING", "Directional Light", SingleInstance = true, SortOrder = 6)]
     public class GenericLightComponent : ComponentBase, ILightRenderable
     {
         private float _colorR        = 1f;

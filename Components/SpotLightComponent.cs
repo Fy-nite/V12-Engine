@@ -9,6 +9,7 @@ namespace V12.Components
     /// ColorR/G/B are 0–1. Range and Angle are in world-units / degrees.
     /// SpotSoftness controls the attenuation at the cone edge (0 = hard, 1 = very soft).
     /// </summary>
+    [ComponentEntry("LIGHTING", "Spot Light", SingleInstance = true, SortOrder = 8)]
     public class SpotLightComponent : ComponentBase
     {
         private float _colorR       = 1f;

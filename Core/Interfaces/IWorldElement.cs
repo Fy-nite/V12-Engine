@@ -71,6 +71,11 @@ namespace V12.Core.Core.Interfaces
             var tracker = GameRoot.Instance?.Registry.Get<DirtyTracker>("DirtyTracker");
             tracker?.TrackComponent(component);
             component.RaiseDirty(); // mark the component as dirty after attaching to ensure it is updated in the next cycle
+            // Adding a component to an already-rendered element must trigger a
+            // frame re-capture, or the renderer never materializes its node. The
+            // interface default can't raise the element's OnDirty event, so set
+            // only the global render-dirty flag the worker gates capture on.
+            GameRoot.Instance?.MarkRenderDirty();
         }
 
         /// <summary>
@@ -86,6 +91,7 @@ namespace V12.Core.Core.Interfaces
             var tracker = GameRoot.Instance?.Registry.Get<DirtyTracker>("DirtyTracker");
             tracker?.UntrackComponent(component);
             component.RaiseDirty(); // mark the component as dirty after detaching to ensure it is updated in the next cycle
+            GameRoot.Instance?.MarkRenderDirty();
         }
 
         /// <summary>

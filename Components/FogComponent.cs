@@ -10,6 +10,7 @@ namespace V12.Components
     /// Color channels are 0–1. Density controls opacity.
     /// HeightFalloff causes the fog to thin out above the element's position.
     /// </summary>
+    [ComponentEntry("LIGHTING", "Fog", SingleInstance = true, SortOrder = 10)]
     public class FogComponent : ComponentBase
     {
         private float _colorR       = 0.8f;

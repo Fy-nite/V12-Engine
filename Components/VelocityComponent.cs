@@ -10,6 +10,7 @@ namespace V12.Components
     /// Used by physics / movement systems; read by the Godot renderer to
     /// drive RigidBody3D velocities.
     /// </summary>
+    [ComponentEntry("PHYSICS", "Velocity", SingleInstance = true, SortOrder = 12)]
     public class VelocityComponent : ComponentBase
     {
         private float _velX = 0f, _velY = 0f, _velZ = 0f;

@@ -11,6 +11,7 @@ namespace V12.Components
     /// Comma-separated string tags attached to an element for query / filtering purposes.
     /// Example XML:  &lt;TagComponent Tags="player,team1,controllable" /&gt;
     /// </summary>
+    [ComponentEntry("GAMEPLAY", "Tag", SingleInstance = true, SortOrder = 15)]
     public class TagComponent : ComponentBase
     {
         private string _tags = string.Empty;

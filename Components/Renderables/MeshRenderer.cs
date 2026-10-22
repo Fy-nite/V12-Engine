@@ -1,4 +1,4 @@
-﻿using Assimp;
+using Assimp;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
@@ -9,6 +9,7 @@ using V12.Core.Interfaces.Renderer;
 
 namespace V12.Components.Renderables
 {
+    [ComponentEntry("RENDER", "Mesh Renderer", SingleInstance = true, SortOrder = 3)]
     public class MeshRenderer : ComponentBase, IMeshRenderable
     {
         public override string Name { get => base.Name; set => base.Name = value; }

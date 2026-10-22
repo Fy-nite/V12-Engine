@@ -10,6 +10,7 @@ namespace V12.Components
     /// Godot/Unity glue components can update this component to provide a generic interaction
     /// surface for systems (UI, selection, etc.).
     /// </summary>
+    [ComponentEntry("GAMEPLAY", "Interaction", SingleInstance = true, SortOrder = 18)]
     public class InteractionComponent : ComponentBase
     {
         private bool _isPointing;

@@ -9,6 +9,7 @@ namespace V12.Components
     /// Non-uniform scale applied to an element's visual representation.
     /// Defaults to (1, 1, 1) — i.e. no scaling.
     /// </summary>
+    [ComponentEntry("TRANSFORM", "Scale", SingleInstance = true, SortOrder = 1)]
     public class ScaleComponent : ComponentBase
     {
         private float _scaleX = 1f;

@@ -7,6 +7,7 @@ using V12.Core.UI;
 
 namespace V12.Components
 {
+    [ComponentEntry("GAMEPLAY", "Script", SingleInstance = true, SortOrder = 16)]
     public class ScriptComponent : ComponentBase
     {
         public string Source { get; set; }

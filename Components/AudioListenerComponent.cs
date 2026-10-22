@@ -6,6 +6,7 @@ using V12.Core.UI;
 
 namespace V12.Components
 {
+    [ComponentEntry("AUDIO", "Audio Listener", SingleInstance = true, SortOrder = 14)]
     public class AudioListenerComponent : ComponentBase, IAudioListener
     {
         public override string Name => "AudioListener";

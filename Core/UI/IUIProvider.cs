@@ -11,6 +11,11 @@ namespace V12.UI
         // --- Window management ---
         IWindow CreateWindow(string title, WindowOptions options);
 
+        string Palletname { get; set; }
+        void SetPallet(string name);
+        public  IReadOnlyList<string> PalletNames { get; }
+
+
         // --- Viewport hosting ---
         IViewportHost CreateViewportHost();
 
