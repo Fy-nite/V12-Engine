@@ -3,7 +3,7 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI
 {
-    [ComponentEntry("UI", "Rect component", SingleInstance = true)]
+    [ComponentEntry("UI", "Rect", SingleInstance = true, SortOrder = 19, Icon = "square")]
     public class RectComponent : ComponentBase
     {
         public override string Name => "Rect";

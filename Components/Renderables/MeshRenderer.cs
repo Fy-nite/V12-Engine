@@ -9,7 +9,7 @@ using V12.Core.Interfaces.Renderer;
 
 namespace V12.Components.Renderables
 {
-    [ComponentEntry("RENDER", "Mesh Renderer", SingleInstance = true, SortOrder = 3)]
+    [ComponentEntry("RENDER", "Mesh Renderer", SingleInstance = true, SortOrder = 2, Icon = "layer-group")]
     public class MeshRenderer : ComponentBase, IMeshRenderable
     {
         public override string Name { get => base.Name; set => base.Name = value; }

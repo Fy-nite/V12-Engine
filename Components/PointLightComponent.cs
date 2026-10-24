@@ -14,7 +14,7 @@ namespace V12.Components
     /// Omnidirectional point light that emits light in all directions from a single point.
     /// ColorR/G/B are 0–1. Range is in world units. Energy is the brightness multiplier.
     /// </summary>
-    [ComponentEntry("LIGHTING", "Point Light", SingleInstance = true, SortOrder = 7)]
+    [ComponentEntry("LIGHTING", "Point Light", SingleInstance = true, SortOrder = 2, Icon = "lightbulb")]
     public class PointLightComponent : ComponentBase, ILightRenderable
     {
         private float _colorR  = 1f;

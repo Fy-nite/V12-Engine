@@ -8,7 +8,7 @@ namespace V12.Components
     /// Marker component that indicates this element is a player spawn point.
     /// Use a <see cref="TransformComponent"/> on the same element to set the spawn position.
     /// </summary>
-    [ComponentEntry("GAMEPLAY", "Spawn Point", SingleInstance = true, SortOrder = 17)]
+    [ComponentEntry("GAMEPLAY", "Spawn Point", SingleInstance = true, SortOrder = 3, Icon = "location-dot")]
     public class SpawnPointComponent : ComponentBase
     {
         public override string Name => "SpawnPoint";

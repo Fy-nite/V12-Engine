@@ -17,7 +17,7 @@ namespace V12.Components.UI
     /// Frontends (e.g. Godot's WorldCanvasSystem) map this to an
     /// HSplitContainer / VSplitContainer.
     /// </summary>
-    [ComponentEntry("UI", "Splitter component", SingleInstance = true)]
+    [ComponentEntry("UI", "Splitter", SingleInstance = true, SortOrder = 22, Icon = "table-columns")]
     public class SplitterComponent : ComponentBase
     {
         public override string Name => "Splitter";

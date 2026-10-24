@@ -305,7 +305,23 @@ namespace V12.Core
             }
             catch { }
 
-
+            // Engine-level default UI library: Prowl Paper + Origami + Quill.
+            // This makes Paper the default renderer (meshes, see
+            // Core/UI/Paper/PaperCanvasRenderer.cs which mirrors
+            // Paper/Samples/OpenTK/PaperRenderer.cs but captures meshes for Godot).
+            // Hosts that provide their own "IUIRenderer" (e.g. Godot WorldCanvasSystem)
+            // still win; when UseProwlPaper==false the Paper path is dormant and
+            // Godot remains the sole UI renderer.
+            try
+            {
+                if (V12.Core.UI.Paper.ProwlPaperRenderer.UseProwlPaper && Registry.Get("IUIRenderer") == null)
+                {
+                    var paper = new V12.Core.UI.Paper.ProwlPaperRenderer(1280, 720, 1f);
+                    Registry.Register("IUIRenderer", paper);
+                    Log.Information("[GameRoot] Prowl Paper/Origami registered as default IUIRenderer (Paper/Quill 3.9.3) - Godot is fallback");
+                }
+            }
+            catch (Exception ex) { Log.Debug(ex, "[GameRoot] Paper IUIRenderer auto-register failed, falling back to Godot"); }
 
             Instance = this;
         }
@@ -501,7 +517,7 @@ namespace V12.Core
             return frame;
         }
 
-        private static void CaptureUICanvases(IWorldElement element, UIFrame frame)
+        private void CaptureUICanvases(IWorldElement element, UIFrame frame)
         {
             if (element?.Components == null) return;
 
@@ -516,7 +532,7 @@ namespace V12.Core
                 CaptureUICanvases(child, frame);
         }
 
-        private static void CaptureCanvas(IWorldElement canvasElement, V12.Components.UI.CanvasComponent canvas, UIFrame frame)
+        private void CaptureCanvas(IWorldElement canvasElement, V12.Components.UI.CanvasComponent canvas, UIFrame frame)
         {
             frame.Nodes.Add(new UINode
             {
@@ -535,7 +551,7 @@ namespace V12.Core
                 CaptureUIWidgets(child, canvasElement.Id, frame);
         }
 
-        private static void CaptureUIWidgets(IWorldElement element, long parentId, UIFrame frame)
+        private void CaptureUIWidgets(IWorldElement element, long parentId, UIFrame frame)
         {
             if (element?.Components == null) return;
 
@@ -560,7 +576,7 @@ namespace V12.Core
                 CaptureUIWidgets(child, childParent, frame);
         }
 
-        private static UINode? BuildUINode(IWorldElement element)
+        private UINode? BuildUINode(IWorldElement element)
         {
             var node = new UINode { Id = element.Id, Name = element.Name ?? "" };
 
@@ -572,6 +588,12 @@ namespace V12.Core
             {
                 node.MinWidth = layout.MinWidth; node.PreferredWidth = layout.PreferredWidth; node.FlexibleWidth = layout.FlexibleWidth;
                 node.MinHeight = layout.MinHeight; node.PreferredHeight = layout.PreferredHeight; node.FlexibleHeight = layout.FlexibleHeight;
+            }
+
+            if (element.GetComponent<V12.Components.UI.TabPageComponent>() is { } tabPage)
+            {
+                node.TabIndex = tabPage.Index;
+                node.TabTitle = tabPage.Title ?? "";
             }
 
             if (element.GetComponent<V12.Components.UI.ButtonComponent>() is { } button)
@@ -708,7 +730,149 @@ namespace V12.Core
                 return node;
             }
 
+            // -- Origami widgets authored straight on the element (V12.Components.UI) --
+            if (element.GetComponent<V12.Components.UI.PropertyGridComponent>() is { } propGrid)
+            {
+                node.Kind = UIWidgetKind.PropertyGrid;
+                node.Targets = ResolveInspectTargets(element, propGrid.TargetElementId);
+                node.Depth = propGrid.Depth;
+                node.Bool = propGrid.ExpandByDefault;
+                node.Text = propGrid.ShowHeader ? "1" : "";
+                node.OnDirty = propGrid.NotifyChanged;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.TabsComponent>() is { } tabs)
+            {
+                node.Kind = UIWidgetKind.Tabs;
+                node.Items = new List<string>(tabs.Tabs);
+                node.SelectedIndex = tabs.SelectedIndex;
+                node.Bool = tabs.Pills;
+                node.Height = tabs.TabHeight;
+                node.OnSelected = tabs.InvokeSelected;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.TableComponent>() is { } table)
+            {
+                node.Kind = UIWidgetKind.Table;
+                node.Columns = table.Columns.Select(c => c.Header).ToList();
+                node.Rows = table.Rows.Select(r => new List<string>(r.Cells)).ToList();
+                node.RowHeight = table.RowHeight;
+                node.Bordered = table.Bordered;
+                node.Width = table.ScrollWidth;
+                node.Height = table.ScrollHeight;
+                node.SelectedIndex = table.SelectedIndex;
+                node.OnSelected = table.InvokeSelected;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.DropdownComponent>() is { } dropdown)
+            {
+                node.Kind = UIWidgetKind.Dropdown;
+                node.Items = new List<string>(dropdown.Items);
+                node.SelectedIndex = dropdown.SelectedIndex;
+                node.Placeholder = dropdown.Placeholder;
+                node.Bool = dropdown.Searchable;
+                node.Width = dropdown.Width;
+                node.OnSelected = dropdown.InvokeSelected;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.SeparatorComponent>() != null)
+            {
+                node.Kind = UIWidgetKind.Separator;
+                return node;
+            }
+            if (element.GetComponent<V12.Components.UI.SpinnerComponent>() is { } spinner)
+            {
+                node.Kind = UIWidgetKind.Spinner;
+                node.Width = spinner.Size;
+                node.Height = spinner.Size;
+                return node;
+            }
+            if (node.TabIndex >= 0)
+            {
+                node.Kind = UIWidgetKind.VLayout;
+                return node;
+            }
+
+            // ── Origami widgets (V12.Basic.Components.Origami.*) ─────────
+            // Resolved by type name / reflection to avoid V12 -> V12.Basic circular dependency.
+            // When these components are present the Paper renderer uses them; Godot fallback
+            // treats them as plain VLayout containers so they still layout.
+            var origComp = element.Components.FirstOrDefault(c => c.GetType().Name is "CodeEditorComponent" or "DockSpaceComponent" or "DockPanelComponent");
+            if (origComp != null)
+            {
+                var t = origComp.GetType().Name;
+
+                // Reflection helpers: V12 must not reference V12.Basic directly.
+                string Str(string prop, string fallback) =>
+                    origComp.GetType().GetProperty(prop)?.GetValue(origComp) as string ?? fallback;
+                bool Bool(string prop, bool fallback) =>
+                    origComp.GetType().GetProperty(prop)?.GetValue(origComp) is bool b ? b : fallback;
+                float Float(string prop, float fallback) =>
+                    origComp.GetType().GetProperty(prop)?.GetValue(origComp) is float f ? f : fallback;
+
+                switch (t)
+                {
+                    case "CodeEditorComponent":
+                        node.Kind = UIWidgetKind.CodeEditor;
+                        node.Text = (string)(origComp.GetType().GetProperty("Text")?.GetValue(origComp) ?? "");
+                        node.Language = (string)(origComp.GetType().GetProperty("Language")?.GetValue(origComp) ?? "csharp");
+                        node.ReadOnly = (bool)(origComp.GetType().GetProperty("ReadOnly")?.GetValue(origComp) ?? false);
+                        node.TabSize = (int)(origComp.GetType().GetProperty("TabSize")?.GetValue(origComp) ?? 4);
+                        node.FontSize = 0;
+                        node.OnTextChanged = v => { try{ origComp.GetType().GetMethod("InvokeChanged")?.Invoke(origComp, new object[]{ v }); }catch{} };
+                        return node;
+                    case "DockSpaceComponent":
+                        node.Kind = UIWidgetKind.DockSpace;
+                        node.DockId = Str("DockSpaceId", "dock");
+                        node.AllowSplitting = Bool("AllowSplitting", true);
+                        node.AllowFloating = Bool("AllowFloating", true);
+                        node.DockPadding = Float("DockPadding", 0f);
+                        node.Width = Float("Width", 0f);
+                        node.Height = Float("Height", 0f);
+                        node.LayoutJson = Str("LayoutJson", "");
+                        return node;
+                    case "DockPanelComponent":
+                        node.Kind = UIWidgetKind.DockPanel;
+                        node.Text = Str("Title", node.Name);
+                        node.DockId = Str("DockId", "dock");
+                        node.Icon = Str("Icon", "");
+                        node.Closable = Bool("Closable", true);
+                        node.Floating = Bool("Floating", false);
+                        node.DockSplit = origComp.GetType().GetProperty("Split")?.GetValue(origComp) is Enum e ? Convert.ToInt32(e) : 0;
+                        node.SplitRatio = Float("SplitRatio", 0.5f);
+                        node.FloatingX = Float("FloatingX", 80f);
+                        node.FloatingY = Float("FloatingY", 80f);
+                        node.FloatingWidth = Float("FloatingWidth", 520f);
+                        node.FloatingHeight = Float("FloatingHeight", 360f);
+                        return node;
+                }
+            }
+
             return null;
+        }
+
+        /// <summary>
+        /// Components a PropertyGrid inspects: the data components of
+        /// <paramref name="targetElementId"/> (or of the owning element when 0).
+        /// UI components are the grid's own plumbing, so they are skipped.
+        /// </summary>
+        private List<object> ResolveInspectTargets(IWorldElement owner, long targetElementId)
+        {
+            var targets = new List<object>();
+            IWorldElement? subject = null;
+            if (targetElementId != 0)
+                subject = FindElement(e => e.Id == targetElementId);
+            subject ??= owner;
+            if (subject?.Components == null) return targets;
+
+            foreach (var component in subject.Components.ToArray())
+            {
+                if (component == null) continue;
+                if (component is NonPersistentComponent) continue;
+                if (component.GetType().Namespace == "V12.Components.UI") continue;
+                targets.Add(component);
+            }
+            return targets;
         }
 
         public List<IRenderable> GetAllRenderables()
@@ -1665,3 +1829,4 @@ namespace V12.Core
     }
     
 }
+

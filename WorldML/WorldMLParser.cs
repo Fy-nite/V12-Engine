@@ -28,72 +28,78 @@ namespace V12.WorldML
         /// Parse a world description from an XML string.
         /// </summary>
         private IWorldElement _parseTask;
+        IWorldElement LoadElementFromXml(string xml, IWorldElement parent)
+        {
+            var el = Parse(xml);   // single-root Element
+            parent.AddChild(el);
+            return el;
+        }
         public IWorldElement Parse(string xml)
         {
-        
-                if (string.IsNullOrWhiteSpace(xml))
-                {
-                    throw new ArgumentException("XML content is empty or whitespace. Ensure the resource or file was loaded correctly.");
-                }
 
-                var doc = new XmlDocument();
+            if (string.IsNullOrWhiteSpace(xml))
+            {
+                throw new ArgumentException("XML content is empty or whitespace. Ensure the resource or file was loaded correctly.");
+            }
+
+            var doc = new XmlDocument();
+            try
+            {
+                doc.LoadXml(xml);
+            }
+            catch (XmlException)
+            {
+                // The input might be a fragment (multiple root elements, no <World> wrapper).
+                // Try wrapping it and parsing again before giving up.
                 try
                 {
-                    doc.LoadXml(xml);
+                    doc.LoadXml($"<World>{xml}</World>");
                 }
-                catch (XmlException)
+                catch (XmlException ex2)
                 {
-                    // The input might be a fragment (multiple root elements, no <World> wrapper).
-                    // Try wrapping it and parsing again before giving up.
-                    try
-                    {
-                        doc.LoadXml($"<World>{xml}</World>");
-                    }
-                    catch (XmlException ex2)
-                    {
-                        var preview = xml.Length > 200 ? xml.Substring(0, 200) + "..." : xml;
-                        throw new XmlException($"Failed to parse XML input. Preview: {preview}", ex2);
-                    }
+                    var preview = xml.Length > 200 ? xml.Substring(0, 200) + "..." : xml;
+                    throw new XmlException($"Failed to parse XML input. Preview: {preview}", ex2);
                 }
+            }
 
-                var root = doc.DocumentElement;
-                Console.WriteLine("Loaded XML document with root: " + root?.Name);
-                //Console.WriteLine("XML Contenets:" + Environment.NewLine + doc.OuterXml);
-                if (root == null) throw new Exception("Invalid XML: No root element found.");
-                var worldName = GetAttr(root, "name") ?? GetAttr(root, "WorldName") ?? "World";
-                var world = new Element(worldName);
+            var root = doc.DocumentElement;
+            Console.WriteLine("Loaded XML document with root: " + root?.Name);
+            //Console.WriteLine("XML Contenets:" + Environment.NewLine + doc.OuterXml);
+            if (root == null) throw new Exception("Invalid XML: No root element found.");
+            var worldName = GetAttr(root, "name") ?? GetAttr(root, "WorldName") ?? "World";
+            var world = new Element(worldName);
 
-                // Collect inline <Templates> before parsing elements
-                if (TemplateProvider is WorldTemplateProvider wtp)
-                {
-                    foreach (XmlNode child in root.ChildNodes)
-                    {
-                        if (child.NodeType != XmlNodeType.Element) continue;
-                        if (string.Equals(child.Name, "Templates", StringComparison.OrdinalIgnoreCase))
-                        {
-                            foreach (XmlNode tmpl in child.ChildNodes)
-                            {
-                                if (tmpl.NodeType != XmlNodeType.Element) continue;
-                                if (string.Equals(tmpl.Name, "Template", StringComparison.OrdinalIgnoreCase))
-                                    wtp.AddInline(tmpl);
-                            }
-                        }
-                    }
-                }
-
-                // Parse root child elements
+            // Collect inline <Templates> before parsing elements
+            if (TemplateProvider is WorldTemplateProvider wtp)
+            {
                 foreach (XmlNode child in root.ChildNodes)
                 {
                     if (child.NodeType != XmlNodeType.Element) continue;
                     if (string.Equals(child.Name, "Templates", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    var elem = ParseElement(child, world, null);
+                    {
+                        foreach (XmlNode tmpl in child.ChildNodes)
+                        {
+                            if (tmpl.NodeType != XmlNodeType.Element) continue;
+                            if (string.Equals(tmpl.Name, "Template", StringComparison.OrdinalIgnoreCase))
+                                wtp.AddInline(tmpl);
+                        }
+                    }
                 }
-
-                return world;
-
-
             }
+
+            // Parse root child elements
+            foreach (XmlNode child in root.ChildNodes)
+            {
+                if (child.NodeType != XmlNodeType.Element) continue;
+                if (string.Equals(child.Name, "Templates", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var elem = ParseElement(child, world, null);
+            }
+
+            return world;
+
+
+        }
 
         /// <summary>
         /// Load and parse XML file from disk.

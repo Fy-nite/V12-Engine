@@ -8,7 +8,8 @@ namespace V12.UI
     /// </summary>
     public interface IContextMenu : IWidget
     {
-        void AddItem(string label, Action onClick, bool enabled = true);
+        /// <param name="icon">Host-defined icon key (e.g. "cube"); may be ignored.</param>
+        void AddItem(string label, Action onClick, bool enabled = true, string icon = "");
         void AddSeparator();
 
         /// <summary>
@@ -16,7 +17,13 @@ namespace V12.UI
         /// own items) when hovered or clicked. The submenu is owned by this
         /// menu once added. Selecting any of its items closes this menu too.
         /// </summary>
-        void AddSubmenu(string label, IContextMenu submenu);
+        void AddSubmenu(string label, IContextMenu submenu, string icon = "");
+
+        /// <summary>
+        /// Ask the host to show a search field at the top of the menu. Hosts that
+        /// support it flatten the submenu tree into a filterable list; others ignore it.
+        /// </summary>
+        void Searchable(string placeholder = "Search...") { }
 
         /// <summary>Shows the menu with its top-left corner at the given screen position.</summary>
         void Show(float screenX, float screenY);

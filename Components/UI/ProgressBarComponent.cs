@@ -3,7 +3,7 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI
 {
-    [ComponentEntry("UI", "ProgressBar component", SingleInstance = true)]
+    [ComponentEntry("UI", "Progress Bar", SingleInstance = true, SortOrder = 15, Icon = "bars-progress")]
     public class ProgressBarComponent : ComponentBase
     {
         public override string Name => "ProgressBar";

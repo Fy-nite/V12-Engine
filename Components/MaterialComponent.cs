@@ -11,7 +11,7 @@ namespace V12.Components
     /// Texture paths are relative (e.g. "textures/crate.png") and resolved against the
     /// owning world's V12:// mount point at render time.
     /// </summary>
-    [ComponentEntry("RENDER", "Material", SingleInstance = true, SortOrder = 4)]
+    [ComponentEntry("RENDER", "Material", SingleInstance = true, SortOrder = 3, Icon = "palette")]
     public class MaterialComponent : ComponentBase
     {
         private float _r        = 1f;

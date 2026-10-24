@@ -21,6 +21,12 @@ namespace V12.UI
         /// </summary>
         string? IconKey { get; set; }
 
+        /// <summary>Key of a right-aligned trailing icon (e.g. visibility "eye").</summary>
+        string? TrailingIconKey { get => null; set { } }
+
+        /// <summary>Whether the trailing icon reads as active (e.g. element visible).</summary>
+        bool TrailingActive { get => false; set { } }
+
         bool Expanded { get; set; }
 
         /// <summary>When false the item and its subtree are hidden but not removed.</summary>
@@ -80,5 +86,11 @@ namespace V12.UI
         /// to show, or null for no menu. The provider displays and disposes it.
         /// </summary>
         void SetOnContextMenuRequested(Func<ITreeItem, IContextMenu?> onContextMenuRequested);
+
+        /// <summary>Raised when the trailing icon is clicked.</summary>
+        void SetOnTrailingIconClicked(Action<ITreeItem> onTrailingIconClicked) { }
+
+        /// <summary>Text shown when the tree has no visible items.</summary>
+        void SetEmptyMessage(string message) { }
     }
 }

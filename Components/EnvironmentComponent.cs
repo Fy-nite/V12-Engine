@@ -10,7 +10,7 @@ namespace V12.Components
     /// Scene-wide environment settings attached to an element.
     /// Controls sky/background and ambient lighting hints.
     /// </summary>
-    [ComponentEntry("LIGHTING", "Environment", SingleInstance = true, SortOrder = 9)]
+    [ComponentEntry("LIGHTING", "Environment", SingleInstance = true, SortOrder = 4, Icon = "mountain-sun")]
     public class EnvironmentComponent : ComponentBase
     {
         private BackgroundMode _mode = BackgroundMode.SolidColor;

@@ -7,7 +7,7 @@ namespace V12.Components.UI
     /// A read-only text label. Frontends render the <see cref="Text"/> value as
     /// non-interactive text inside the owning element.
     /// </summary>
-    [ComponentEntry("UI", "Label component", SingleInstance = true)]
+    [ComponentEntry("UI", "Label", SingleInstance = true, SortOrder = 10, Icon = "font")]
     public class LabelComponent : ComponentBase
     {
         public override string Name => "Label";

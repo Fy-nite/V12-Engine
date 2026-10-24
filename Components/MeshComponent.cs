@@ -28,7 +28,7 @@ namespace V12.Components
     /// For Sphere and Capsule they are diameters (radius = Width/2); the
     /// capsule's total height is Height, caps are spherical.
     /// </summary>
-    [ComponentEntry("RENDER", "Mesh", SingleInstance = true, SortOrder = 2)]
+    [ComponentEntry("RENDER", "Mesh", SingleInstance = true, SortOrder = 1, Icon = "cube")]
     public class MeshComponent : ComponentBase, IMeshRenderable
     {
         private MeshShape _shape  = MeshShape.Box;

@@ -10,7 +10,7 @@ namespace V12.Components
     /// <summary>
     /// Example component demonstrating automatic dirty tracking for network synchronization.
     /// </summary>
-    [ComponentEntry("TRANSFORM", "Transform", SingleInstance = true, SortOrder = 0)]
+    [ComponentEntry("TRANSFORM", "Transform", SingleInstance = true, SortOrder = 1, Icon = "arrows-up-down")]
     public class TransformComponent : ComponentBase, ITransformRenderable
     {
         private float _x;

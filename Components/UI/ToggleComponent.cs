@@ -5,7 +5,7 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI
 {
-    [ComponentEntry("UI", "Toggle component", SingleInstance = true)]
+    [ComponentEntry("UI", "Toggle", SingleInstance = true, SortOrder = 12, Icon = "toggle-on")]
     public class ToggleComponent : ComponentBase
     {
         public override string Name => "Toggle";

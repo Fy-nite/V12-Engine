@@ -3,7 +3,7 @@ using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI;
-[ComponentEntry("UI", "Canvas component", SingleInstance = true, SortOrder = 14)]
+    [ComponentEntry("UI", "Canvas", SingleInstance = true, SortOrder = 26, Icon = "object-group")]
 public class CanvasComponent : ComponentBase
 {
     public override string Name => "CanvasComponent";

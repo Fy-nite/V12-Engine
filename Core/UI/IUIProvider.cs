@@ -43,6 +43,7 @@ namespace V12.UI
 
         // --- Editor-grade controls ---
         ITreeView CreateTreeView();
+        ICodeEditor CreateCodeEditor();
         IAssetGrid CreateAssetGrid();
         ICheckbox CreateCheckbox(string text, bool value);
         IToggle CreateToggle(string text, bool toggled);

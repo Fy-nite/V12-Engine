@@ -3,7 +3,7 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI
 {
-    [ComponentEntry("UI", "Icon component", SingleInstance = true)]
+    [ComponentEntry("UI", "Icon", SingleInstance = true, SortOrder = 18, Icon = "star")]
     public class IconComponent : ComponentBase
     {
         public override string Name => "Icon";

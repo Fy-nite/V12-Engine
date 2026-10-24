@@ -3,7 +3,7 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Components.UI
 {
-    [ComponentEntry("UI", "Image component", SingleInstance = true)]
+    [ComponentEntry("UI", "Image", SingleInstance = true, SortOrder = 17, Icon = "image")]
     public class ImageComponent : ComponentBase
     {
         public override string Name => "Image";

@@ -12,7 +12,7 @@ namespace V12.Components.UI
     /// collapse arrows and indentation. Selection invokes the descendant's
     /// ButtonComponent click (if present), so tree rows behave like buttons.
     /// </summary>
-    [ComponentEntry("UI", "Tree component", SingleInstance = true)]
+    [ComponentEntry("UI", "Tree", SingleInstance = true, SortOrder = 23, Icon = "list")]
     public class TreeComponent : ComponentBase
     {
         public override string Name => "Tree";

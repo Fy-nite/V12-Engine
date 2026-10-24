@@ -6,7 +6,7 @@ using V12.Core.UI;
 
 namespace V12.Components
 {
-    [ComponentEntry("AUDIO", "Audio Source", SingleInstance = false, SortOrder = 13)]
+    [ComponentEntry("AUDIO", "Audio Source", SingleInstance = false, SortOrder = 1, Icon = "volume-high")]
     public class AudioSourceComponent : ComponentBase, IAudioSource
     {
         private string _audioClipPath = string.Empty;
