@@ -1,4 +1,5 @@
 using System;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 using MongoDB.Bson.Serialization.Attributes;
 
@@ -38,7 +39,11 @@ namespace V12.Components
         public virtual void OnDetach(IWorldElement worldElement) { Owner = null; }
         public virtual void OnUpdate() { }
         public virtual void OnDestroy() { }
-        public abstract IWorldElement BuildUI();
+        /// <summary>
+        /// Builds this component's editor UI. Custom/script components may leave
+        /// it unimplemented; the default returns an empty element.
+        /// </summary>
+        public virtual IWorldElement BuildUI() => new Element();
         public virtual void BuildInspector(V12.Core.UI.IInspector inspector) { }
 
         /// <summary>
