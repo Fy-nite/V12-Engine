@@ -382,6 +382,19 @@ namespace V12.Core.GamePak
         }
 
         /// <summary>
+        /// Initialize and start every game pak added at or after
+        /// <paramref name="firstIndex"/>. Used by hosts that load a pak into an
+        /// already-running loader and only want the newly added paks started.
+        /// </summary>
+        public void InitializeAndStartFrom(int firstIndex)
+        {
+            if (firstIndex < 0)
+                firstIndex = 0;
+            InitializeNew(firstIndex);
+            StartNew(firstIndex);
+        }
+
+        /// <summary>
         /// Remove all loaded game paks and reset state.
         /// </summary>
         public void Clear()
