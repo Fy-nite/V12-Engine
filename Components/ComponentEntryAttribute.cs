@@ -13,6 +13,8 @@ namespace V12.Components
     [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
     public sealed class ComponentEntryAttribute : Attribute
     {
+        public string Icon;
+
         /// <summary>Catalogue group key (e.g. "RENDER").</summary>
         public string Category { get; }
 
@@ -26,10 +28,11 @@ namespace V12.Components
         /// <summary>Order within the category; lower sorts first.</summary>
         public int SortOrder { get; set; }
 
-        public ComponentEntryAttribute(string category, string displayName)
+        public ComponentEntryAttribute(string category, string displayName, string Icon = null)
         {
             Category = category;
             DisplayName = displayName;
+            this.Icon = Icon;
         }
     }
 }
