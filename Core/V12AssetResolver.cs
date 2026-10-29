@@ -28,6 +28,16 @@ namespace V12.Core
             _defaultMount ??= mountPoint;
         }
 
+        /// <summary>
+        /// Make an already-mounted path the default root for bare
+        /// <c>v12://textures/foo.png</c> URIs. Used by content-scene mounting.
+        /// </summary>
+        public void SetDefaultMount(string mountPoint)
+        {
+            if (!string.IsNullOrEmpty(mountPoint) && _mounts.ContainsKey(mountPoint))
+                _defaultMount = mountPoint;
+        }
+
         public void Unmount(string mountPoint)
         {
             _mounts.TryRemove(mountPoint, out _);
