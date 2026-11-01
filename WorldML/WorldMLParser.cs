@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 using System.Linq;
 using System.Numerics;
@@ -390,6 +391,9 @@ namespace V12.WorldML
                 SetPropertyIfExists(instance, child.LocalName, text.Trim(), deferredList);
             }
 
+            // 2b) Complex representable properties via <PropName><Value X="..." Y="..." Z="..." /></PropName>
+            TryApplyComplexValues(instance, node);
+
             // 3) If the component has an SvgContent string property, capture
             //    the raw inner XML of this node (e.g. embedded <svg> element).
             if (component is V12.Components.SvgComponent svgComp && node.HasChildNodes)
@@ -513,6 +517,163 @@ namespace V12.WorldML
                 return Convert.ChangeType(value, targetType);
             }
             catch { return null; }
+        }
+
+        private void TryApplyComplexValues(object instance, XmlNode compNode)
+        {
+            var props = instance.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            foreach (var prop in props)
+            {
+                if (!prop.CanWrite) continue;
+                if (prop.GetCustomAttribute<MongoDB.Bson.Serialization.Attributes.BsonIgnoreAttribute>() != null) continue;
+                if (!IsRepresentableComplex(prop.PropertyType)) continue;
+
+                // Find child element named after the property
+                XmlNode propNode = null;
+                foreach (XmlNode child in compNode.ChildNodes)
+                {
+                    if (child.NodeType != XmlNodeType.Element) continue;
+                    if (string.Equals(child.LocalName ?? child.Name, prop.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        propNode = child;
+                        break;
+                    }
+                }
+                if (propNode == null) continue;
+
+                XmlNode valueNode = null;
+                foreach (XmlNode gc in propNode.ChildNodes)
+                {
+                    if (gc.NodeType == XmlNodeType.Element && string.Equals(gc.LocalName ?? gc.Name, "Value", StringComparison.OrdinalIgnoreCase))
+                    {
+                        valueNode = gc;
+                        break;
+                    }
+                }
+                if (valueNode == null)
+                {
+                    if (HasVectorAttributes(propNode))
+                        valueNode = propNode;
+                    else
+                        continue;
+                }
+
+                var parsed = ParseValueNode(valueNode, prop.PropertyType);
+                if (parsed != null)
+                {
+                    try { prop.SetValue(instance, parsed); } catch { }
+                }
+            }
+        }
+
+        private static bool HasVectorAttributes(XmlNode node)
+        {
+            if (node.Attributes == null) return false;
+            foreach (XmlAttribute a in node.Attributes)
+            {
+                var n = a.Name;
+                if (string.Equals(n, "X", StringComparison.OrdinalIgnoreCase) || string.Equals(n, "Y", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(n, "Z", StringComparison.OrdinalIgnoreCase) || string.Equals(n, "W", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(n, "R", StringComparison.OrdinalIgnoreCase) || string.Equals(n, "G", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(n, "B", StringComparison.OrdinalIgnoreCase) || string.Equals(n, "A", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool IsRepresentableComplex(Type t)
+        {
+            var ut = Nullable.GetUnderlyingType(t) ?? t;
+            if (ut == typeof(Vector2) || ut == typeof(Vector3) || ut == typeof(Vector4) || ut == typeof(Quaternion) || ut == typeof(Color))
+                return true;
+            var fn = ut.FullName ?? "";
+            if (fn.StartsWith("Prowl.Vector.", StringComparison.Ordinal))
+            {
+                if (fn.Contains("Float2") || fn.Contains("Float3") || fn.Contains("Float4") || fn.Contains("Double2") || fn.Contains("Double3") || fn.Contains("Double4") || fn.Contains("Int2") || fn.Contains("Int3") || fn.Contains("Int4") || fn.Contains("Color"))
+                    return true;
+            }
+            return false;
+        }
+
+        private static object ParseValueNode(XmlNode valueNode, Type targetType)
+        {
+            var ut = Nullable.GetUnderlyingType(targetType) ?? targetType;
+            string GetValueAttr(string name) => GetAttr(valueNode, name) ?? "";
+            bool TryFloat(string name, out float v) => float.TryParse(GetValueAttr(name), NumberStyles.Float, CultureInfo.InvariantCulture, out v);
+            bool TryInt(string name, out int v) => int.TryParse(GetValueAttr(name), NumberStyles.Integer, CultureInfo.InvariantCulture, out v);
+
+            if (ut == typeof(Vector2))
+            {
+                if (TryFloat("X", out var x) && TryFloat("Y", out var y)) return new Vector2(x, y);
+            }
+            else if (ut == typeof(Vector3))
+            {
+                if (TryFloat("X", out var x) && TryFloat("Y", out var y) && TryFloat("Z", out var z)) return new Vector3(x, y, z);
+            }
+            else if (ut == typeof(Vector4))
+            {
+                if (TryFloat("X", out var x) && TryFloat("Y", out var y) && TryFloat("Z", out var z) && TryFloat("W", out var w)) return new Vector4(x, y, z, w);
+            }
+            else if (ut == typeof(Quaternion))
+            {
+                if (TryFloat("X", out var x) && TryFloat("Y", out var y) && TryFloat("Z", out var z) && TryFloat("W", out var w)) return new Quaternion(x, y, z, w);
+            }
+            else if (ut == typeof(Color))
+            {
+                // Accept both 0-255 bytes and 0-1 floats
+                bool hasR = TryFloat("R", out var rf);
+                bool hasG = TryFloat("G", out var gf);
+                bool hasB = TryFloat("B", out var bf);
+                bool hasA = TryFloat("A", out var af);
+                if (hasR && hasG && hasB)
+                {
+                    int R = rf <= 1 && rf >= 0 && GetValueAttr("R").Contains(".") ? (int)(rf * 255) : (int)rf;
+                    int G = gf <= 1 && gf >= 0 && GetValueAttr("G").Contains(".") ? (int)(gf * 255) : (int)gf;
+                    int B = bf <= 1 && bf >= 0 && GetValueAttr("B").Contains(".") ? (int)(bf * 255) : (int)bf;
+                    int A = hasA ? (af <= 1 && af >= 0 && GetValueAttr("A").Contains(".") ? (int)(af * 255) : (int)af) : 255;
+                    R = Math.Clamp(R, 0, 255); G = Math.Clamp(G, 0, 255); B = Math.Clamp(B, 0, 255); A = Math.Clamp(A, 0, 255);
+                    return Color.FromArgb(A, R, G, B);
+                }
+            }
+            else if (ut.FullName?.StartsWith("Prowl.Vector.", StringComparison.Ordinal) == true)
+            {
+                try
+                {
+                    var instance = Activator.CreateInstance(ut);
+                    bool any = false;
+                    foreach (var p in ut.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                    {
+                        if (!p.CanWrite) continue;
+                        var attrVal = GetValueAttr(p.Name);
+                        if (string.IsNullOrEmpty(attrVal)) continue;
+                        object conv = null;
+                        if (p.PropertyType == typeof(float) && float.TryParse(attrVal, NumberStyles.Float, CultureInfo.InvariantCulture, out var fv)) conv = fv;
+                        else if (p.PropertyType == typeof(double) && double.TryParse(attrVal, NumberStyles.Float, CultureInfo.InvariantCulture, out var dv)) conv = dv;
+                        else if (p.PropertyType == typeof(int) && int.TryParse(attrVal, out var iv)) conv = iv;
+                        else if (p.PropertyType == typeof(byte) && byte.TryParse(attrVal, out var bv)) conv = bv;
+                        else continue;
+                        p.SetValue(instance, conv);
+                        any = true;
+                    }
+                    // Also try fields
+                    foreach (var f in ut.GetFields(BindingFlags.Public | BindingFlags.Instance))
+                    {
+                        var attrVal = GetValueAttr(f.Name);
+                        if (string.IsNullOrEmpty(attrVal)) continue;
+                        object conv = null;
+                        if (f.FieldType == typeof(float) && float.TryParse(attrVal, NumberStyles.Float, CultureInfo.InvariantCulture, out var fv)) conv = fv;
+                        else if (f.FieldType == typeof(double) && double.TryParse(attrVal, NumberStyles.Float, CultureInfo.InvariantCulture, out var dv)) conv = dv;
+                        else if (f.FieldType == typeof(int) && int.TryParse(attrVal, out var iv)) conv = iv;
+                        else if (f.FieldType == typeof(byte) && byte.TryParse(attrVal, out var bv)) conv = bv;
+                        else continue;
+                        f.SetValue(instance, conv);
+                        any = true;
+                    }
+                    if (any) return instance;
+                }
+                catch { }
+            }
+            return null;
         }
 
         private IEnumerable<Type> SafeGetTypes(Assembly a)

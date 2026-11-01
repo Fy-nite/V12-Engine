@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 using System.Linq;
+using System.Numerics;
 using System.Reflection;
 using System.Text;
 using MongoDB.Bson.Serialization.Attributes;
@@ -113,12 +115,17 @@ namespace V12.WorldML
             if (!string.IsNullOrEmpty(nameOverride))
                 attrs.Add($"name=\"{Escape(nameOverride)}\"");
 
+            // Collect complex representable props to emit as <PropName><Value .../></PropName>
+            var complexChildren = new List<(string propName, string valueTag)>();
             foreach (var p in props)
             {
                 if (!p.CanWrite) continue;
                 if (ExcludedProps.Contains(p.Name)) continue;
                 if (p.GetCustomAttribute<BsonIgnoreAttribute>() != null) continue;
-                if (IsComplexType(p.PropertyType)) continue;
+                bool isComplex = IsComplexType(p.PropertyType);
+                if (isComplex && !IsRepresentableComplex(p.PropertyType)) continue;
+                if (isComplex) // will be emitted as nested Value, not attribute
+                    continue;
 
                 object? val;
                 try { val = p.GetValue(comp); }
@@ -135,10 +142,101 @@ namespace V12.WorldML
                 attrs.Add($"{p.Name}=\"{F(val)}\"");
             }
 
-            sb.Append($"{ind}<Component type=\"{type.Name}\"");
-            foreach (var a in attrs)
-                sb.Append(' ').Append(a);
-            sb.Append(" />\n");
+            // Second pass for representable complex types
+            foreach (var p in props)
+            {
+                if (!p.CanWrite) continue;
+                if (ExcludedProps.Contains(p.Name)) continue;
+                if (p.GetCustomAttribute<BsonIgnoreAttribute>() != null) continue;
+                if (!IsComplexType(p.PropertyType) || !IsRepresentableComplex(p.PropertyType)) continue;
+
+                object? val;
+                try { val = p.GetValue(comp); }
+                catch { continue; }
+                if (val == null) continue;
+                // Skip default values to keep output tidy (0,0,0 for Vector3 etc.)
+                if (IsDefaultValue(val)) continue;
+                var tag = FormatValueTag(val);
+                if (string.IsNullOrEmpty(tag)) continue;
+                complexChildren.Add((p.Name, tag));
+            }
+
+            bool hasComplex = complexChildren.Count > 0;
+            if (!hasComplex)
+            {
+                sb.Append($"{ind}<Component type=\"{type.Name}\"");
+                foreach (var a in attrs)
+                    sb.Append(' ').Append(a);
+                sb.Append(" />\n");
+            }
+            else
+            {
+                sb.Append($"{ind}<Component type=\"{type.Name}\"");
+                foreach (var a in attrs)
+                    sb.Append(' ').Append(a);
+                sb.Append(">\n");
+                foreach (var (propName, valueTag) in complexChildren)
+                {
+                    sb.Append($"{ind}\t<{propName}>\n");
+                    sb.Append($"{ind}\t\t{valueTag}\n");
+                    sb.Append($"{ind}\t</{propName}>\n");
+                }
+                sb.Append($"{ind}</Component>\n");
+            }
+        }
+
+        private static bool IsRepresentableComplex(Type t)
+        {
+            var ut = Nullable.GetUnderlyingType(t) ?? t;
+            if (ut == typeof(Vector2) || ut == typeof(Vector3) || ut == typeof(Vector4) || ut == typeof(Quaternion) || ut == typeof(Color))
+                return true;
+            // Prowl.Vector types (by full name to avoid hard reference)
+            var fn = ut.FullName ?? "";
+            if (fn.StartsWith("Prowl.Vector.", StringComparison.Ordinal))
+            {
+                if (fn.Contains("Float2") || fn.Contains("Float3") || fn.Contains("Float4") || fn.Contains("Double2") || fn.Contains("Double3") || fn.Contains("Double4") || fn.Contains("Int2") || fn.Contains("Int3") || fn.Contains("Int4") || fn.Contains("Color"))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool IsDefaultValue(object val)
+        {
+            if (val == null) return true;
+            var type = val.GetType();
+            var def = Activator.CreateInstance(type);
+            return Equals(val, def);
+        }
+
+        private static string FormatValueTag(object val)
+        {
+            // System.Numerics
+            if (val is Vector2 v2) return $"<Value X=\"{F(v2.X)}\" Y=\"{F(v2.Y)}\" />";
+            if (val is Vector3 v3) return $"<Value X=\"{F(v3.X)}\" Y=\"{F(v3.Y)}\" Z=\"{F(v3.Z)}\" />";
+            if (val is Vector4 v4) return $"<Value X=\"{F(v4.X)}\" Y=\"{F(v4.Y)}\" Z=\"{F(v4.Z)}\" W=\"{F(v4.W)}\" />";
+            if (val is Quaternion q) return $"<Value X=\"{F(q.X)}\" Y=\"{F(q.Y)}\" Z=\"{F(q.Z)}\" W=\"{F(q.W)}\" />";
+            if (val is Color c) return $"<Value R=\"{c.R}\" G=\"{c.G}\" B=\"{c.B}\" A=\"{c.A}\" />";
+            // Prowl.Vector via reflection to avoid hard dependency on exact struct layout
+            var type = val.GetType();
+            var fn = type.FullName ?? "";
+            if (fn.StartsWith("Prowl.Vector.", StringComparison.Ordinal))
+            {
+                try
+                {
+                    var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+                    var parts = new List<string>();
+                    foreach (var p in props)
+                    {
+                        if (!p.CanRead) continue;
+                        var pv = p.GetValue(val);
+                        if (pv == null) continue;
+                        parts.Add($"{p.Name}=\"{F(pv)}\"");
+                    }
+                    if (parts.Count > 0) return $"<Value {string.Join(" ", parts)} />";
+                }
+                catch { }
+            }
+            return "";
         }
 
         /// <summary>True when a property cannot round-trip as a single attribute.</summary>

@@ -14,10 +14,21 @@ namespace V12.Core.UI.Paper
     {
         public static bool UseProwlPaper { get; set; } = true;
         private readonly PaperCanvasRenderer _canvasRenderer;
-        private readonly PPaper _paper;
+        private PPaper _paper;
         private UIFrame _lastFrame = new();
         private int _vpW = 1280, _vpH = 720;
         private float _dpi = 1f;
+        /// <summary>Id offset used when emitting a foreign UI frame into a host's
+        /// own Paper instance, so element ids never collide with host widget ids.</summary>
+        private readonly long _idBase;
+
+        /// <summary>When emitting into a host row, size a screen-space canvas to
+        /// its content (stretch width, auto height) instead of the viewport.</summary>
+        public bool AutoSizeScreenCanvas { get; set; }
+
+        /// <summary>Id of the screen-space canvas whose children are being emitted
+        /// this frame (so their layout can hug content instead of stretching).</summary>
+        private long _screenCanvasId;
         private readonly Dictionary<long, global::Prowl.OrigamiUI.CodeDocument> _codeDocs = new();
         private readonly Dictionary<long, OrigamiDockHost> _dockHosts = new();
         private Dictionary<long, List<V12.Core.Rendering.UINode>> _byParent = new();
@@ -41,6 +52,42 @@ namespace V12.Core.UI.Paper
             _paper = new PPaper(_canvasRenderer, w, h, new PQuill.FontAtlasSettings());
             TryAddFallbackFont(_paper);
         }
+        /// <summary>
+        /// Renderer that emits <see cref="UIFrame"/> nodes into a Paper instance the
+        /// host already owns (e.g. the editor chrome's Paper). It never drives a
+        /// canvas itself: the host calls <see cref="Emit"/> between its own
+        /// BeginFrame/EndFrame pair.
+        /// </summary>
+        private ProwlPaperRenderer(PPaper paper, int w, int h, float dpi, Prowl.Scribe.FontFile? font)
+        {
+            _canvasRenderer = null!;
+            _paper = paper ?? throw new ArgumentNullException(nameof(paper));
+            _vpW = w; _vpH = h; _dpi = dpi;
+            _fallbackFont = font;
+            // Keep ids away from the host widget ids (which start at 1 and grow).
+            _idBase = 100_000_000;
+        }
+
+        /// <summary>Creates a frame emitter for a host-owned Paper instance.</summary>
+        public static ProwlPaperRenderer CreateEmitter(PPaper paper, int w, int h, Prowl.Scribe.FontFile? font = null)
+            => new(paper, w, h, 1f, font);
+
+        /// <summary>Rebinds an emitter to the host's current Paper (it is recreated on resize).</summary>
+        public void SetPaper(PPaper paper, int w, int h, Prowl.Scribe.FontFile? font = null)
+        {
+            if (paper != null) _paper = paper;
+            _vpW = w; _vpH = h;
+            if (font != null) _fallbackFont = font;
+        }
+
+        /// <summary>Emits a captured UI frame into the current Paper instance.</summary>
+        public void Emit(UIFrame frame)
+        {
+            _lastFrame = frame ?? new UIFrame();
+            if (!UseProwlPaper || _lastFrame.Nodes.Count == 0) return;
+            BuildPaperTree(_lastFrame);
+        }
+
         private void TryAddFallbackFont(PPaper paper)
         {
             string[] candidates = new[] {
@@ -107,6 +154,14 @@ namespace V12.Core.UI.Paper
             _nodesById = frame.Nodes.ToDictionary(n => n.Id);
             if(!byParent.TryGetValue(0,out var roots)||roots.Count==0) return;
             foreach(var root in roots){
+                // The engine path treats a canvas as a grouping node: the dock/UI
+                // widget inside draws itself. A hosted chrome row needs the canvas
+                // box itself so the anchor/content sizing applies.
+                if (AutoSizeScreenCanvas && root.Kind == UIWidgetKind.Canvas)
+                {
+                    BuildNode(root, byParent, 0);
+                    continue;
+                }
                 if(byParent.TryGetValue(root.Id, out var children))
                     foreach(var c in children) BuildNode(c, byParent, 0);
             }
@@ -116,7 +171,10 @@ namespace V12.Core.UI.Paper
         internal void EmitDockPanelBody(OrigamiDockPanel panel, long elementId, float width, float height)
         {
             using (_paper.Column($"dockbody#{elementId}", unchecked((int)(elementId & 0x7fffffff)), 0)
-                       .Width(_paper.Stretch()).Height(_paper.Stretch()).Clip().Enter())
+                       .Width(_paper.Stretch()).Height(_paper.Stretch()).Clip()
+                       .JustifyContent(global::Prowl.PaperUI.LayoutJustification.Start)
+                       .AlignItems(global::Prowl.PaperUI.LayoutAlignment.Stretch)
+                       .Enter())
             {
                 if (_byParent.TryGetValue(elementId, out var kids))
                     foreach (var c in kids) BuildNode(c, _byParent, 0);
@@ -150,16 +208,71 @@ namespace V12.Core.UI.Paper
         }
         private void BuildNode(UINode node, Dictionary<long,List<UINode>> byParent,int depth){
             if(depth>64) return;
-            string idStr=node.Id.ToString();
-            int pid=(int)(node.Id & 0x7fffffff);
+            string idStr = _idBase == 0 ? node.Id.ToString() : $"wui_{node.Id}";
+            int pid=(int)((node.Id + _idBase) & 0x7fffffff);
             global::Prowl.PaperUI.ElementBuilder el;
             // Debug: ensure Paper state is valid
             // Console.WriteLine($"BuildNode {node.Kind} {node.Name}");
             switch(node.Kind){
-                case UIWidgetKind.Label:
-                    el=_paper.Box(idStr,pid,0).Width(_paper.Auto).Height(_paper.Auto).BackgroundColor(PPal.Raised).Rounded(4f).Padding(4);
-                    try { el.Text(node.Text ?? node.Name ?? "", _fallbackFont).FontSize(node.FontSize>0?node.FontSize:14f).TextColor(PPal.Text); } catch {}
+                case UIWidgetKind.Canvas:
+                {
+                    el = _paper.Box(idStr, pid, 0);
+                    if (node.ScreenSpace)
+                    {
+                        _screenCanvasId = node.Id;
+                        el.LayoutType(global::Prowl.PaperUI.LayoutType.Column);
+                        if (AutoSizeScreenCanvas)
+                        {
+                            // Hosted as a shell row: hug the content's height.
+                            el.Width(_paper.Stretch()).Height(_paper.Auto)
+                              .AlignItems(global::Prowl.PaperUI.LayoutAlignment.Start);
+                        }
+                        else
+                        {
+                            // Overlay canvas: a definite viewport-sized box (Stretch
+                            // alone collapses at the Paper root), anchors place content.
+                            el.Width(_paper.Pixels(_vpW)).Height(_paper.Pixels(_vpH))
+                              .AlignItems(node.AnchorX <= 0.01f
+                                  ? global::Prowl.PaperUI.LayoutAlignment.Start
+                                  : node.AnchorX >= 0.99f
+                                      ? global::Prowl.PaperUI.LayoutAlignment.End
+                                      : global::Prowl.PaperUI.LayoutAlignment.Center)
+                              .JustifyContent(node.AnchorY <= 0.01f
+                                  ? global::Prowl.PaperUI.LayoutJustification.Start
+                                  : node.AnchorY >= 0.99f
+                                      ? global::Prowl.PaperUI.LayoutJustification.End
+                                      : global::Prowl.PaperUI.LayoutJustification.Center);
+                        }
+                    }
+                    else
+                    {
+                        if (node.Width > 0) el.Width(node.Width); else el.Width(_paper.Auto);
+                        if (node.Height > 0) el.Height(node.Height); else el.Height(_paper.Auto);
+                    }
                     break;
+                }
+                case UIWidgetKind.Label:
+                {
+                    el=_paper.Box(idStr,pid,0).Width(_paper.Auto).Height(_paper.Auto);
+                    // Flat labels are plain text (status strips); the default stays
+                    // a raised chip for game HUDs.
+                    if (!node.Flat)
+                        el.BackgroundColor(PPal.Raised).Rounded(4f).Padding(4);
+                    else if (node.Padding > 0)
+                        el.Padding(node.Padding);
+
+                    var ink = node.StyleHint switch
+                    {
+                        "muted" => PPal.Muted,
+                        "accent" => PPal.Accent,
+                        "danger" => PPal.Danger,
+                        _ => PPal.Text,
+                    };
+                    float size = node.FontSize > 0 ? node.FontSize
+                        : node.StyleHint == "title" ? 16f : 13f;
+                    try { el.Text(node.Text ?? node.Name ?? "", _fallbackFont).FontSize(size).TextColor(ink); } catch {}
+                    break;
+                }
                 case UIWidgetKind.Button:
                     el=_paper.Box(idStr,pid,0).Width(_paper.Auto).Height(_paper.Auto).BackgroundColor(PPal.Accent).Rounded(6f).Padding(8).OnClick(_=>node.OnClick?.Invoke());
                     try { el.Text(node.Text ?? node.Name ?? "Button", _fallbackFont).FontSize(13f).TextColor(PPal.Text); } catch {}
@@ -177,9 +290,16 @@ namespace V12.Core.UI.Paper
                     break;}
                 case UIWidgetKind.HLayout:
                     el=_paper.Box(idStr,pid,0).LayoutType(global::Prowl.PaperUI.LayoutType.Row).Gap(node.Spacing);
+                    if (node.Padding > 0) el.Padding(node.Padding);
+                    // Rows hug their content. A row in a stretch column otherwise
+                    // absorbs vertical space and pushes the rows after it apart.
+                    el.Height(_paper.Auto);
                     break;
                 case UIWidgetKind.VLayout:
                     el=_paper.Box(idStr,pid,0).LayoutType(global::Prowl.PaperUI.LayoutType.Column).Gap(node.Spacing);
+                    if (node.Padding > 0) el.Padding(node.Padding);
+                    if (_screenCanvasId != 0 && node.ParentId == _screenCanvasId)
+                        el.Height(_paper.Auto);
                     // A tab page sits in the tabs' auto-height column: stretch height
                     // collapses it to 0, which would overlap the next sibling.
                     if (node.TabIndex >= 0)

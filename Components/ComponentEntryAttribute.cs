@@ -26,6 +26,10 @@ namespace V12.Components
         /// <summary>Order within the category; lower sorts first.</summary>
         public int SortOrder { get; set; }
 
+        /// <summary>Optional icon key for the Add Component menu (host maps the key to
+        /// its own icon set, e.g. "cube", "lightbulb", "camera").</summary>
+        public string Icon { get; set; } = "";
+
         public ComponentEntryAttribute(string category, string displayName)
         {
             Category = category;

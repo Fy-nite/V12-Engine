@@ -96,6 +96,9 @@ namespace V12.Core
         /// </summary>
         public World PersistentWorld { get; } = new World("__Persistent__");
 
+        /// <summary>Editor chrome world (V12StudioUI). Rendered as a screen-space canvas alongside the scene.</summary>
+        public World? EditorUIWorld { get; set; }
+
         /// <summary>Convenience accessor for the local Player element in PersistentWorld.</summary>
         public IWorldElement? Player => PersistentWorld.Root.FirstOrDefault(e => e.Name == "Player");
 
@@ -110,6 +113,8 @@ namespace V12.Core
             get
             {
                 yield return PersistentWorld;
+                if (EditorUIWorld != null)
+                    yield return EditorUIWorld;
                 if (SelectedWorld != null)
                     yield return SelectedWorld;
             }
@@ -500,6 +505,10 @@ namespace V12.Core
 
             foreach (var world in ActiveWorlds)
             {
+                // The editor chrome world is rendered by the editor's own Paper
+                // layer (a different Paper instance), so the engine pass must not
+                // emit a duplicate underneath it.
+                if (ReferenceEquals(world, EditorUIWorld)) continue;
                 world.Lock.EnterReadLock();
                 try
                 {
@@ -514,6 +523,25 @@ namespace V12.Core
             if (Registry.Get("UIBuilder")?.ServiceInstance is IUIBuilder builder && builder.Root is IWorldElement builderRoot)
                 CaptureUICanvases(builderRoot, frame);
 
+            return frame;
+        }
+
+        /// <summary>
+        /// Capture one specific world's screen-space UI. Hosts that render a
+        /// dedicated UI world into their own Paper instance use this instead of
+        /// <see cref="CaptureUI()"/> (which excludes <see cref="EditorUIWorld"/>).
+        /// </summary>
+        public UIFrame CaptureUI(World world)
+        {
+            var frame = new UIFrame();
+            if (world == null) return frame;
+            world.Lock.EnterReadLock();
+            try
+            {
+                foreach (var root in world.Root.ToArray())
+                    CaptureUICanvases(root, frame);
+            }
+            finally { world.Lock.ExitReadLock(); }
             return frame;
         }
 
