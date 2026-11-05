@@ -13,6 +13,10 @@ namespace V12.Components
     [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
     public sealed class ComponentEntryAttribute : Attribute
     {
+        /// <summary>Optional icon key for the Add Component menu (host maps the key to
+        /// its own icon set, e.g. "cube", "lightbulb", "camera").</summary>
+        public string Icon;
+
         /// <summary>Catalogue group key (e.g. "RENDER").</summary>
         public string Category { get; }
 
@@ -26,14 +30,17 @@ namespace V12.Components
         /// <summary>Order within the category; lower sorts first.</summary>
         public int SortOrder { get; set; }
 
-        /// <summary>Optional icon key for the Add Component menu (host maps the key to
-        /// its own icon set, e.g. "cube", "lightbulb", "camera").</summary>
-        public string Icon { get; set; } = "";
-
         public ComponentEntryAttribute(string category, string displayName)
         {
             Category = category;
             DisplayName = displayName;
+            Icon = "";
+        }
+
+        public ComponentEntryAttribute(string category, string displayName, string icon)
+            : this(category, displayName)
+        {
+            Icon = icon ?? "";
         }
     }
 }
