@@ -19,6 +19,7 @@ using V12.Components.UI;
 using V12.Components;
 using V12.Components.Renderables;
 using V12.Core.GamePak;
+using V12.Core.Diagnostics;
 using V12.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 using V12.WorldML;
@@ -96,12 +97,6 @@ namespace V12.Core
         /// </summary>
         public World PersistentWorld { get; } = new World("__Persistent__");
 
-        /// <summary>Editor chrome world (V12StudioUI). Rendered as a screen-space canvas alongside the scene.</summary>
-        public World? EditorUIWorld { get; set; }
-
-        /// <summary>Editable scene world for the editor. Non-ticking while editing; cloned into <see cref="SelectedWorld"/> for Play.</summary>
-        public World? EditorSceneWorld { get; set; }
-
         /// <summary>Convenience accessor for the local Player element in PersistentWorld.</summary>
         public IWorldElement? Player => PersistentWorld.Root.FirstOrDefault(e => e.Name == "Player");
 
@@ -116,37 +111,8 @@ namespace V12.Core
             get
             {
                 yield return PersistentWorld;
-                if (EditorUIWorld != null)
-                    yield return EditorUIWorld;
                 if (SelectedWorld != null)
                     yield return SelectedWorld;
-                if (EditorSceneWorld != null && !ReferenceEquals(EditorSceneWorld, SelectedWorld))
-                    yield return EditorSceneWorld;
-            }
-        }
-
-        /// <summary>Worlds that should be ticked each frame (those with <see cref="World.TickingEnabled"/>).</summary>
-        public IEnumerable<World> TickingWorlds
-        {
-            get
-            {
-                foreach (var w in ActiveWorlds)
-                    if (w.TickingEnabled) yield return w;
-            }
-        }
-
-        /// <summary>Worlds whose renderables should be included in frame capture. When a Play world is active, the editor scene is hidden to avoid double rendering.</summary>
-        public IEnumerable<World> RenderableWorlds
-        {
-            get
-            {
-                yield return PersistentWorld;
-                if (EditorUIWorld != null)
-                    yield return EditorUIWorld;
-                if (SelectedWorld != null)
-                    yield return SelectedWorld;
-                else if (EditorSceneWorld != null)
-                    yield return EditorSceneWorld;
             }
         }
 
@@ -219,10 +185,6 @@ namespace V12.Core
             // Check _elementsById which indexes all elements (root + children)
             if (PersistentWorld._elementsById.ContainsKey(top.Id))
                 return PersistentWorld;
-            if (EditorUIWorld != null && EditorUIWorld._elementsById.ContainsKey(top.Id))
-                return EditorUIWorld;
-            if (EditorSceneWorld != null && EditorSceneWorld._elementsById.ContainsKey(top.Id))
-                return EditorSceneWorld;
 
             foreach (var w in Worlds)
             {
@@ -363,6 +325,14 @@ namespace V12.Core
             catch (Exception ex) { Log.Debug(ex, "[GameRoot] Paper IUIRenderer auto-register failed, falling back to Godot"); }
 
             Instance = this;
+
+            // Tracy: name the main thread and emit build info as soon as the first GameRoot
+            // exists. V12Profiler is compile-time gated — these are no-ops unless TRACY is defined
+            // (Debug / ExportDebug via pack-purr's TRACY constant).
+            V12Profiler.SetThreadName("V12 Main");
+            V12Profiler.AppInfo($"V12 Engine TRACY build - PID {Environment.ProcessId} - {DateTime.UtcNow:O}");
+            if (V12Profiler.IsEnabled)
+                Log.Information("[GameRoot] Tracy profiler enabled (IsEnabled=true) - connect with Tracy viewer");
         }
 
         public string ReadResource(string name)
@@ -383,6 +353,7 @@ namespace V12.Core
         }
         public void Initialize()
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.Initialize", V12Profiler.Colors.Engine);
 #if DEBUG
             foreach (var World in Worlds)
             {
@@ -424,6 +395,7 @@ namespace V12.Core
         /// </summary>
         public void LoadGamepacks(string directory)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.LoadGamepacks", V12Profiler.Colors.Engine);
             Log.Information("Loading gamepaks from '{Directory}'...", directory);
             var countBefore = Gamepaks.Gamepaks.Count;
             Gamepaks.LoadFromDirectory(directory);
@@ -445,6 +417,7 @@ namespace V12.Core
         /// <returns>The number of game paks discovered and started.</returns>
         public int LoadGamepacksFromAssembly(Assembly assembly)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.LoadGamepacksFromAssembly", V12Profiler.Colors.Engine);
             Log.Information("Loading gamepaks from assembly '{Assembly}'...", assembly.GetName().Name);
             var count = Gamepaks.LoadAndStart(assembly);
             Log.Information("{Count} gamepak(s) loaded from assembly.", count);
@@ -459,6 +432,7 @@ namespace V12.Core
         /// <returns>The game pak instance if found and started, null otherwise.</returns>
         public IV12Gamepack? LoadGamepackByName(Assembly assembly, string pakName)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.LoadGamepackByName", V12Profiler.Colors.Engine);
             Log.Information("Loading gamepak '{Name}' from assembly '{Assembly}'...", pakName, assembly.GetName().Name);
             Gamepaks.LoadFromAssembly(assembly);
             if (Gamepaks.InitializeAndStartByName(pakName))
@@ -474,59 +448,82 @@ namespace V12.Core
         
         public void V12Tick(float deltaTime = 1f / 60f)
         {
-                // Run full game update (worlds, services, dashboard)
+            using var _tracyTick = V12Profiler.BeginZone("V12Tick", V12Profiler.Colors.Engine);
+
+            // Run full game update (worlds, services, dashboard)
+            using (V12Profiler.BeginZone("GameRoot.Update", V12Profiler.Colors.World))
                 Update(deltaTime);
                 
-                // Only build and send render/UI data when something changed
-                if ((renderer != null || uiRenderer != null) && _renderDirty)
+            // Only build and send render/UI data when something changed
+            if ((renderer != null || uiRenderer != null) && _renderDirty)
+            {
+                _renderDirty = false;
+
+                if (renderer != null)
                 {
-                    _renderDirty = false;
-
-                    if (renderer != null)
+                    using var _renderZone = V12Profiler.BeginZone("Build RenderPacket", V12Profiler.Colors.Capture);
+                    var packet = new RenderPacket();
+                    foreach (var (el, r, viewportId) in GetAllRenderablesWithViewports())
                     {
-                        var packet = new RenderPacket();
-                        foreach (var (el, r, viewportId) in GetAllRenderablesWithViewports())
+                        if (r is IMeshRenderable mesh)
                         {
-                            if (r is IMeshRenderable mesh)
+                            packet.Meshes.Add(new MeshDraw
                             {
-                                packet.Meshes.Add(new MeshDraw
-                                {
-                                    ElementId = el.Id,
-                                    Mesh = mesh,
-                                    ViewportId = viewportId
-                                });
-                            }
-                        }
-                        // Hierarchy mirror: every element's local placement so
-                        // renderers mirror the V12 tree (placement decisions
-                        // live here, never in renderer code).
-                        void CollectNodes(IWorldElement element)
-                        {
-                            if (element == null) return;
-                            packet.Nodes.Add(new NodePlacement
-                            {
-                                ElementId = element.Id,
-                                ParentId = element.Parent?.Id ?? 0,
-                                Local = ElementPlacement.ElementLocalMatrix(element),
+                                ElementId = el.Id,
+                                Mesh = mesh,
+                                ViewportId = viewportId,
+                                Active = true,
+                                HasWorld = true,
+                                World = el.WorldTransform,
+                                Albedo = System.Drawing.Color.White,
+                                Metallic = 0.05f,
+                                Roughness = 0.75f,
+                                AmbientOcclusion = 1f,
+                                Specular = 0.5f,
+                                NormalScale = 1f,
+                                AlphaCutoff = 0.5f,
+                                BlendMode = MaterialBlendMode.Opaque,
+                                UvScale = System.Numerics.Vector2.One,
+                                CastShadows = true,
+                                ReceiveShadows = true,
                             });
-                            if (element.Children != null)
-                                foreach (var child in element.Children.ToArray())
-                                    CollectNodes(child);
                         }
-                        foreach (var world in RenderableWorlds)
-                        {
-                            if (ReferenceEquals(world, EditorUIWorld)) continue;
-                            foreach (var rootEl in world.Root.ToArray())
-                                CollectNodes(rootEl);
-                        }
-                        renderer.QueueItems(packet);
                     }
-
-                    // Hand the UI over — the renderer does not scout the world tree for it.
-                    uiRenderer?.ApplyUI(CaptureUI());
+                    // Hierarchy mirror: every element's local placement so
+                    // renderers mirror the V12 tree (placement decisions
+                    // live here, never in renderer code).
+                    void CollectNodes(IWorldElement element)
+                    {
+                        if (element == null) return;
+                        packet.Nodes.Add(new NodePlacement
+                        {
+                            ElementId = element.Id,
+                            ParentId = element.Parent?.Id ?? 0,
+                            Local = ElementPlacement.ElementLocalMatrix(element),
+                        });
+                        if (element.Children != null)
+                            foreach (var child in element.Children.ToArray())
+                                CollectNodes(child);
+                    }
+                    foreach (var world in ActiveWorlds)
+                    {
+                        foreach (var rootEl in world.Root.ToArray())
+                            CollectNodes(rootEl);
+                    }
+                    renderer.QueueItems(packet);
                 }
+
+                // Hand the UI over — the renderer does not scout the world tree for it.
+                using (V12Profiler.BeginZone("CaptureUI", V12Profiler.Colors.Runtime))
+                    uiRenderer?.ApplyUI(CaptureUI());
+            }
+            using (V12Profiler.BeginZone("Renderer.step", V12Profiler.Colors.Renderer))
+            {
                 renderer?.step();
                 uiRenderer?.step();
+            }
+
+            V12Profiler.FrameMark();
         }
 
         /// <summary>
@@ -536,14 +533,11 @@ namespace V12.Core
         /// </summary>
         public UIFrame CaptureUI()
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.CaptureUI", V12Profiler.Colors.Runtime);
             var frame = new UIFrame();
 
             foreach (var world in ActiveWorlds)
             {
-                // The editor chrome world is rendered by the editor's own Paper
-                // layer (a different Paper instance), so the engine pass must not
-                // emit a duplicate underneath it.
-                if (ReferenceEquals(world, EditorUIWorld)) continue;
                 world.Lock.EnterReadLock();
                 try
                 {
@@ -564,10 +558,11 @@ namespace V12.Core
         /// <summary>
         /// Capture one specific world's screen-space UI. Hosts that render a
         /// dedicated UI world into their own Paper instance use this instead of
-        /// <see cref="CaptureUI()"/> (which excludes <see cref="EditorUIWorld"/>).
+        /// <see cref="CaptureUI()"/>.
         /// </summary>
         public UIFrame CaptureUI(World world)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.CaptureUI(world)", V12Profiler.Colors.Runtime);
             var frame = new UIFrame();
             if (world == null) return frame;
             world.Lock.EnterReadLock();
@@ -582,6 +577,7 @@ namespace V12.Core
 
         private void CaptureUICanvases(IWorldElement element, UIFrame frame)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.CaptureUICanvases", V12Profiler.Colors.Runtime);
             if (element?.Components == null) return;
 
             var canvas = element.GetComponent<V12.Components.UI.CanvasComponent>();
@@ -597,6 +593,7 @@ namespace V12.Core
 
         private void CaptureCanvas(IWorldElement canvasElement, V12.Components.UI.CanvasComponent canvas, UIFrame frame)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.CaptureCanvas", V12Profiler.Colors.Runtime);
             frame.Nodes.Add(new UINode
             {
                 Id = canvasElement.Id,
@@ -616,6 +613,7 @@ namespace V12.Core
 
         private void CaptureUIWidgets(IWorldElement element, long parentId, UIFrame frame)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.CaptureUIWidgets", V12Profiler.Colors.Runtime);
             if (element?.Components == null) return;
 
             // A nested canvas starts its own root subtree.
@@ -641,6 +639,7 @@ namespace V12.Core
 
         private UINode? BuildUINode(IWorldElement element)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.BuildUINode", V12Profiler.Colors.Runtime);
             var node = new UINode { Id = element.Id, Name = element.Name ?? "" };
 
             var style = element.GetComponent<V12.Components.UI.UIStyleComponent>();
@@ -942,6 +941,7 @@ namespace V12.Core
 
         public List<IRenderable> GetAllRenderables()
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.GetAllRenderables", V12Profiler.Colors.Capture);
             var renderables = new List<IRenderable>();
 
             void CollectRenderables(IWorldElement element)
@@ -991,9 +991,8 @@ namespace V12.Core
                 }
             }
 
-            foreach (var world in RenderableWorlds)
+            foreach (var world in ActiveWorlds)
             {
-                if (ReferenceEquals(world, EditorUIWorld)) continue;
                 foreach (var element in world.Root.ToArray())
                     CollectRenderables(element);
             }
@@ -1010,6 +1009,7 @@ namespace V12.Core
         /// </summary>
         public List<(IWorldElement Element, IRenderable Renderable, long ViewportId)> GetAllRenderablesWithViewports()
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.GetAllRenderablesWithViewports", V12Profiler.Colors.Capture);
             var renderables = new List<(IWorldElement, IRenderable, long)>();
 
             // First pass: find the RenderWorld=true viewport claim (first match wins).
@@ -1075,9 +1075,8 @@ namespace V12.Core
                 }
             }
 
-            foreach (var world in RenderableWorlds)
+            foreach (var world in ActiveWorlds)
             {
-                if (ReferenceEquals(world, EditorUIWorld)) continue;
                 foreach (var element in world.Root.ToArray())
                     CollectRenderables(element, worldViewportId);
             }
@@ -1087,17 +1086,13 @@ namespace V12.Core
 
         public FrameSnapshot CaptureFrame()
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.CaptureFrame", V12Profiler.Colors.Capture);
             var snapshot = new FrameSnapshot();
 
-            // Capture renderable worlds; capture SelectedWorld first so its IsCurrent camera wins,
-            // then PersistentWorld, then EditorSceneWorld for editor preview.
-            // We iterate RenderableWorlds but ensure SelectedWorld is captured before PersistentWorld fallback.
-            foreach (var world in RenderableWorlds)
-            {
-                if (ReferenceEquals(world, EditorUIWorld)) continue;
-                if (ReferenceEquals(world, PersistentWorld)) continue;
-                CaptureWorldFrame(snapshot, world);
-            }
+            // Capture the selected world first so its IsCurrent camera wins, then
+            // the persistent world (Player, camera, shell content) last.
+            if (SelectedWorld != null && !ReferenceEquals(SelectedWorld, PersistentWorld))
+                CaptureWorldFrame(snapshot, SelectedWorld);
             CaptureWorldFrame(snapshot, PersistentWorld);
 
             return snapshot;
@@ -1109,6 +1104,7 @@ namespace V12.Core
         /// </summary>
         private void CaptureWorldFrame(FrameSnapshot snapshot, World world)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.CaptureWorldFrame", V12Profiler.Colors.Capture);
             world.Lock.EnterReadLock();
             try
             {
@@ -1426,6 +1422,7 @@ namespace V12.Core
         /// </summary>
         private static long FindWorldViewportId(IWorldElement el)
         {
+            // Tiny recursive helper - intentionally no Tracy zone to avoid per-element overhead.
             var vp = el.GetComponent<V12.Components.UI.ViewportComponent>();
             if (vp != null && vp.RenderWorld) return el.Id;
             foreach (var child in el.Children)
@@ -1438,6 +1435,7 @@ namespace V12.Core
 
         private void SetupUI()
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.SetupUI", V12Profiler.Colors.Engine);
             var input = Registry.Get<InputService>();
 
             // If a dashboard implementation is already registered in the
@@ -1470,6 +1468,7 @@ namespace V12.Core
         /// <param name="isServer">Explicitly force server mode even when <paramref name="connectHost"/> is null.</param>
         public void SetupNetworking(int port = 7777, string? connectHost = null, bool isServer = false, string? worldArchivePath = null)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.SetupNetworking", V12Profiler.Colors.Engine);
             bool isHost = isServer || connectHost == null;
             if (isHost)
             {
@@ -1606,6 +1605,7 @@ namespace V12.Core
         /// </summary>
         public void StartNetworkingAsync(CancellationToken token = default)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.StartNetworkingAsync", V12Profiler.Colors.Runtime);
             var host = Registry.Get<NetworkHost>("NetworkHost");
             if (host != null)
             {
@@ -1620,14 +1620,17 @@ namespace V12.Core
 
         private void StartNetworkingThread()
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.StartNetworkingThread", V12Profiler.Colors.Runtime);
             if (_networkingCts != null) return; // already running
             _networkingCts = new CancellationTokenSource();
             var token = _networkingCts.Token;
 
             _networkingThread = new Thread(() =>
             {
+                V12Profiler.SetThreadName("V12 Networking");
                 while (!token.IsCancellationRequested)
                 {
+                    using var _zone = V12Profiler.BeginZone("Cables.Update", V12Profiler.Colors.Runtime);
                     Cables.Update();
                     Thread.Sleep(10);
                 }
@@ -1640,6 +1643,7 @@ namespace V12.Core
         /// </summary>
         public void Shutdown()
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.Shutdown", V12Profiler.Colors.Engine);
             _networkingCts?.Cancel();
             Registry.Get<NetworkHost>("NetworkHost")?.Dispose();
             Registry.Get<NetworkClient>("NetworkClient")?.Dispose();
@@ -1647,6 +1651,7 @@ namespace V12.Core
 
         public void Update(float deltaTime)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.Update(inner)", V12Profiler.Colors.World);
             // If a dashboard implementation appears later in the registry,
             // pick it up lazily so frontends may register on demand.
             // try
@@ -1702,9 +1707,12 @@ namespace V12.Core
             //     UserSpace.Update(deltaTime);
             // }
 
-            // Tick all worlds that have TickingEnabled (PersistentWorld + PlayWorld, but not EditorSceneWorld in edit mode).
-            foreach (var w in TickingWorlds)
-                w.Update(deltaTime);
+            // PersistentWorld always ticks (Player, camera, shell content);
+            // SelectedWorld ticks too unless a host paused it.
+            if (PersistentWorld.TickingEnabled)
+                PersistentWorld.Update(deltaTime);
+            if (SelectedWorld != null && SelectedWorld.TickingEnabled && !ReferenceEquals(SelectedWorld, PersistentWorld))
+                SelectedWorld.Update(deltaTime);
 
             // Let the dashboard update first (if present) so UI values are
             // refreshed from the current world state before services run.
@@ -1740,6 +1748,7 @@ namespace V12.Core
 
         public void SelectWorld(World world)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.SelectWorld", V12Profiler.Colors.World);
             if (world == null) return;
             if (!Worlds.Contains(world)) return;
 
@@ -1762,36 +1771,38 @@ namespace V12.Core
             }
 
             // Teleport the Player to this world's spawn position
-            TeleportPlayerToSpawn(world);
+        
         }
+        // TODO: remove this too. this goes in the main game EcoVR
+        // /// <summary>
+        // /// Teleport the local Player to the given world's SpawnPosition.
+        // /// Resets position, rotation, and velocity. If no world is specified, uses SelectedWorld.
+        // /// </summary>
+        // public void TeleportPlayerToSpawn(World? world = null)
+        // {
+        //     using var _zone = V12Profiler.BeginZone("GameRoot.TeleportPlayerToSpawn", V12Profiler.Colors.World);
+        //     world ??= SelectedWorld;
+        //     if (world == null) return;
 
-        /// <summary>
-        /// Teleport the local Player to the given world's SpawnPosition.
-        /// Resets position, rotation, and velocity. If no world is specified, uses SelectedWorld.
-        /// </summary>
-        public void TeleportPlayerToSpawn(World? world = null)
-        {
-            world ??= SelectedWorld;
-            if (world == null) return;
+        //     var player = Player;
+        //     if (player == null) return;
 
-            var player = Player;
-            if (player == null) return;
+        //     var spawn = world.SpawnPosition;
 
-            var spawn = world.SpawnPosition;
+        //     player.LocalTransform = new TRS
+        //     {
+        //         Position = spawn,
+        //         Rotation = System.Numerics.Quaternion.Identity,
+        //         Scale = System.Numerics.Vector3.One
+        //     };
 
-            player.LocalTransform = new TRS
-            {
-                Position = spawn,
-                Rotation = System.Numerics.Quaternion.Identity,
-                Scale = System.Numerics.Vector3.One
-            };
-
-            // Notify the physics system so it reads the new transform immediately
-            player.MarkDirty();
-        }
+        //     // Notify the physics system so it reads the new transform immediately
+        //     player.MarkDirty();
+        // }
 
         public bool SelectWorldByName(string name)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.SelectWorldByName", V12Profiler.Colors.World);
             var found = Worlds.Find(w => w.WorldName == name);
             if (found != null)
             {
@@ -1808,6 +1819,7 @@ namespace V12.Core
 
         public World CreateWorld(string worldName, string? templateName = null)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.CreateWorld", V12Profiler.Colors.World);
             if (string.IsNullOrWhiteSpace(worldName))
             {
                 // generate a default name if none provided
@@ -1843,6 +1855,7 @@ namespace V12.Core
 
         public World LoadArchiveWorld(string path)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.LoadArchiveWorld", V12Profiler.Colors.World);
             var resolver = new V12AssetResolver();
             var templates = new WorldTemplateProvider();
             var result = WorldLoader.LoadFromArchive(path, resolver, templates);
@@ -1866,6 +1879,7 @@ namespace V12.Core
         /// </summary>
         public void PublishWorldMeshSyncValues(World world)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.PublishWorldMeshSyncValues", V12Profiler.Colors.World);
             if (world?.Root == null) return;
             foreach (var element in world.Root)
             {
@@ -1875,6 +1889,7 @@ namespace V12.Core
 
         private void PublishElementMeshSyncValues(IWorldElement element)
         {
+            using var _zone = V12Profiler.BeginZone("GameRoot.PublishElementMeshSyncValues", V12Profiler.Colors.World);
             var mesh = element.GetComponent<MeshComponent>();
             mesh?.PublishMeshToSyncAuthoritative();
 

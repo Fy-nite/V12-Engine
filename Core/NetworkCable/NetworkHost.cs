@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using LiteNetLib;
+using V12.Core.Diagnostics;
 using V12.Core.Networking;
 
 namespace V12.Core.NetworkCable
@@ -112,6 +113,7 @@ namespace V12.Core.NetworkCable
         /// </summary>
         public Task StartAsync(CancellationToken token = default)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkHost.StartAsync", V12Profiler.Colors.Runtime);
             if (IsRunning) return Task.CompletedTask;
 
             try
@@ -151,14 +153,17 @@ namespace V12.Core.NetworkCable
 
         private void StartPolling()
         {
+            using var _zone = V12Profiler.BeginZone("NetworkHost.StartPolling", V12Profiler.Colors.Runtime);
             lock (_pollLock)
             {
                 if (_pollStarted) return;
                 _pollStarted = true;
                 _ = Task.Run(() =>
                 {
+                    V12Profiler.SetThreadName("V12 NetHost Poll");
                     while (_cts != null && !_cts.IsCancellationRequested)
                     {
+                        using var _pollZone = V12Profiler.BeginZone("NetworkHost.PollEvents", V12Profiler.Colors.Runtime);
                         try { _net?.PollEvents(); }
                         catch (Exception ex)
                         {
@@ -172,6 +177,7 @@ namespace V12.Core.NetworkCable
 
         private void BroadcastMessage(MessageDTO message)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkHost.BroadcastMessage", V12Profiler.Colors.Runtime, text: message?.MessageType.ToString());
             // No clients connected → nothing to broadcast. Bail out before paying the
             // serialization cost; this keeps the send path quiet when the server is idle
             // or nobody is connected.
@@ -182,7 +188,9 @@ namespace V12.Core.NetworkCable
                 return;
             }
 
-            var bytes = LiteNetWire.Serialize(message);
+            byte[] bytes;
+            using (V12Profiler.BeginZone("NetworkHost.Serialize", V12Profiler.Colors.Runtime))
+                bytes = LiteNetWire.Serialize(message);
             var (method, channel) = LiteNetWire.DeliveryFor(message, bytes.Length);
 
             if (DebugMode)
@@ -230,6 +238,7 @@ namespace V12.Core.NetworkCable
         // ── INetEventListener ──────────────────────────────────────────────────
         public void OnPeerConnected(NetPeer peer)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkHost.OnPeerConnected", V12Profiler.Colors.Runtime);
             _peers[peer] = true;
 
             // Assign a unique player ID to this client
@@ -242,6 +251,7 @@ namespace V12.Core.NetworkCable
 
         public void OnPeerDisconnected(NetPeer peer, DisconnectInfo disconnectInfo)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkHost.OnPeerDisconnected", V12Profiler.Colors.Runtime);
             long playerId = 0;
             _clientPlayerIds.TryRemove(peer, out playerId);
             _peers.TryRemove(peer, out _);
@@ -252,11 +262,13 @@ namespace V12.Core.NetworkCable
 
         public void OnNetworkError(IPEndPoint endPoint, SocketError socketError)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkHost.OnNetworkError", V12Profiler.Colors.Runtime);
             Console.WriteLine($"[NetworkHost] Network error on {endPoint}: {socketError}");
         }
 
         public void OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channel, DeliveryMethod deliveryMethod)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkHost.OnNetworkReceive", V12Profiler.Colors.Runtime);
             try
             {
                 var message = LiteNetWire.Deserialize(reader.GetRemainingBytes());
@@ -289,6 +301,7 @@ namespace V12.Core.NetworkCable
 
         public void Stop()
         {
+            using var _zone = V12Profiler.BeginZone("NetworkHost.Stop", V12Profiler.Colors.Runtime);
             if (!IsRunning && _net == null) return;
 
             Console.WriteLine($"[NetworkHost] Stopping...");
@@ -304,6 +317,7 @@ namespace V12.Core.NetworkCable
 
         public void Dispose()
         {
+            using var _zone = V12Profiler.BeginZone("NetworkHost.Dispose", V12Profiler.Colors.Runtime);
             Stop();
             _cts?.Dispose();
             _cts = null;

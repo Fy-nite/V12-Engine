@@ -1,4 +1,5 @@
 using System;
+using V12.Core.Diagnostics;
 using V12.Core.Networking;
 
 namespace V12.Core.NetworkCable
@@ -17,6 +18,7 @@ namespace V12.Core.NetworkCable
         /// <param name="messageType">Optional message type. Defaults to MessageType.Event.</param>
         public static void MarkDirty(this object obj, NetworkCables? cables = null, Uri? sender = null, MessageType messageType = MessageType.Event)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkCablesExtensions.MarkDirty", V12Profiler.Colors.Runtime, text: messageType.ToString());
             if (obj is null) throw new ArgumentNullException(nameof(obj));
 
             var transport = cables ?? NetworkCables.Default;

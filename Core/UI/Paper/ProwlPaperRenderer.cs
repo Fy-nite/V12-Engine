@@ -519,6 +519,10 @@ namespace V12.Core.UI.Paper
             }catch{}
             return fallback;
         }
+
+        // Compatibility shims for Rockstar renderer (legacy world-canvas API)
+        public Func<long, int, int, PaperCanvasRenderer>? WorldCanvasRendererFactory { get; set; }
+        public PaperWorldCanvasSystem? WorldCanvases => null;
     }
 }
 

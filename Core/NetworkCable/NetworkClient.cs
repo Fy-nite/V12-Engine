@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using LiteNetLib;
+using V12.Core.Diagnostics;
 using V12.Core.Networking;
 
 namespace V12.Core.NetworkCable
@@ -104,6 +105,7 @@ namespace V12.Core.NetworkCable
 
         private Task ConnectToAsync(string host, int port, CancellationToken token)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkClient.ConnectToAsync", V12Profiler.Colors.Runtime);
             if (IsConnected) return Task.CompletedTask;
 
             // Tear down any previous attempt cleanly so each retry starts fresh.
@@ -140,14 +142,17 @@ namespace V12.Core.NetworkCable
 
         private void StartPolling()
         {
+            using var _zone = V12Profiler.BeginZone("NetworkClient.StartPolling", V12Profiler.Colors.Runtime);
             lock (_pollLock)
             {
                 if (_pollStarted) return;
                 _pollStarted = true;
                 _ = Task.Run(() =>
                 {
+                    V12Profiler.SetThreadName("V12 NetClient Poll");
                     while (_cts != null && !_cts.IsCancellationRequested)
                     {
+                        using var _pollZone = V12Profiler.BeginZone("NetworkClient.PollEvents", V12Profiler.Colors.Runtime);
                         try { _net?.PollEvents(); }
                         catch (Exception ex)
                         {
@@ -161,14 +166,18 @@ namespace V12.Core.NetworkCable
 
         private void SendMessage(MessageDTO message)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkClient.SendMessage", V12Profiler.Colors.Runtime, text: message?.MessageType.ToString());
             var peer = _peer;
             if (_net == null || peer == null || peer.ConnectionState != ConnectionState.Connected) return;
 
             try
             {
-                var bytes = LiteNetWire.Serialize(message);
+                byte[] bytes;
+                using (V12Profiler.BeginZone("NetworkClient.Serialize", V12Profiler.Colors.Runtime))
+                    bytes = LiteNetWire.Serialize(message);
                 var (method, channel) = LiteNetWire.DeliveryFor(message, bytes.Length);
-                peer.Send(bytes, channel, method);
+                using (V12Profiler.BeginZone("NetworkClient.peer.Send", V12Profiler.Colors.Runtime))
+                    peer.Send(bytes, channel, method);
             }
             catch (Exception ex)
             {
@@ -179,6 +188,7 @@ namespace V12.Core.NetworkCable
         // ── INetEventListener ──────────────────────────────────────────────────
         public void OnPeerConnected(NetPeer peer)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkClient.OnPeerConnected", V12Profiler.Colors.Runtime);
             _peer = peer;
             _everConnected = true;
             Console.WriteLine($"[NetworkClient] Connected to {peer.EndPoint}");
@@ -187,6 +197,7 @@ namespace V12.Core.NetworkCable
 
         public void OnPeerDisconnected(NetPeer peer, DisconnectInfo disconnectInfo)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkClient.OnPeerDisconnected", V12Profiler.Colors.Runtime);
             Console.WriteLine($"[NetworkClient] Disconnected from {_host}:{_port} (reason: {disconnectInfo.Reason})");
             _peer = null;
             _cables.OnMessageSending -= SendMessage;
@@ -203,11 +214,13 @@ namespace V12.Core.NetworkCable
 
         public void OnNetworkError(IPEndPoint endPoint, SocketError socketError)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkClient.OnNetworkError", V12Profiler.Colors.Runtime);
             Console.WriteLine($"[NetworkClient] Network error on {endPoint}: {socketError}");
         }
 
         public void OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channel, DeliveryMethod deliveryMethod)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkClient.OnNetworkReceive", V12Profiler.Colors.Runtime);
             try
             {
                 var message = LiteNetWire.Deserialize(reader.GetRemainingBytes());
@@ -232,6 +245,7 @@ namespace V12.Core.NetworkCable
 
         public void Disconnect()
         {
+            using var _zone = V12Profiler.BeginZone("NetworkClient.Disconnect", V12Profiler.Colors.Runtime);
             Console.WriteLine($"[NetworkClient] Disconnecting from {_host}:{_port}...");
             try { _cts?.Cancel(); } catch { }
             try { _cables.OnMessageSending -= SendMessage; } catch { }
@@ -241,6 +255,7 @@ namespace V12.Core.NetworkCable
 
         public void Dispose()
         {
+            using var _zone = V12Profiler.BeginZone("NetworkClient.Dispose", V12Profiler.Colors.Runtime);
             Disconnect();
             _cts?.Dispose();
             _cts = null;

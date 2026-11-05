@@ -1,4 +1,5 @@
 using LiteNetLib;
+using V12.Core.Diagnostics;
 using V12.Core.Networking;
 
 namespace V12.Core.NetworkCable
@@ -27,6 +28,7 @@ namespace V12.Core.NetworkCable
         /// </summary>
         public static (DeliveryMethod Method, byte Channel) DeliveryFor(MessageDTO message)
         {
+            using var _zone = V12Profiler.BeginZone("LiteNetWire.DeliveryFor", V12Profiler.Colors.Runtime, text: message?.MessageType.ToString());
             switch (message.MessageType)
             {
                 case MessageType.WorldSync:
@@ -71,6 +73,7 @@ namespace V12.Core.NetworkCable
         /// </summary>
         public static (DeliveryMethod Method, byte Channel) DeliveryFor(MessageDTO message, int payloadSize)
         {
+            using var _zone = V12Profiler.BeginZone("LiteNetWire.DeliveryFor(payloadSize)", V12Profiler.Colors.Runtime);
             var (method, channel) = DeliveryFor(message);
             if (payloadSize > NetConstants.MaxUnreliableDataSize &&
                 (method == DeliveryMethod.Unreliable || method == DeliveryMethod.ReliableSequenced))
@@ -79,13 +82,17 @@ namespace V12.Core.NetworkCable
         }
 
         public static byte[] Serialize(MessageDTO message)
-            => AncientCompressor.Compress(message);
+        {
+            using var _zone = V12Profiler.BeginZone("LiteNetWire.Serialize", V12Profiler.Colors.Runtime, text: message?.MessageType.ToString());
+            return AncientCompressor.Compress(message);
+        }
 
         /// <summary>
         /// Deserialize a BSON MessageDTO from the wire. Returns null on malformed data.
         /// </summary>
         public static MessageDTO? Deserialize(byte[] data)
         {
+            using var _zone = V12Profiler.BeginZone("LiteNetWire.Deserialize", V12Profiler.Colors.Runtime);
             try { return AncientCompressor.Decompress<MessageDTO>(data); }
             catch { return null; }
         }

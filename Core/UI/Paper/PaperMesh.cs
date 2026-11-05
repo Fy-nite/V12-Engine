@@ -25,11 +25,21 @@ namespace V12.Core.UI.Paper
         public int ElementCount;
     }
 
+    public sealed class PaperViewportInfo
+    {
+        public long Id;
+        public System.Numerics.Vector4 Rect;
+        public object? Texture;
+    }
+
     public sealed class PaperFrame
     {
         public List<PaperMesh> Meshes = new();
+        public List<PaperViewportInfo> Viewports = new();
         public int Width;
         public int Height;
         public long CaptureTicks;
+        // Legacy alias for renderer code that used FramebufferScale
+        public float FramebufferScale => 1f;
     }
 }

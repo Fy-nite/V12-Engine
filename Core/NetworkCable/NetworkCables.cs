@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Text;
+using V12.Core.Diagnostics;
 using V12.Core.Networking;
 
 namespace V12.Core.NetworkCable
@@ -49,6 +50,7 @@ namespace V12.Core.NetworkCable
         /// </summary>
         public void SendData(MessageDTO message)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkCables.SendData", V12Profiler.Colors.Runtime);
             if (message == null) return;
             SendQueue.Enqueue(message);
         }
@@ -58,6 +60,7 @@ namespace V12.Core.NetworkCable
         /// </summary>
         public void EnqueueIncoming(MessageDTO message)
         {
+            using var _zone = V12Profiler.BeginZone("NetworkCables.EnqueueIncoming", V12Profiler.Colors.Runtime);
             if (message == null) return;
             ReceiveQueue.Enqueue(message);
         }
@@ -75,9 +78,10 @@ namespace V12.Core.NetworkCable
         /// </summary>
         public void ProcessOutgoing()
         {
+            using var _zone = V12Profiler.BeginZone("NetworkCables.ProcessOutgoing", V12Profiler.Colors.Runtime);
             while (SendQueue.TryDequeue(out var message))
             {
-                
+                using var _msgZone = V12Profiler.BeginZone("NetworkCables.OnMessageSending", V12Profiler.Colors.Runtime, text: message?.MessageType.ToString());
                 // Console.WriteLine($"Processing outgoing message from {message.Sender?.AbsoluteUri} of type {message.MessageType}");
                 OnMessageSending?.Invoke(message);
             }
@@ -88,8 +92,10 @@ namespace V12.Core.NetworkCable
         /// </summary>
         public void ProcessIncoming()
         {
+            using var _zone = V12Profiler.BeginZone("NetworkCables.ProcessIncoming", V12Profiler.Colors.Runtime);
             while (ReceiveQueue.TryDequeue(out var message))
             {
+                using var _msgZone = V12Profiler.BeginZone("NetworkCables.OnMessageReceived", V12Profiler.Colors.Runtime, text: message?.MessageType.ToString());
                 // Console.WriteLine($"Processing incoming message from {message.Sender?.AbsoluteUri} of type {message.MessageType}");
                 OnMessageReceived?.Invoke(message);
             }
@@ -100,6 +106,7 @@ namespace V12.Core.NetworkCable
         /// </summary>
         public void Update()
         {
+            using var _zone = V12Profiler.BeginZone("NetworkCables.Update", V12Profiler.Colors.Runtime);
             ProcessIncoming();
             ProcessOutgoing();
         }
