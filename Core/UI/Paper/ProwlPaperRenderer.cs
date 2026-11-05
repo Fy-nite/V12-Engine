@@ -30,6 +30,7 @@ namespace V12.Core.UI.Paper
         /// this frame (so their layout can hug content instead of stretching).</summary>
         private long _screenCanvasId;
         private readonly Dictionary<long, global::Prowl.OrigamiUI.CodeDocument> _codeDocs = new();
+        private readonly Dictionary<long, object> _viewportTextures = new();
         private readonly Dictionary<long, OrigamiDockHost> _dockHosts = new();
         private Dictionary<long, List<V12.Core.Rendering.UINode>> _byParent = new();
         private Dictionary<long, V12.Core.Rendering.UINode> _nodesById = new();
@@ -131,6 +132,34 @@ namespace V12.Core.UI.Paper
         }
         public PaperFrame LastPaperFrame => _canvasRenderer.LastFrame;
         public PPaper PaperInstance => _paper;
+        public Prowl.Scribe.FontFile? FallbackFont => _fallbackFont;
+
+        /// <summary>
+        /// Optional host hook that supplies a renderer-native texture for a
+        /// viewport element id (typically a <c>SubViewport</c>'s
+        /// <c>ViewportTexture</c>). When it returns null the renderer falls back
+        /// to an opaque placeholder so a host without 3D still lays out.
+        /// </summary>
+        public Func<long, object?>? ViewportTextureProvider { get; set; }
+
+        /// <summary>
+        /// Optional host hook invoked when the UI lays out the game-view pane,
+        /// so the host can resize its render target to the pane rect.
+        /// </summary>
+        public Action<long, PVector.Rect>? ViewportRectSink { get; set; }
+
+        public object? GetViewportTexture(long id) => ViewportTextureProvider?.Invoke(id) ?? ViewportTexture(id);
+        public void SetViewportRectOverride(long id, PVector.Rect rect) => ViewportRectSink?.Invoke(id, rect);
+        private object ViewportTexture(long id)
+        {
+            if (!_viewportTextures.TryGetValue(id, out var texture))
+            {
+                texture = new object();
+                _viewportTextures[id] = texture;
+            }
+            return texture;
+        }
+        public Action<PPaper>? UIOverlay { get; set; }
         public void ApplyUI(UIFrame frame){ if(!UseProwlPaper) return; _lastFrame = frame ?? new UIFrame(); }
         public void step()
         {
@@ -140,6 +169,7 @@ namespace V12.Core.UI.Paper
                 _paper.BeginFrame(1f/60f, _dpi);
                 global::Prowl.OrigamiUI.Origami.BeginFrame(_paper, 1f/60f);
                 BuildPaperTree(_lastFrame);
+                UIOverlay?.Invoke(_paper);
                 global::Prowl.OrigamiUI.Origami.EndFrame(_paper);
                 _paper.EndFrame();
             }
@@ -198,7 +228,7 @@ namespace V12.Core.UI.Paper
                 ? kids.Where(k => k.Kind == UIWidgetKind.DockPanel).ToList()
                 : new List<UINode>();
 
-            host.Sync(panels);
+            host.Sync(panels, node.ActiveTab);
 
             float w = node.Width > 0 ? node.Width : _vpW;
             float h = node.Height > 0 ? node.Height : _vpH;
@@ -314,7 +344,7 @@ namespace V12.Core.UI.Paper
                 case UIWidgetKind.Slider:
                 case UIWidgetKind.Toggle:
                 case UIWidgetKind.Checkbox:
-                    el=_paper.Box(idStr,pid,0).Width(_paper.Auto).Height(_paper.Auto).BackgroundColor(node.Bool?PPal.Accent:PPal.Border).Rounded(4f).Padding(6).Text((node.Text??"")+(node.Bool?" [x]":" [ ]"), null).TextColor(PPal.Text).OnClick(_=>{node.Bool=!node.Bool; try{node.OnToggled?.Invoke(node.Bool);}catch{}});
+                    el=_paper.Box(idStr,pid,0).Width(_paper.Auto).Height(_paper.Auto).BackgroundColor(node.Bool?PPal.Accent:PPal.Border).Rounded(4f).Padding(6).Text((node.Text??"")+(node.Bool?" [x]":" [ ]"), _fallbackFont).TextColor(PPal.Text).OnClick(_=>{node.Bool=!node.Bool; try{node.OnToggled?.Invoke(node.Bool);}catch{}});
                     break;
                 case UIWidgetKind.Scroll:
                     el=_paper.Box(idStr,pid,0).Clip();
@@ -323,6 +353,36 @@ namespace V12.Core.UI.Paper
                     el=_paper.Box(idStr,pid,0).LayoutType(node.Vertical?global::Prowl.PaperUI.LayoutType.Column:global::Prowl.PaperUI.LayoutType.Row).Gap(node.Spacing);
                     break;
                 case UIWidgetKind.Tree:
+                {
+                    el = _paper.Box(idStr, pid, 0)
+                        .LayoutType(global::Prowl.PaperUI.LayoutType.Column)
+                        .Gap(1f)
+                        .Width(_paper.Stretch())
+                        .Height(_paper.Auto);
+                    if (node.Tree != null)
+                    {
+                        int rowIndex = 0;
+                        void EmitRow(V12.Components.UI.TreeItem item, int depth)
+                        {
+                            if (!item.Visible) return;
+                            string text = new string(' ', depth * 2) + item.Label;
+                            _paper.Box($"{idStr}_row{rowIndex}", pid ^ (rowIndex * 7919), 0)
+                                .Width(_paper.Stretch())
+                                .Height(20f)
+                                .Padding(2)
+                                .BackgroundColor(ReferenceEquals(item, node.Tree.SelectedItem) ? PPal.Selected : new PVector.Color(0f, 0f, 0f, 0f))
+                                .Text(text, _fallbackFont)
+                                .FontSize(12f)
+                                .TextColor(PPal.Text)
+                                .OnClick(_ => node.Tree.Select(item));
+                            rowIndex++;
+                            if (item.Expanded)
+                                foreach (var child in item.Children) EmitRow(child, depth + 1);
+                        }
+                        foreach (var item in node.Tree.Items) EmitRow(item, 0);
+                    }
+                    return;
+                }
                 case UIWidgetKind.NodeGraph:
                 case UIWidgetKind.Viewport:
                 case UIWidgetKind.Image:
@@ -461,6 +521,14 @@ namespace V12.Core.UI.Paper
         }
     }
 }
+
+
+
+
+
+
+
+
 
 
 

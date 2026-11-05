@@ -19,6 +19,17 @@ namespace V12.Core.GamePak
 
         private static Serilog.ILogger Log => GameRoot.Log;
 
+        /// <summary>
+        /// Host hook for loading a gamepak DLL into the renderer's own assembly
+        /// load context. Godot loads the host in a plugin context; a plain
+        /// Assembly.LoadFrom would create a second V12 identity and the pak's
+        /// IV12Gamepack would not match. MonoGame/Rockstar leave this null.
+        /// </summary>
+        public static Func<string, Assembly>? AssemblyLoader { get; set; }
+
+        /// <summary>Host hook for finding an already-loaded assembly by simple name.</summary>
+        public static Func<string, Assembly?>? AssemblyFinder { get; set; }
+
         /// <summary>All loaded game paks, in load order.</summary>
         public IReadOnlyList<IV12Gamepack> Gamepaks => _gamepaks;
 
@@ -73,8 +84,9 @@ namespace V12.Core.GamePak
             {
                 var resolveName = new AssemblyName(args.Name).Name;
                 Log.Debug("Assembly resolve request for '{Name}', searching loaded assemblies", resolveName);
-                return AppDomain.CurrentDomain.GetAssemblies()
-                    .FirstOrDefault(a => a.GetName().Name == resolveName);
+                return AssemblyFinder?.Invoke(resolveName)
+                    ?? AppDomain.CurrentDomain.GetAssemblies()
+                        .FirstOrDefault(a => a.GetName().Name == resolveName);
             };
 
             var dlls = Directory.EnumerateFiles(directory, "*.dll", SearchOption.AllDirectories).ToArray();
@@ -86,7 +98,7 @@ namespace V12.Core.GamePak
                 try
                 {
                     Log.Debug("Loading assembly: '{Path}'", dll);
-                    var assembly = Assembly.LoadFrom(dll);
+                    var assembly = AssemblyLoader != null ? AssemblyLoader(dll) : Assembly.LoadFrom(dll);
                     var count = LoadFromAssembly(assembly);
                     if (count > 0)
                     {

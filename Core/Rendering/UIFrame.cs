@@ -128,6 +128,8 @@ namespace V12.Core.Rendering
         public float FloatingX, FloatingY, FloatingWidth = 520f, FloatingHeight = 360f;
         /// <summary>Serialized Origami layout JSON (optional).</summary>
         public string LayoutJson = "";
+        /// <summary>Tab title to activate when the dock space is rebuilt.</summary>
+        public string ActiveTab = "";
 
         // ── Origami data widgets ───────────────────────────────────────────
         /// <summary>Tab strip titles, dropdown options, or breadcrumb labels.</summary>
@@ -144,6 +146,8 @@ namespace V12.Core.Rendering
         /// <summary>Objects a PropertyGrid inspects (public fields), plus the sink that
         /// re-renders when a field is edited.</summary>
         public List<object> Targets = new();
+        /// <summary>Tree model when Kind is Tree.</summary>
+        public V12.Components.UI.TreeComponent? Tree;
         public Action? OnDirty;
         /// <summary>PropertyGrid nesting depth.</summary>
         public int Depth;

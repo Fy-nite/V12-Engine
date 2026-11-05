@@ -25,6 +25,9 @@ namespace V12.Core
         /// <summary>The v12:// mount point for this world's assets.</summary>
         public string MountPoint { get; set; }
 
+        /// <summary>When false this world does not tick components via <see cref="Update"/>. Used for the editor's non-running scene.</summary>
+        public bool TickingEnabled { get; set; } = true;
+
         /// <summary>Global lock for all world and element tree mutations.</summary>
         public ReaderWriterLockSlim Lock { get; } = new(LockRecursionPolicy.SupportsRecursion);
 
@@ -151,6 +154,7 @@ namespace V12.Core
         }
         public void Update(float deltaTime)
         {
+            if (!TickingEnabled) return;
             Lock.EnterReadLock();
             try
             {

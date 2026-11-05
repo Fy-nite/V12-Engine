@@ -99,6 +99,9 @@ namespace V12.Core
         /// <summary>Editor chrome world (V12StudioUI). Rendered as a screen-space canvas alongside the scene.</summary>
         public World? EditorUIWorld { get; set; }
 
+        /// <summary>Editable scene world for the editor. Non-ticking while editing; cloned into <see cref="SelectedWorld"/> for Play.</summary>
+        public World? EditorSceneWorld { get; set; }
+
         /// <summary>Convenience accessor for the local Player element in PersistentWorld.</summary>
         public IWorldElement? Player => PersistentWorld.Root.FirstOrDefault(e => e.Name == "Player");
 
@@ -117,6 +120,33 @@ namespace V12.Core
                     yield return EditorUIWorld;
                 if (SelectedWorld != null)
                     yield return SelectedWorld;
+                if (EditorSceneWorld != null && !ReferenceEquals(EditorSceneWorld, SelectedWorld))
+                    yield return EditorSceneWorld;
+            }
+        }
+
+        /// <summary>Worlds that should be ticked each frame (those with <see cref="World.TickingEnabled"/>).</summary>
+        public IEnumerable<World> TickingWorlds
+        {
+            get
+            {
+                foreach (var w in ActiveWorlds)
+                    if (w.TickingEnabled) yield return w;
+            }
+        }
+
+        /// <summary>Worlds whose renderables should be included in frame capture. When a Play world is active, the editor scene is hidden to avoid double rendering.</summary>
+        public IEnumerable<World> RenderableWorlds
+        {
+            get
+            {
+                yield return PersistentWorld;
+                if (EditorUIWorld != null)
+                    yield return EditorUIWorld;
+                if (SelectedWorld != null)
+                    yield return SelectedWorld;
+                else if (EditorSceneWorld != null)
+                    yield return EditorSceneWorld;
             }
         }
 
@@ -189,6 +219,10 @@ namespace V12.Core
             // Check _elementsById which indexes all elements (root + children)
             if (PersistentWorld._elementsById.ContainsKey(top.Id))
                 return PersistentWorld;
+            if (EditorUIWorld != null && EditorUIWorld._elementsById.ContainsKey(top.Id))
+                return EditorUIWorld;
+            if (EditorSceneWorld != null && EditorSceneWorld._elementsById.ContainsKey(top.Id))
+                return EditorSceneWorld;
 
             foreach (var w in Worlds)
             {
@@ -479,11 +513,12 @@ namespace V12.Core
                                 foreach (var child in element.Children.ToArray())
                                     CollectNodes(child);
                         }
-                        foreach (var rootEl in PersistentWorld.Root.ToArray())
-                            CollectNodes(rootEl);
-                        if (SelectedWorld != null)
-                            foreach (var rootEl in SelectedWorld.Root.ToArray())
+                        foreach (var world in RenderableWorlds)
+                        {
+                            if (ReferenceEquals(world, EditorUIWorld)) continue;
+                            foreach (var rootEl in world.Root.ToArray())
                                 CollectNodes(rootEl);
+                        }
                         renderer.QueueItems(packet);
                     }
 
@@ -715,9 +750,10 @@ namespace V12.Core
                 { node.Spacing = h.Spacing; node.Padding = h.Padding; node.Expand = h.Expand; }
                 return node;
             }
-            if (element.GetComponent<V12.Components.UI.TreeComponent>() is not null)
+            if (element.GetComponent<V12.Components.UI.TreeComponent>() is { } tree)
             {
                 node.Kind = UIWidgetKind.Tree;
+                node.Tree = tree;
                 if (element.GetComponent<V12.Components.UI.VLayoutComponent>() is { } tv)
                 { node.Spacing = tv.Spacing; node.Padding = tv.Padding; node.Expand = tv.Expand; }
                 return node;
@@ -858,6 +894,7 @@ namespace V12.Core
                         node.Width = Float("Width", 0f);
                         node.Height = Float("Height", 0f);
                         node.LayoutJson = Str("LayoutJson", "");
+                        node.ActiveTab = Str("ActiveTab", "");
                         return node;
                     case "DockPanelComponent":
                         node.Kind = UIWidgetKind.DockPanel;
@@ -954,14 +991,10 @@ namespace V12.Core
                 }
             }
 
-            // Collect from persistent world first
-            foreach (var element in PersistentWorld.Root.ToArray())
-                CollectRenderables(element);
-
-            // Then from selected world
-            if (SelectedWorld != null)
+            foreach (var world in RenderableWorlds)
             {
-                foreach (var element in SelectedWorld.Root.ToArray())
+                if (ReferenceEquals(world, EditorUIWorld)) continue;
+                foreach (var element in world.Root.ToArray())
                     CollectRenderables(element);
             }
 
@@ -1042,14 +1075,10 @@ namespace V12.Core
                 }
             }
 
-            // Collect from persistent world first
-            foreach (var element in PersistentWorld.Root.ToArray())
-                CollectRenderables(element, worldViewportId);
-
-            // Then from selected world
-            if (SelectedWorld != null)
+            foreach (var world in RenderableWorlds)
             {
-                foreach (var element in SelectedWorld.Root.ToArray())
+                if (ReferenceEquals(world, EditorUIWorld)) continue;
+                foreach (var element in world.Root.ToArray())
                     CollectRenderables(element, worldViewportId);
             }
 
@@ -1060,12 +1089,15 @@ namespace V12.Core
         {
             var snapshot = new FrameSnapshot();
 
-            // Capture the selected world first (level geometry, entities)
-            if (SelectedWorld != null)
-                CaptureWorldFrame(snapshot, SelectedWorld);
-
-            // Then capture the persistent world (Player, camera, etc.) so
-            // the player's CameraComponent.IsCurrent=true always wins.
+            // Capture renderable worlds; capture SelectedWorld first so its IsCurrent camera wins,
+            // then PersistentWorld, then EditorSceneWorld for editor preview.
+            // We iterate RenderableWorlds but ensure SelectedWorld is captured before PersistentWorld fallback.
+            foreach (var world in RenderableWorlds)
+            {
+                if (ReferenceEquals(world, EditorUIWorld)) continue;
+                if (ReferenceEquals(world, PersistentWorld)) continue;
+                CaptureWorldFrame(snapshot, world);
+            }
             CaptureWorldFrame(snapshot, PersistentWorld);
 
             return snapshot;
@@ -1670,12 +1702,9 @@ namespace V12.Core
             //     UserSpace.Update(deltaTime);
             // }
 
-            // Always update the persistent world (Player, camera, etc.), then the
-            // selected world so its element components (scripts, Contract components,
-            // ...) tick too. Guard against the two aliasing the same world.
-            PersistentWorld.Update(deltaTime);
-            if (SelectedWorld != null && !ReferenceEquals(SelectedWorld, PersistentWorld))
-                SelectedWorld.Update(deltaTime);
+            // Tick all worlds that have TickingEnabled (PersistentWorld + PlayWorld, but not EditorSceneWorld in edit mode).
+            foreach (var w in TickingWorlds)
+                w.Update(deltaTime);
 
             // Let the dashboard update first (if present) so UI values are
             // refreshed from the current world state before services run.

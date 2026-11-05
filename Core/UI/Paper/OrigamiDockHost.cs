@@ -34,10 +34,10 @@ namespace V12.Core.UI.Paper
         }
 
         /// <summary>True when the panel set changed and the Origami tree was rebuilt.</summary>
-        public bool Sync(IReadOnlyList<V12.Core.Rendering.UINode> panels)
+        public bool Sync(IReadOnlyList<V12.Core.Rendering.UINode> panels, string activeTab = "")
         {
             var sig = string.Join("|", panels.Select(p =>
-                $"{p.Id}:{p.Text}:{p.DockSplit}:{p.SplitRatio:F3}:{(p.Floating ? 1 : 0)}"));
+                $"{p.Id}:{p.Text}:{p.DockSplit}:{p.SplitRatio:F3}:{(p.Floating ? 1 : 0)}")) + "|active:" + activeTab;
 
             if (sig == _signature && _space != null) return false;
             _signature = sig;
@@ -58,6 +58,7 @@ namespace V12.Core.UI.Paper
             // Build the tree: tab joins accumulate into the current leaf; split joins nest.
             POrigami.DockNode? root = null;
             POrigami.DockNode? currentLeaf = null;
+            var leaves = new List<POrigami.DockNode>();
 
             for (int i = 0; i < panels.Count; i++)
             {
@@ -74,6 +75,7 @@ namespace V12.Core.UI.Paper
                 if (root == null)
                 {
                     currentLeaf = POrigami.DockNode.Leaf(adapter);
+                    leaves.Add(currentLeaf);
                     root = currentLeaf;
                     continue;
                 }
@@ -83,6 +85,7 @@ namespace V12.Core.UI.Paper
                     case 1: // horizontal
                     {
                         var leaf = POrigami.DockNode.Leaf(adapter);
+                        leaves.Add(leaf);
                         root = POrigami.DockNode.Split(
                             POrigami.SplitDirection.Horizontal,
                             Math.Clamp(panel.SplitRatio, 0.05f, 0.95f), root, leaf);
@@ -92,6 +95,7 @@ namespace V12.Core.UI.Paper
                     case 2: // vertical
                     {
                         var leaf = POrigami.DockNode.Leaf(adapter);
+                        leaves.Add(leaf);
                         root = POrigami.DockNode.Split(
                             POrigami.SplitDirection.Vertical,
                             Math.Clamp(panel.SplitRatio, 0.05f, 0.95f), root, leaf);
@@ -105,6 +109,20 @@ namespace V12.Core.UI.Paper
                         currentLeaf.Tabs.Add(adapter);
                         currentLeaf.ActiveTabIndex = currentLeaf.Tabs.Count - 1;
                         if (root == null) root = currentLeaf;
+                        break;
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(activeTab))
+            {
+                foreach (var leaf in leaves)
+                {
+                    if (leaf.Tabs == null) continue;
+                    for (int i = 0; i < leaf.Tabs.Count; i++)
+                    {
+                        if (!string.Equals(leaf.Tabs[i].Title, activeTab, StringComparison.Ordinal)) continue;
+                        leaf.ActiveTabIndex = i;
                         break;
                     }
                 }
