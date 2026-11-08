@@ -13,12 +13,15 @@ namespace V12.Components.Renderables
         private Vector3 _size = Vector3.One;
         // Cached mesh data
         private double[] _meshPoints;
+        private double[] _uvs;
         private uint[] _indices;
         private Material _material;
 
         public RenderType RenderType => RenderType.Mesh;
 
         public double[] MeshPoints => _meshPoints ??= GenerateBoxVertices();
+
+        public double[] MeshUvs => _uvs ??= GenerateBoxUvs();
 
         public uint[] Indices => _indices ??= GenerateBoxIndices();
 
@@ -46,6 +49,7 @@ namespace V12.Components.Renderables
             {
                 _size = value;
                 _meshPoints = null; // Invalidate cache
+                _uvs = null;
             }
         }
 
@@ -104,6 +108,20 @@ namespace V12.Components.Renderables
                 result[i * 3 + 2] = vertices[i].Z;
             }
             return result;
+        }
+
+        private static double[] GenerateBoxUvs()
+        {
+            var uvs = new double[24 * 2];
+            for (int face = 0; face < 6; face++)
+            {
+                int i = face * 8;
+                uvs[i + 0] = 0; uvs[i + 1] = 0;
+                uvs[i + 2] = 1; uvs[i + 3] = 0;
+                uvs[i + 4] = 1; uvs[i + 5] = 1;
+                uvs[i + 6] = 0; uvs[i + 7] = 1;
+            }
+            return uvs;
         }
 
         private uint[] GenerateBoxIndices()

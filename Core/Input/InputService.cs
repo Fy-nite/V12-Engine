@@ -9,6 +9,9 @@ namespace V12.Core.Input
         readonly List<IInputHandler> _handlers = new();
         readonly object _lock = new object();
 
+        public bool UiCapturesPointer { get; set; }
+        public bool UiCapturesKeyboard { get; set; }
+
         public void Initialize() { }
 
         public void Update(float deltaTime) { }
@@ -35,6 +38,8 @@ namespace V12.Core.Input
             foreach (var h in copy)
             {
                 try { h.OnInputEvent(evt); } catch { }
+                if (evt.Handled)
+                    break;
             }
         }
 

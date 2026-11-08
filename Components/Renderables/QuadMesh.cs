@@ -10,11 +10,13 @@ namespace V12.Components.Renderables
     {
         private Vector2 _size = Vector2.One;
         private double[] _meshPoints;
+        private double[] _uvs;
         private uint[] _indices;
         private Material _material;
 
         public RenderType RenderType => RenderType.Mesh;
         public double[] MeshPoints => _meshPoints ??= GenerateVertices();
+        public double[] MeshUvs => _uvs ??= new double[] { 0, 0, 1, 0, 1, 1, 0, 1 };
         public uint[] Indices => _indices ??= GenerateIndices();
         public Material Material => _material ??= new Material();
         public bool IsWorldLocked => true;
@@ -27,7 +29,7 @@ namespace V12.Components.Renderables
         public Vector2 Size
         {
             get => _size;
-            set { _size = value; _meshPoints = null; }
+            set { _size = value; _meshPoints = null; _uvs = null; }
         }
 
         private double[] GenerateVertices()

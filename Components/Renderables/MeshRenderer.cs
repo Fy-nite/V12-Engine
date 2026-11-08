@@ -76,6 +76,12 @@ namespace V12.Components.Renderables
 
         public uint[] Indices => Mesh?.Indices ?? Array.Empty<uint>();
 
+        public double[]? MeshUvs => Mesh?.MeshUvs;
+
+        public double[]? MeshNormals => Mesh?.MeshNormals;
+
+        public double[]? MeshTangents => Mesh?.MeshTangents;
+
         public Material Material => Mesh?.Material;
 
         public bool IsWorldLocked => true;

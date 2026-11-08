@@ -38,6 +38,7 @@ namespace V12.Components
 
         // Cached mesh data
         private double[] _meshPoints;
+        private double[]? _uvs;
         private uint[] _indices;
 
         // Optional custom vertex/index data (used when Shape == Custom)
@@ -164,6 +165,8 @@ namespace V12.Components
 
         public uint[] Indices => Shape == MeshShape.Custom && CustomIndices != null ? CustomIndices : (_indices ??= GenerateIndices());
 
+        public double[]? MeshUvs => Shape == MeshShape.Custom ? null : (_uvs ??= GenerateMeshUvs());
+
         public Material Material => null; // Use MaterialComponent from element
 
         public bool IsWorldLocked => true;
@@ -188,6 +191,7 @@ namespace V12.Components
         private void InvalidateCache()
         {
             _meshPoints = null;
+            _uvs = null;
             _indices = null;
         }
 
@@ -232,6 +236,62 @@ namespace V12.Components
                 default:
                     return GenerateBoxIndices();
             }
+        }
+
+        private double[] GenerateMeshUvs()
+        {
+            return Shape switch
+            {
+                MeshShape.Plane => new double[] { 0, 0, 1, 0, 1, 1, 0, 1 },
+                MeshShape.Sphere => GenerateSphereUvs(16, 8),
+                MeshShape.Capsule => GenerateCapsuleUvs(6, 16),
+                _ => GenerateBoxUvs(),
+            };
+        }
+
+        private static double[] GenerateBoxUvs()
+        {
+            var uvs = new double[24 * 2];
+            for (int face = 0; face < 6; face++)
+            {
+                int i = face * 8;
+                uvs[i + 0] = 0; uvs[i + 1] = 0;
+                uvs[i + 2] = 1; uvs[i + 3] = 0;
+                uvs[i + 4] = 1; uvs[i + 5] = 1;
+                uvs[i + 6] = 0; uvs[i + 7] = 1;
+            }
+            return uvs;
+        }
+
+        private static double[] GenerateSphereUvs(int stacks, int slices)
+        {
+            var uvs = new System.Collections.Generic.List<double>((stacks + 1) * (slices + 1) * 2);
+            for (int i = 0; i <= stacks; i++)
+            {
+                float v = (float)i / stacks;
+                for (int j = 0; j <= slices; j++)
+                {
+                    uvs.Add((float)j / slices);
+                    uvs.Add(v);
+                }
+            }
+            return uvs.ToArray();
+        }
+
+        private static double[] GenerateCapsuleUvs(int capStacks, int slices)
+        {
+            int rows = (capStacks + 1) * 2;
+            var uvs = new System.Collections.Generic.List<double>(rows * (slices + 1) * 2);
+            for (int row = 0; row < rows; row++)
+            {
+                float v = rows <= 1 ? 0f : (float)row / (rows - 1);
+                for (int j = 0; j <= slices; j++)
+                {
+                    uvs.Add((float)j / slices);
+                    uvs.Add(v);
+                }
+            }
+            return uvs.ToArray();
         }
 
         private double[] GenerateBoxPoints()

@@ -4,6 +4,15 @@ namespace V12.Core.Interfaces.Physics
 {
     public interface IPhysicsBackend
     {
+        /// <summary>Selection priority when several backends are registered. Higher wins.</summary>
+        int Priority { get; }
+
+        /// <summary>When true the backend advances itself; the engine should not call <see cref="Step"/>.</summary>
+        bool AutoStep { get; set; }
+
+        /// <summary>Global gravity applied to dynamic bodies.</summary>
+        Vector3 Gravity { get; set; }
+
         IPhysicsBody CreateBody(in PhysicsBodyDesc desc);
         void DestroyBody(IPhysicsBody body);
         bool Raycast(in Ray ray, out RaycastHit hit);

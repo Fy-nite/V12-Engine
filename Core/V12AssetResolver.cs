@@ -9,8 +9,53 @@ namespace V12.Core
     public class V12AssetResolver : IAssetResolver
     {
         private readonly ConcurrentDictionary<string, string> _mounts = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, IReadOnlyList<V12.Components.Renderables.ModelMaterial>> _modelMaterials
+            = new(StringComparer.OrdinalIgnoreCase);
 
         public IEnumerable<string> GetMountPaths() => _mounts.Values;
+
+        /// <summary>
+        /// Materials authored inside a model file, in file order. The model is
+        /// imported once and the result is cached per resolved path, so a host
+        /// can list what a <c>v12://</c> model offers (PBR values, texture slots)
+        /// without importing it again. Returns an empty list when the asset is
+        /// not a readable model.
+        /// </summary>
+        public IReadOnlyList<V12.Components.Renderables.ModelMaterial> GetModelMaterials(string uri)
+        {
+            if (string.IsNullOrWhiteSpace(uri))
+                return Array.Empty<V12.Components.Renderables.ModelMaterial>();
+
+            string resolved = Resolve(uri);
+            if (_modelMaterials.TryGetValue(resolved, out var cached))
+                return cached;
+
+            IReadOnlyList<V12.Components.Renderables.ModelMaterial> materials;
+            try
+            {
+                materials = V12.Components.Renderables.ModelLoader.Load(uri).Materials;
+            }
+            catch
+            {
+                materials = Array.Empty<V12.Components.Renderables.ModelMaterial>();
+            }
+
+            _modelMaterials[resolved] = materials;
+            return materials;
+        }
+
+        /// <summary>Drops the cached material scan for one model, or all of them
+        /// when <paramref name="uri"/> is null.</summary>
+        public void ClearModelMaterials(string? uri = null)
+        {
+            if (uri is null)
+            {
+                _modelMaterials.Clear();
+                return;
+            }
+
+            _modelMaterials.TryRemove(Resolve(uri), out _);
+        }
 
         /// <summary>Resolve a v12:// path via the global asset resolver, or return the path unchanged.</summary>
         public static string ResolveGlobal(string path)

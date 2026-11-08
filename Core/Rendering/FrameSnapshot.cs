@@ -55,6 +55,9 @@ namespace V12.Core.Rendering
         public float MeshHeight;
         public float MeshDepth;
         public double[] MeshPoints;
+        public double[]? MeshUvs;
+        public double[]? MeshNormals;
+        public double[]? MeshTangents;
         public uint[] MeshIndices;
 
         // Material properties (PBR)
@@ -66,7 +69,22 @@ namespace V12.Core.Rendering
         public bool MatNoDepth;
         public float MatMetallic;
         public float MatRoughness;
+        public float MatEmissionR;
+        public float MatEmissionG;
+        public float MatEmissionB;
+        public float MatEmissionEnergy;
+        public float MatNormalScale;
+        public float MatAlphaCutoff;
+        public bool MatDoubleSided;
+        public bool MatTriplanar;
+        public bool MatTriplanarWorld;
+        public float MatTriplanarSharpness;
         public string MatTexturePath;
+        public string MatNormalTexturePath;
+        public string MatMetallicTexturePath;
+        public string MatRoughnessTexturePath;
+        public string MatEmissionTexturePath;
+        public string MatOcclusionTexturePath;
         public float MatUvOffsetX;
         public float MatUvOffsetY;
         public float MatUvScaleX;

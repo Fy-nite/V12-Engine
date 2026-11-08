@@ -21,6 +21,7 @@ using V12.Components.Renderables;
 using V12.Core.GamePak;
 using V12.Core.Diagnostics;
 using V12.Core.Interfaces;
+using V12.Core.Interfaces.Physics;
 using V12.Core.Interfaces.Renderer;
 using V12.WorldML;
 namespace V12.Core
@@ -99,6 +100,15 @@ namespace V12.Core
 
         /// <summary>Convenience accessor for the local Player element in PersistentWorld.</summary>
         public IWorldElement? Player => PersistentWorld.Root.FirstOrDefault(e => e.Name == "Player");
+
+        /// <summary>
+        /// The physics backend the engine should use. Selects the highest-priority
+        /// registered <see cref="IPhysicsBackend"/>, so games only register their
+        /// systems instead of switching backends manually. A host can register a
+        /// fallback; the backend with the highest priority wins.
+        /// </summary>
+        public IPhysicsBackend? PhysicsBackend =>
+            Registry.GetAll<IPhysicsBackend>().OrderByDescending(b => b.Priority).FirstOrDefault();
 
         // ── ECS-style query API ───────────────────────────────────────────────
 
@@ -306,13 +316,11 @@ namespace V12.Core
             }
             catch { }
 
-            // Engine-level default UI library: Prowl Paper + Origami + Quill.
-            // This makes Paper the default renderer (meshes, see
-            // Core/UI/Paper/PaperCanvasRenderer.cs which mirrors
-            // Paper/Samples/OpenTK/PaperRenderer.cs but captures meshes for Godot).
-            // Hosts that provide their own "IUIRenderer" (e.g. Godot WorldCanvasSystem)
-            // still win; when UseProwlPaper==false the Paper path is dormant and
-            // Godot remains the sole UI renderer.
+            // Engine-level default UI library. Registers the canvas-based UI
+            // renderer built in Core/UI/Paper/PaperCanvasRenderer.cs, which
+            // captures meshes instead of drawing them directly.
+            // Hosts that provide their own "IUIRenderer" still win; when
+            // UseProwlPaper==false the built-in path stays dormant.
             try
             {
                 if (V12.Core.UI.Paper.ProwlPaperRenderer.UseProwlPaper && Registry.Get("IUIRenderer") == null)
@@ -463,10 +471,81 @@ namespace V12.Core
                 {
                     using var _renderZone = V12Profiler.BeginZone("Build RenderPacket", V12Profiler.Colors.Capture);
                     var packet = new RenderPacket();
-                    foreach (var (el, r, viewportId) in GetAllRenderablesWithViewports())
+                    // One MeshDraw per element. GetAllRenderablesWithViewports
+                    // yields both a MeshRenderer and its wrapped MeshComponent;
+                    // drawing both double-submits the geometry.
+                    var meshEntries = GetAllRenderablesWithViewports()
+                        .Where(x => x.Renderable is IMeshRenderable)
+                        .GroupBy(x => x.Element.Id);
+
+                    foreach (var group in meshEntries)
                     {
-                        if (r is IMeshRenderable mesh)
+                        var entry = group.FirstOrDefault(x => x.Renderable is V12.Components.Renderables.MeshRenderer);
+                        if (entry.Element == null) entry = group.First();
+                        var el = entry.Element;
+                        var mesh = (IMeshRenderable)entry.Renderable;
+                        var viewportId = entry.ViewportId;
+
                         {
+                            // Packet materials must carry the same data as the
+                            // snapshot path: a renderer that consumes only the
+                            // packet would otherwise never see the element's
+                            // MaterialComponent.
+                            var mat = el.GetComponent<V12.Components.MaterialComponent>();
+                            var albedo = System.Drawing.Color.White;
+                            var metallic = 0.05f;
+                            var roughness = 0.75f;
+                            var uvOffset = System.Numerics.Vector2.Zero;
+                            var uvScale = System.Numerics.Vector2.One;
+                            string? texturePath = null;
+                            string? normalPath = null;
+                            string? metallicPath = null;
+                            string? roughnessPath = null;
+                            string? emissionPath = null;
+                            bool unlit = false;
+                            bool noDepthTest = false;
+                            var blend = MaterialBlendMode.Opaque;
+
+                            if (mat != null)
+                            {
+                                albedo = System.Drawing.Color.FromArgb(
+                                    (int)Math.Round(mat.A * 255f),
+                                    (int)Math.Round(mat.R * 255f),
+                                    (int)Math.Round(mat.G * 255f),
+                                    (int)Math.Round(mat.B * 255f));
+                                metallic = mat.Metallic;
+                                roughness = mat.Roughness;
+                                uvOffset = new System.Numerics.Vector2(mat.Uv1OffsetX, mat.Uv1OffsetY);
+                                uvScale = new System.Numerics.Vector2(mat.Uv1ScaleX, mat.Uv1ScaleY);
+                                texturePath = mat.AlbedoTexture ?? mat.TextureUrl;
+                                normalPath = mat.NormalTexture;
+                                metallicPath = mat.MetallicTexture;
+                                roughnessPath = mat.RoughnessTexture;
+                                emissionPath = mat.EmissionTexture;
+                                unlit = mat.Unlit;
+                                noDepthTest = mat.NoDepthTest;
+                                if (mat.A < 0.999f)
+                                    blend = MaterialBlendMode.Transparent;
+                            }
+                            else if (ModelMaterialOf(mesh) is { } modelMat)
+                            {
+                                // Keep the packet in step with the snapshot path:
+                                // a model with no MaterialComponent draws with the
+                                // material its file carries, not a flat default.
+                                albedo = System.Drawing.Color.FromArgb(
+                                    (int)Math.Round(modelMat.AlbedoColor.W * 255f),
+                                    (int)Math.Round(modelMat.AlbedoColor.X * 255f),
+                                    (int)Math.Round(modelMat.AlbedoColor.Y * 255f),
+                                    (int)Math.Round(modelMat.AlbedoColor.Z * 255f));
+                                metallic = modelMat.Metallic;
+                                roughness = modelMat.Roughness;
+                                texturePath = modelMat.AlbedoTexture;
+                                normalPath = modelMat.NormalTexture;
+                                metallicPath = modelMat.MetallicTexture;
+                                roughnessPath = modelMat.RoughnessTexture;
+                                emissionPath = modelMat.EmissionTexture;
+                            }
+
                             packet.Meshes.Add(new MeshDraw
                             {
                                 ElementId = el.Id,
@@ -475,15 +554,23 @@ namespace V12.Core
                                 Active = true,
                                 HasWorld = true,
                                 World = el.WorldTransform,
-                                Albedo = System.Drawing.Color.White,
-                                Metallic = 0.05f,
-                                Roughness = 0.75f,
+                                Albedo = albedo,
+                                Metallic = metallic,
+                                Roughness = roughness,
                                 AmbientOcclusion = 1f,
                                 Specular = 0.5f,
                                 NormalScale = 1f,
                                 AlphaCutoff = 0.5f,
-                                BlendMode = MaterialBlendMode.Opaque,
-                                UvScale = System.Numerics.Vector2.One,
+                                BlendMode = blend,
+                                Unlit = unlit,
+                                NoDepthTest = noDepthTest,
+                                UvOffset = uvOffset,
+                                UvScale = uvScale,
+                                TexturePath = texturePath,
+                                NormalTexturePath = normalPath,
+                                MetallicTexturePath = metallicPath,
+                                RoughnessTexturePath = roughnessPath,
+                                EmissionTexturePath = emissionPath,
                                 CastShadows = true,
                                 ReceiveShadows = true,
                             });
@@ -858,8 +945,8 @@ namespace V12.Core
 
             // ── Origami widgets (V12.Basic.Components.Origami.*) ─────────
             // Resolved by type name / reflection to avoid V12 -> V12.Basic circular dependency.
-            // When these components are present the Paper renderer uses them; Godot fallback
-            // treats them as plain VLayout containers so they still layout.
+            // When these components are present the UI renderer uses them; the fallback
+            // path treats them as plain VLayout containers so they still lay out.
             var origComp = element.Components.FirstOrDefault(c => c.GetType().Name is "CodeEditorComponent" or "DockSpaceComponent" or "DockPanelComponent");
             if (origComp != null)
             {
@@ -1286,6 +1373,12 @@ namespace V12.Core
                             rs.MeshHeight = mc.Height;
                             rs.MeshDepth = mc.Depth;
                             rs.MeshPoints = mc.MeshPoints;
+                            rs.MeshUvs = mc.MeshUvs;
+                            // MeshComponent has no authored normals/tangents
+                            // (interface defaults), so these stay null and the
+                            // producer derives normals from winding.
+                            rs.MeshNormals = ((IMeshRenderable)mc).MeshNormals;
+                            rs.MeshTangents = ((IMeshRenderable)mc).MeshTangents;
                             rs.MeshIndices = mc.Indices;
                         }
                         else
@@ -1296,6 +1389,9 @@ namespace V12.Core
                             // absolute and the element transform places them.
                             rs.NodeType = SnapshotNodeType.MeshCustom;
                             rs.MeshPoints = mesh.MeshPoints;
+                            rs.MeshUvs = mesh.MeshUvs;
+                            rs.MeshNormals = mesh.MeshNormals;
+                            rs.MeshTangents = mesh.MeshTangents;
                             rs.MeshIndices = mesh.Indices;
                         }
 
@@ -1311,11 +1407,32 @@ namespace V12.Core
                             rs.MatNoDepth = matComp.NoDepthTest;
                             rs.MatMetallic = matComp.Metallic;
                             rs.MatRoughness = matComp.Roughness;
+                            rs.MatEmissionR = matComp.EmissionR;
+                            rs.MatEmissionG = matComp.EmissionG;
+                            rs.MatEmissionB = matComp.EmissionB;
+                            rs.MatEmissionEnergy = matComp.EmissionEnergy;
+                            rs.MatNormalScale = matComp.NormalScale;
+                            rs.MatAlphaCutoff = matComp.AlphaCutoff;
+                            rs.MatDoubleSided = matComp.DoubleSided;
+                            rs.MatTriplanar = matComp.Triplanar;
+                            rs.MatTriplanarWorld = matComp.TriplanarWorld;
+                            rs.MatTriplanarSharpness = matComp.TriplanarSharpness;
                             rs.MatTexturePath = matComp.PrimaryTexture ?? "";
+                            rs.MatNormalTexturePath = matComp.NormalTexture ?? "";
+                            rs.MatMetallicTexturePath = matComp.MetallicTexture ?? "";
+                            rs.MatRoughnessTexturePath = matComp.RoughnessTexture ?? "";
+                            rs.MatEmissionTexturePath = matComp.EmissionTexture ?? "";
+                            rs.MatOcclusionTexturePath = matComp.OcclusionTexture ?? "";
                             rs.MatUvOffsetX = matComp.Uv1OffsetX;
                             rs.MatUvOffsetY = matComp.Uv1OffsetY;
                             rs.MatUvScaleX = matComp.Uv1ScaleX;
                             rs.MatUvScaleY = matComp.Uv1ScaleY;
+                        }
+                        else if (ModelMaterialOf(mesh) is { } modelMat)
+                        {
+                            // No MaterialComponent: the model keeps the material
+                            // it was authored with instead of a flat default.
+                            ApplyModelMaterial(ref rs, modelMat);
                         }
                     }
                     // Camera
@@ -1413,6 +1530,43 @@ namespace V12.Core
                 }
             }
             finally { world.Lock.ExitReadLock(); }
+        }
+
+        /// <summary>
+        /// The model-authored material behind a mesh renderable. A
+        /// <see cref="V12.Components.Renderables.MeshRenderer"/> wraps its mesh,
+        /// so unwrap before asking; returns null when there is none to offer.
+        /// </summary>
+        private static IModelMaterialSource? ModelMaterialOf(IMeshRenderable mesh) =>
+            mesh as IModelMaterialSource
+            ?? (mesh as V12.Components.Renderables.MeshRenderer)?.Mesh as IModelMaterialSource;
+
+        /// <summary>
+        /// Fills a snapshot's PBR fields from a model's own material. UV scale
+        /// must be set explicitly: the struct defaults to 0, and a zeroed
+        /// UvScale collapses every texture onto a single texel.
+        /// </summary>
+        private static void ApplyModelMaterial(ref RenderableSnapshot rs, IModelMaterialSource source)
+        {
+            rs.MatR = source.AlbedoColor.X;
+            rs.MatG = source.AlbedoColor.Y;
+            rs.MatB = source.AlbedoColor.Z;
+            rs.MatA = source.AlbedoColor.W;
+            rs.MatUnlit = false;
+            rs.MatNoDepth = false;
+            rs.MatMetallic = source.Metallic;
+            rs.MatRoughness = source.Roughness;
+            rs.MatNormalScale = 1f;
+            rs.MatTriplanarSharpness = 1f;
+            rs.MatTexturePath = source.AlbedoTexture ?? "";
+            rs.MatNormalTexturePath = source.NormalTexture ?? "";
+            rs.MatMetallicTexturePath = source.MetallicTexture ?? "";
+            rs.MatRoughnessTexturePath = source.RoughnessTexture ?? "";
+            rs.MatEmissionTexturePath = source.EmissionTexture ?? "";
+            rs.MatUvOffsetX = 0f;
+            rs.MatUvOffsetY = 0f;
+            rs.MatUvScaleX = 1f;
+            rs.MatUvScaleY = 1f;
         }
 
         /// <summary>
@@ -1652,71 +1806,12 @@ namespace V12.Core
         public void Update(float deltaTime)
         {
             using var _zone = V12Profiler.BeginZone("GameRoot.Update(inner)", V12Profiler.Colors.World);
-            // If a dashboard implementation appears later in the registry,
-            // pick it up lazily so frontends may register on demand.
-            // try
-            // {
-            //     if (_dashboard == null)
-            //     {
-            //         var named = Registry.Get<IDashboard>("Dashboard");
-            //         if (named != null) _dashboard = named;
-            //         if (_dashboard == null) _dashboard = Registry.Get<IDashboard>();
-
-            //         If still null, but a core IUIBuilder exists, create the default dashboard.
-            //         if (_dashboard == null)
-            //         {
-            //             try
-            //             {
-            //                 var uiBuilder = Registry.Get<V12.Core.UI.IUIBuilder>("UIBuilder");
-            //                 if (uiBuilder == null) uiBuilder = Registry.Get<V12.Core.UI.IUIBuilder>();
-            //                 if (uiBuilder != null)
-            //                 {
-            //                     var d = new V12.Core.UI.DefaultDashboard();
-            //                     d.Initialize(uiBuilder, this);
-            //                     _dashboard = d;
-            //                     register so future lookups find it
-            //                     Registry.Register("Dashboard", _dashboard);
-            //                 }
-            //             }
-            //             catch { }
-            //         }
-
-            //         if (_dashboard != null)
-            //         {
-            //             var input = Registry.Get<InputService>();
-            //             if (input != null && _dashboardHandler == null)
-            //             {
-            //                 _dashboardHandler = new DashboardInputHandler(_dashboard);
-            //                 input.RegisterHandler(_dashboardHandler);
-            //             }
-            //         }
-            //     }
-            // }
-            // catch { }
-            // if (SelectedWorld != null)
-            // {
-            //     try
-            //     {
-            //         SelectedWorld.Update(deltaTime);
-            //         try { _dashboard?.Update(deltaTime); } catch { }
-            //     }
-            //     catch { }
-            // }
-            // else
-            // {
-            //     UserSpace.Update(deltaTime);
-            // }
-
             // PersistentWorld always ticks (Player, camera, shell content);
             // SelectedWorld ticks too unless a host paused it.
             if (PersistentWorld.TickingEnabled)
                 PersistentWorld.Update(deltaTime);
             if (SelectedWorld != null && SelectedWorld.TickingEnabled && !ReferenceEquals(SelectedWorld, PersistentWorld))
                 SelectedWorld.Update(deltaTime);
-
-            // Let the dashboard update first (if present) so UI values are
-            // refreshed from the current world state before services run.
-            // try { _dashboard?.Update(deltaTime); } catch { }
 
             Registry.Update(deltaTime);
         }
@@ -1773,7 +1868,7 @@ namespace V12.Core
             // Teleport the Player to this world's spawn position
         
         }
-        // TODO: remove this too. this goes in the main game EcoVR
+        // TODO: remove this; it belongs in game-specific code.
         // /// <summary>
         // /// Teleport the local Player to the given world's SpawnPosition.
         // /// Resets position, rotation, and velocity. If no world is specified, uses SelectedWorld.

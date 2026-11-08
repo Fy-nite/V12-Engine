@@ -7,14 +7,17 @@
 
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-
-    
+<!-- 
+      <DefineConstants>TRACY</DefineConstants> -->
     <PackageId>Finite.V12</PackageId>
     <Version>1.0.0</Version>
     <Authors>Charlie-san; Finite</Authors>
     <Description>Finite's V12 game engine powered by CSharp and dreams</Description>
 
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <!-- Packaging goes through `dotnet pack`. GeneratePackageOnBuild makes the
+         pack target run during the build, before the outputs exist, which
+         produces NU5026 (missing V12.dll / V12.pdb) in `vcsdk sync`. -->
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
   </PropertyGroup>
 
   <ItemGroup>
@@ -52,6 +55,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Contract\Contract.Runtime\Contract.Runtime.csproj" />
+    <ProjectReference Include="$(V12RenderingProject)" />
   </ItemGroup>
 
   <ItemGroup>

@@ -41,6 +41,51 @@ namespace V12.Components
         /// <summary>Optional path to a skybox resource (Panorama or CubeMap).</summary>
         public string SkyboxPath { get => _skyboxPath; set { if (_skyboxPath != value) { _skyboxPath = value ?? string.Empty; MarkDirty(); } } }
 
+        // ── Shadows ─────────────────────────────────────────────────────────
+
+        private bool _shadowsEnabled = true;
+        private float _shadowDistance = 100f;
+        private float _shadowBias = 2f;
+        private float _shadowNormalBias = 1f;
+        private float _shadowOpacity = 1f;
+
+        /// <summary>Master switch for realtime shadows from every light.</summary>
+        public bool ShadowsEnabled
+        {
+            get => _shadowsEnabled;
+            set { if (_shadowsEnabled != value) { _shadowsEnabled = value; MarkDirty(); } }
+        }
+
+        /// <summary>How far from the camera directional shadows are drawn. Smaller
+        /// values spend the shadow map on the near scene and look sharper.</summary>
+        public float ShadowDistance
+        {
+            get => _shadowDistance;
+            set { if (Math.Abs(_shadowDistance - value) > 0.0001f) { _shadowDistance = MathF.Max(1f, value); MarkDirty(); } }
+        }
+
+        /// <summary>Depth offset used when comparing against the shadow map. Raise
+        /// it when a large flat surface (a floor) shadows itself.</summary>
+        public float ShadowBias
+        {
+            get => _shadowBias;
+            set { if (Math.Abs(_shadowBias - value) > 0.0001f) { _shadowBias = MathF.Max(0f, value); MarkDirty(); } }
+        }
+
+        /// <summary>Extra offset along the surface normal, for grazing angles.</summary>
+        public float ShadowNormalBias
+        {
+            get => _shadowNormalBias;
+            set { if (Math.Abs(_shadowNormalBias - value) > 0.0001f) { _shadowNormalBias = MathF.Max(0f, value); MarkDirty(); } }
+        }
+
+        /// <summary>How dark a shadow is. 1 = fully occluded, 0 = no visible shadow.</summary>
+        public float ShadowOpacity
+        {
+            get => _shadowOpacity;
+            set { if (Math.Abs(_shadowOpacity - value) > 0.0001f) { _shadowOpacity = Clamp01(value); MarkDirty(); } }
+        }
+
         public EnvironmentComponent() { }
 
         public EnvironmentComponent(BackgroundMode mode, float skyR, float skyG, float skyB)
@@ -60,6 +105,12 @@ namespace V12.Components
             inspector.Float("Ambient Blue", () => AmbientB, v => AmbientB = v);
             inspector.Float("Ambient Energy", () => AmbientEnergy, v => AmbientEnergy = v);
             inspector.String("Skybox Path", () => SkyboxPath, v => SkyboxPath = v);
+            inspector.Section("Shadows");
+            inspector.Bool("Enabled", () => ShadowsEnabled, v => ShadowsEnabled = v);
+            inspector.Float("Distance", () => ShadowDistance, v => ShadowDistance = v);
+            inspector.Float("Bias", () => ShadowBias, v => ShadowBias = v);
+            inspector.Float("Normal Bias", () => ShadowNormalBias, v => ShadowNormalBias = v);
+            inspector.Float("Opacity", () => ShadowOpacity, v => ShadowOpacity = v);
         }
 
         public override IWorldElement BuildUI()

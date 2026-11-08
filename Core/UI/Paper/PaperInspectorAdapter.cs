@@ -13,14 +13,14 @@ using PVector = Prowl.Vector;
 namespace V12.Core.UI.Paper
 {
     /// <summary>
-    /// Renders <see cref="IInspector"/> calls into Paper/Origami widgets. This is the
+    /// Renders <see cref="IInspector"/> calls into canvas widgets. This is the
     /// single inspector both the editor and in-game UI use: components author their
     /// inspector once (<see cref="V12.Core.Core.Interfaces.IComponent.BuildInspector"/>)
-    /// and it looks and behaves the same in the Studio and inside a running game.
+    /// and it looks and behaves the same in the editor and inside a running game.
     ///
     /// When a component does not author an inspector, <see cref="Render"/> auto-generates
     /// rows from its public properties (respecting <c>[BsonIgnore]</c>) and public fields,
-    /// which is the V12 equivalent of Origami's field grid.
+    /// which is the engine's equivalent of a field grid.
     /// </summary>
     public sealed class PaperInspectorAdapter : IInspector
     {
@@ -116,6 +116,7 @@ namespace V12.Core.UI.Paper
         private void Notify()
         {
             try { _changed?.Invoke(); } catch { }
+            V12.Core.GameRoot.Instance?.MarkRenderDirty();
         }
 
         private void Header(string title)

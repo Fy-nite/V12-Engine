@@ -31,6 +31,9 @@ namespace V12.Core.UI.Paper
         private long _screenCanvasId;
         private readonly Dictionary<long, global::Prowl.OrigamiUI.CodeDocument> _codeDocs = new();
         private readonly Dictionary<long, object> _viewportTextures = new();
+        private readonly Dictionary<long, PVector.Rect> _viewportRects = new();
+        private HashSet<long> _activeViewportIds = new();
+        private HashSet<long> _previousViewportIds = new();
         private readonly Dictionary<long, OrigamiDockHost> _dockHosts = new();
         private Dictionary<long, List<V12.Core.Rendering.UINode>> _byParent = new();
         private Dictionary<long, V12.Core.Rendering.UINode> _nodesById = new();
@@ -148,6 +151,9 @@ namespace V12.Core.UI.Paper
         /// </summary>
         public Action<long, PVector.Rect>? ViewportRectSink { get; set; }
 
+        /// <summary>Called when a viewport node disappears from the UI frame.</summary>
+        public Action<long>? ViewportReleaseSink { get; set; }
+
         public object? GetViewportTexture(long id) => ViewportTextureProvider?.Invoke(id) ?? ViewportTexture(id);
         public void SetViewportRectOverride(long id, PVector.Rect rect) => ViewportRectSink?.Invoke(id, rect);
         private object ViewportTexture(long id)
@@ -166,12 +172,38 @@ namespace V12.Core.UI.Paper
             if(!UseProwlPaper || _lastFrame==null) return;
             try
             {
+                _canvasRenderer.BeginFrame();
                 _paper.BeginFrame(1f/60f, _dpi);
                 global::Prowl.OrigamiUI.Origami.BeginFrame(_paper, 1f/60f);
+                _activeViewportIds.Clear();
                 BuildPaperTree(_lastFrame);
+                foreach (var id in _previousViewportIds)
+                    if (!_activeViewportIds.Contains(id))
+                    {
+                        _viewportRects.Remove(id);
+                        ViewportReleaseSink?.Invoke(id);
+                    }
+                (_previousViewportIds, _activeViewportIds) = (_activeViewportIds, _previousViewportIds);
                 UIOverlay?.Invoke(_paper);
                 global::Prowl.OrigamiUI.Origami.EndFrame(_paper);
                 _paper.EndFrame();
+
+                // Publish laid-out viewport rects for renderers that consume the
+                // PaperFrame directly and build their viewport render targets
+                // from these.
+                var lastFrame = _canvasRenderer.LastFrame;
+                if (lastFrame != null)
+                {
+                    lastFrame.Viewports.Clear();
+                    foreach (var kv in _viewportRects)
+                        lastFrame.Viewports.Add(new PaperViewportInfo
+                        {
+                            Id = kv.Key,
+                            Rect = new System.Numerics.Vector4(
+                                (float)kv.Value.Min.X, (float)kv.Value.Min.Y,
+                                (float)kv.Value.Size.X, (float)kv.Value.Size.Y),
+                        });
+                }
             }
             catch(Exception ex){ V12.Core.GameRoot.Log?.Warning(ex, "[ProwlPaperRenderer] step"); }
         }
@@ -304,9 +336,28 @@ namespace V12.Core.UI.Paper
                     break;
                 }
                 case UIWidgetKind.Button:
-                    el=_paper.Box(idStr,pid,0).Width(_paper.Auto).Height(_paper.Auto).BackgroundColor(PPal.Accent).Rounded(6f).Padding(8).OnClick(_=>node.OnClick?.Invoke());
-                    try { el.Text(node.Text ?? node.Name ?? "Button", _fallbackFont).FontSize(13f).TextColor(PPal.Text); } catch {}
+                {
+                    float buttonWidth = node.PreferredWidth > 0f ? node.PreferredWidth : node.Width;
+                    float buttonHeight = node.PreferredHeight > 0f ? node.PreferredHeight : node.Height;
+                    el = _paper.Box(idStr, pid, 0)
+                        .Width(buttonWidth > 0f ? _paper.Pixels(buttonWidth) : _paper.Auto)
+                        .Height(buttonHeight > 0f ? _paper.Pixels(buttonHeight) : _paper.Auto)
+                        .BackgroundColor(PPal.Accent)
+                        .Rounded(6f)
+                        .Padding(8)
+                        .JustifyContent(global::Prowl.PaperUI.LayoutJustification.Center)
+                        .AlignItems(global::Prowl.PaperUI.LayoutAlignment.Center)
+                        .OnClick(_ => node.OnClick?.Invoke());
+                    try
+                    {
+                        el.Text(node.Text ?? node.Name ?? "Button", _fallbackFont)
+                          .FontSize(13f)
+                          .TextColor(PPal.Text)
+                          .Alignment(global::Prowl.PaperUI.TextAlignment.Center);
+                    }
+                    catch { }
                     break;
+                }
                 case UIWidgetKind.TextInput:
                     el=_paper.Box(idStr,pid,0).Width(_paper.Auto).Height(_paper.Auto).BackgroundColor(PPal.Canvas).Rounded(4f).Padding(6).BorderWidth(1f).BorderColor(PPal.Border);
                     try { el.Text(node.Text ?? node.Placeholder ?? "", _fallbackFont).FontSize(13f).TextColor(PPal.Text); } catch {}
@@ -383,8 +434,42 @@ namespace V12.Core.UI.Paper
                     }
                     return;
                 }
-                case UIWidgetKind.NodeGraph:
                 case UIWidgetKind.Viewport:
+                {
+                    // Dumb viewport: camera -> texture. The engine supplies the
+                    // element id and the background; the host supplies the texture
+                    // and resizes its render target from the laid-out rect.
+                    _activeViewportIds.Add(node.Id);
+                    el = _paper.Box(idStr, pid, 0)
+                        .Width(_paper.Stretch())
+                        .Height(_paper.Stretch())
+                        .BackgroundColor(ParseColor(node.Color, new PVector.Color(0.06f, 0.06f, 0.08f, 1f)))
+                        .Clip()
+                        .OnPostLayout((_, r) =>
+                        {
+                            _viewportRects[node.Id] = r;
+                            SetViewportRectOverride(node.Id, r);
+                        });
+
+                    using (el.Enter())
+                    {
+                        var texture = GetViewportTexture(node.Id);
+                        if (texture != null)
+                        {
+                            _paper.Draw((canvas, rect) =>
+                            {
+                                canvas.DrawImage(texture,
+                                    (float)rect.Min.X, (float)rect.Min.Y,
+                                    (float)rect.Size.X, (float)rect.Size.Y);
+                            });
+                        }
+
+                        if (byParent.TryGetValue(node.Id, out var viewportKids))
+                            foreach (var c in viewportKids) BuildNode(c, byParent, depth + 1);
+                    }
+                    return;
+                }
+                case UIWidgetKind.NodeGraph:
                 case UIWidgetKind.Image:
                 case UIWidgetKind.Icon:
                 case UIWidgetKind.Panel:
@@ -394,12 +479,12 @@ namespace V12.Core.UI.Paper
                     break;
                 case UIWidgetKind.DockSpace:
                 {
-                    // Origami owns the layout: build/reuse the dock tree, then let it draw.
+                    // The toolkit owns the layout: build/reuse the dock tree, then let it draw.
                     BuildDockSpace(node, byParent);
                     return;
                 }
                 case UIWidgetKind.DockPanel:
-                    // Rendered by OrigamiDockPanel.OnGUI; never emitted directly.
+                    // Rendered by the dock panel's own draw pass; never emitted directly.
                     return;
                 case UIWidgetKind.PropertyGrid:
                 {
@@ -520,7 +605,7 @@ namespace V12.Core.UI.Paper
             return fallback;
         }
 
-        // Compatibility shims for Rockstar renderer (legacy world-canvas API)
+        // Compatibility shims for the legacy world-canvas API
         public Func<long, int, int, PaperCanvasRenderer>? WorldCanvasRendererFactory { get; set; }
         public PaperWorldCanvasSystem? WorldCanvases => null;
     }

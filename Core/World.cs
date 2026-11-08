@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using V12.Core.Binding;
 using V12.Core.Core.Interfaces;
+using V12.Core.Diagnostics;
 namespace V12.Core
 {
     public class World 
@@ -154,6 +155,7 @@ namespace V12.Core
         }
         public void Update(float deltaTime)
         {
+            using var _zone = V12Profiler.BeginZone("World.Update", V12Profiler.Colors.World);
             if (!TickingEnabled) return;
             Lock.EnterReadLock();
             try

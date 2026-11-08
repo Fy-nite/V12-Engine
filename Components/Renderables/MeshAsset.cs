@@ -1,76 +1,147 @@
 ﻿using Assimp;
 using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Numerics;
-using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 
 namespace V12.Components.Renderables
 {
     /// <summary>
-    /// Loads 3D mesh assets (GLB, GLTF, OBJ) and exposes them as IMeshRenderable.
-    /// Material data is extracted from the asset and made available to renderers.
+    /// Loads a 3D model file (GLB, GLTF, OBJ, FBX, …) and exposes the WHOLE file
+    /// as one flattened triangle soup with the node hierarchy baked into the
+    /// vertices. Use this when an element should be a single mesh; use
+    /// <see cref="ModelInstance"/> when the model's own hierarchy and per-part
+    /// materials should be rebuilt as elements.
+    ///
+    /// An element's own <c>MaterialComponent</c> still wins; this component only
+    /// supplies a material for elements that don't carry one.
     /// </summary>
-    public class MeshAsset : ComponentBase, IMeshRenderable
+    [ComponentEntry("RENDER", "Mesh Asset", SingleInstance = true, SortOrder = 5, Icon = "asset")]
+    public class MeshAsset : ComponentBase, IMeshRenderable, IModelMaterialSource, IDisposable
     {
-        private string _assetPath;
-        private readonly AssimpContext _assimpContext;
+        private static readonly string[] ModelExtensions =
+        {
+            "glb", "gltf", "obj", "fbx", "dae", "ply", "stl", "3ds", "x", "off", "abc", "lwo", "ctm"
+        };
 
-        public string AssetPath
+        private readonly object _gate = new();
+        private string? _assetPath;
+        private ModelDocument? _model;
+        private Material? _material;
+
+        /// <summary>Path to the model: a <c>v12://</c> URI, a <c>res://</c> path,
+        /// or a plain file path. Setting it discards everything already loaded.</summary>
+        public string? AssetPath
         {
             get => _assetPath;
             set
             {
-                if (_assetPath != value)
+                if (string.Equals(_assetPath, value, StringComparison.Ordinal))
+                    return;
+                _assetPath = value;
+                lock (_gate)
                 {
-                    _assetPath = value;
-                    _meshPoints = null; // Invalidate cache
-                    _indices = null;
+                    _model = null;
                     _material = null;
                 }
             }
         }
 
-        // Cached mesh data
-        private double[] _meshPoints;
-        private uint[] _indices;
-        private Material _material;
+        private ModelDocument Model
+        {
+            get
+            {
+                lock (_gate)
+                    return _model ??= ModelLoader.Load(
+                        _assetPath ?? throw new InvalidOperationException("MeshAsset has no AssetPath."));
+            }
+        }
 
         public RenderType RenderType => RenderType.Mesh;
 
-        /// <summary>
-        /// Mesh vertices as flat array [x0, y0, z0, x1, y1, z1, ...]
-        /// Lazily loaded on first access.
-        /// </summary>
-        public double[] MeshPoints => _meshPoints ??= LoadMeshData();
+        /// <summary>Vertices as a flat array [x0, y0, z0, x1, y1, z1, …], with
+        /// every node transform already applied.</summary>
+        public double[] MeshPoints => Model.Points;
 
-        /// <summary>
-        /// Triangle indices into MeshPoints.
-        /// Lazily loaded on first access.
-        /// </summary>
-        public uint[] Indices => _indices ??= LoadIndices();
+        /// <summary>Flat UV0 array parallel to <see cref="MeshPoints"/>, or null
+        /// when the model has no texture coordinates at all.</summary>
+        public double[]? MeshUvs => Model.Uvs;
 
-        /// <summary>
-        /// Material data extracted from the asset.
-        /// Lazily loaded on first access.
-        /// </summary>
-        public Material Material => _material ??= LoadScene().Materials.FirstOrDefault() ?? new Material();
+        /// <summary>Flat normals parallel to <see cref="MeshPoints"/>, or null
+        /// when the file carries none (the producer then derives them).</summary>
+        public double[]? MeshNormals => Model.Normals;
+
+        /// <summary>Per-vertex tangents packed xyzw, or null when there is no
+        /// normal/UV data to derive them from.</summary>
+        public double[]? MeshTangents => Model.Tangents;
+
+        /// <summary>Triangle indices into <see cref="MeshPoints"/>.</summary>
+        public uint[] Indices => Model.Indices;
+
+        /// <summary>The dominant material rebuilt as a plain Assimp object, for
+        /// callers that want the legacy <see cref="IMeshRenderable"/> shape. The
+        /// render path reads the structured values below instead.</summary>
+        public Material Material
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    if (_material is not null)
+                        return _material;
+
+                    var material = new Material { Name = "Dominant" };
+                    if (_assetPath is null)
+                        return _material = material;
+
+                    var model = _model ??= ModelLoader.Load(_assetPath);
+                    if (model.Materials.Count > 0)
+                    {
+                        var source = model.Materials[
+                            Math.Clamp(model.DominantMaterialIndex, 0, model.Materials.Count - 1)];
+                        material.Name = source.Name;
+                        material.ColorDiffuse = source.Albedo;
+                        material.Opacity = source.Albedo.W;
+                    }
+
+                    return _material = material;
+                }
+            }
+        }
+
+        // ── IModelMaterialSource ────────────────────────────────────────────
+
+        public Vector4 AlbedoColor => Dominant.Albedo;
+        public float Metallic => Dominant.Metallic;
+        public float Roughness => Dominant.Roughness;
+        public string? AlbedoTexture => Dominant.AlbedoTexture;
+        public string? NormalTexture => Dominant.NormalTexture;
+        public string? MetallicTexture => Dominant.MetallicTexture;
+        public string? RoughnessTexture => Dominant.RoughnessTexture;
+        public string? EmissionTexture => Dominant.EmissionTexture;
+
+        private ModelMaterial Dominant
+        {
+            get
+            {
+                var model = Model;
+                if (model.Materials.Count == 0)
+                    return new ModelMaterial();
+                return model.Materials[Math.Clamp(model.DominantMaterialIndex, 0, model.Materials.Count - 1)];
+            }
+        }
 
         public bool IsWorldLocked => true;
 
-        public TRS LocalTransform => throw new NotImplementedException();
+        /// <summary>Meshes carry no transform of their own: placement lives on
+        /// the element (<see cref="ISpatial"/>), so this is always identity.</summary>
+        public TRS LocalTransform => default;
 
         public Matrix4x4 WorldTransform => Owner?.WorldTransform ?? Matrix4x4.Identity;
 
-        public MeshAsset()
-        {
-            _assimpContext = new AssimpContext();
-        }
+        public MeshAsset() { }
 
-        public MeshAsset(string assetPath) : this()
+        public MeshAsset(string assetPath)
         {
             if (string.IsNullOrWhiteSpace(assetPath))
                 throw new ArgumentException("Asset path cannot be null or empty.", nameof(assetPath));
@@ -78,96 +149,27 @@ namespace V12.Components.Renderables
             _assetPath = assetPath;
         }
 
-        /// <summary>
-        /// Loads the scene once and caches it.
-        /// </summary>
-        private Assimp.Scene LoadScene()
+        public override void BuildInspector(V12.Core.UI.IInspector inspector)
         {
-            try
-            {
-                var postProcess = PostProcessSteps.Triangulate
-                    | PostProcessSteps.FlipUVs
-                    | PostProcessSteps.CalculateTangentSpace
-                    | PostProcessSteps.JoinIdenticalVertices;
-
-                string resolvedPath = V12AssetResolver.ResolveGlobal(_assetPath);
-
-                var scene = _assimpContext.ImportFile(resolvedPath, postProcess);
-
-                if (scene == null || scene.MeshCount == 0)
-                    throw new InvalidOperationException($"No meshes found in asset: {resolvedPath}");
-
-                return scene;
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException($"Failed to load mesh asset '{_assetPath}' (resolved: {V12AssetResolver.ResolveGlobal(_assetPath)})", ex);
-            }
+            inspector.Section("Model");
+            // AssetPath (not String) so hosts can offer a project-asset picker;
+            // values may be v12:// URIs, res:// paths or relative file paths.
+            inspector.AssetPath("Asset", () => AssetPath ?? "", v => AssetPath = v, ModelExtensions);
         }
 
-        /// <summary>
-        /// Extracts all mesh vertices into a flat double array.
-        /// </summary>
-        private double[] LoadMeshData()
+        public override void OnDestroy()
         {
-            var scene = LoadScene();
-            var vertices = new List<double>();
-
-            foreach (var mesh in scene.Meshes)
-            {
-                foreach (var vertex in mesh.Vertices)
-                {
-                    vertices.Add(vertex.X);
-                    vertices.Add(vertex.Y);
-                    vertices.Add(vertex.Z);
-                }
-            }
-
-            if (vertices.Count == 0)
-                throw new InvalidOperationException($"Asset '{_assetPath}' contains no vertices.");
-
-            return vertices.ToArray();
-        }
-
-        /// <summary>
-        /// Extracts all mesh indices, accounting for vertex offsets between meshes.
-        /// </summary>
-        private uint[] LoadIndices()
-        {
-            var scene = LoadScene();
-            var indices = new List<uint>();
-            uint vertexOffset = 0;
-
-            foreach (var mesh in scene.Meshes)
-            {
-                foreach (var face in mesh.Faces)
-                {
-                    if (face.IndexCount != 3)
-                        continue; // Skip non-triangles (should be none after triangulation)
-
-                    foreach (var index in face.Indices)
-                    {
-                        indices.Add((uint)(index + vertexOffset));
-                    }
-                }
-                vertexOffset += (uint)mesh.VertexCount;
-            }
-
-            if (indices.Count == 0)
-                throw new InvalidOperationException($"Asset '{_assetPath}' contains no face indices.");
-
-            return indices.ToArray();
-        }
-
-        public override IWorldElement BuildUI()
-        {
-            // TODO: Build UI controls for position, rotation, scale
-            throw new NotImplementedException();
+            base.OnDestroy();
+            Dispose();
         }
 
         public void Dispose()
         {
-            _assimpContext?.Dispose();
+            lock (_gate)
+            {
+                _model = null;
+                _material = null;
+            }
         }
     }
 }

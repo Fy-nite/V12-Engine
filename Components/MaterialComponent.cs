@@ -1,4 +1,5 @@
 using System;
+using V12.Components.Renderables;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.UI;
@@ -20,6 +21,17 @@ namespace V12.Components
         private float _a        = 1f;
         private float _metallic = 0f;
         private float _roughness = 0.5f;
+        private float _emissionR;
+        private float _emissionG;
+        private float _emissionB;
+        private float _emissionEnergy = 1f;
+        private float _normalScale = 1f;
+        private float _alphaCutoff = 0.5f;
+        private bool _doubleSided;
+        private bool _triplanar;
+        private bool _triplanarWorld;
+        private float _triplanarSharpness = 1f;
+        private int _uvSet;
         private bool _unlit;
         private bool _noDepthTest;
         private string? _textureUrl;
@@ -28,6 +40,7 @@ namespace V12.Components
         private string? _metallicTexture;
         private string? _roughnessTexture;
         private string? _emissionTexture;
+        private string? _occlusionTexture;
         private float _uv1OffsetX;
         private float _uv1OffsetY;
         private float _uv1ScaleX = 1f;
@@ -35,6 +48,17 @@ namespace V12.Components
 
         public override string Name        => "Material";
         public override string Description => "Surface colour and PBR properties";
+
+        private string? _materialName;
+
+        /// <summary>Name of the material this component was built from, when it
+        /// came from a model file. Cosmetic: it labels the surface so a rebuilt
+        /// model stays recognisable part by part.</summary>
+        public string? MaterialName
+        {
+            get => _materialName;
+            set { if (_materialName != value) { _materialName = value; MarkDirty(); } }
+        }
 
         public string? TextureUrl
         {
@@ -70,6 +94,90 @@ namespace V12.Components
         {
             get => _emissionTexture;
             set { _emissionTexture = value; MarkDirty(); }
+        }
+
+        public string? OcclusionTexture
+        {
+            get => _occlusionTexture;
+            set { _occlusionTexture = value; MarkDirty(); }
+        }
+
+        /// <summary>Emission tint. Only visible when the energy or an emission
+        /// map is non-zero.</summary>
+        public float EmissionR
+        {
+            get => _emissionR;
+            set { if (Math.Abs(_emissionR - value) > 0.001f) { _emissionR = Math.Max(0f, value); MarkDirty(); } }
+        }
+        public float EmissionG
+        {
+            get => _emissionG;
+            set { if (Math.Abs(_emissionG - value) > 0.001f) { _emissionG = Math.Max(0f, value); MarkDirty(); } }
+        }
+        public float EmissionB
+        {
+            get => _emissionB;
+            set { if (Math.Abs(_emissionB - value) > 0.001f) { _emissionB = Math.Max(0f, value); MarkDirty(); } }
+        }
+        public float EmissionEnergy
+        {
+            get => _emissionEnergy;
+            set { if (Math.Abs(_emissionEnergy - value) > 0.001f) { _emissionEnergy = Math.Max(0f, value); MarkDirty(); } }
+        }
+
+        /// <summary>Strength of the normal map. 1 = as authored.</summary>
+        public float NormalScale
+        {
+            get => _normalScale;
+            set { if (Math.Abs(_normalScale - value) > 0.001f) { _normalScale = value; MarkDirty(); } }
+        }
+
+        /// <summary>Alpha below this is discarded when the surface is not
+        /// blended (cutout foliage, punched metal).</summary>
+        public float AlphaCutoff
+        {
+            get => _alphaCutoff;
+            set { if (Math.Abs(_alphaCutoff - value) > 0.001f) { _alphaCutoff = Clamp01(value); MarkDirty(); } }
+        }
+
+        /// <summary>Draw both faces. Models frequently author single-sided
+        /// planes that need to be visible from behind.</summary>
+        public bool DoubleSided
+        {
+            get => _doubleSided;
+            set { if (_doubleSided != value) { _doubleSided = value; MarkDirty(); } }
+        }
+
+        /// <summary>Project textures from world space instead of sampling the
+        /// mesh UVs. This is the fallback for models whose meshes carry no UV
+        /// set at all: without it every texel collapses to one point.</summary>
+        public bool Triplanar
+        {
+            get => _triplanar;
+            set { if (_triplanar != value) { _triplanar = value; MarkDirty(); } }
+        }
+
+        /// <summary>Triplanar in world space rather than object space, so the
+        /// projection does not swim when the object moves or scales.</summary>
+        public bool TriplanarWorld
+        {
+            get => _triplanarWorld;
+            set { if (_triplanarWorld != value) { _triplanarWorld = value; MarkDirty(); } }
+        }
+
+        /// <summary>Blend tightness between the three triplanar projections.
+        /// Higher is sharper at the seams.</summary>
+        public float TriplanarSharpness
+        {
+            get => _triplanarSharpness;
+            set { if (Math.Abs(_triplanarSharpness - value) > 0.001f) { _triplanarSharpness = Math.Max(0.01f, value); MarkDirty(); } }
+        }
+
+        /// <summary>UV channel the textures address (0 or 1 today).</summary>
+        public int UvSet
+        {
+            get => _uvSet;
+            set { if (_uvSet != value) { _uvSet = Math.Max(0, value); MarkDirty(); } }
         }
 
         public float R
@@ -147,16 +255,73 @@ namespace V12.Components
             _unlit = unlit; _noDepthTest = noDepthTest;
         }
 
+        /// <summary>
+        /// Fills a component from a material authored in a model file. Used when
+        /// a model's hierarchy is rebuilt as elements: each part gets the surface
+        /// its file declared instead of a flat default.
+        /// <paramref name="needsTriplanar"/> switches projection on for meshes
+        /// that carry no UV set, where sampling would otherwise collapse.
+        /// </summary>
+        public static MaterialComponent FromModelMaterial(ModelMaterial source, bool needsTriplanar)
+        {
+            var material = new MaterialComponent
+            {
+                _r = Clamp01(source.Albedo.X),
+                _g = Clamp01(source.Albedo.Y),
+                _b = Clamp01(source.Albedo.Z),
+                _a = Clamp01(source.Albedo.W),
+                _metallic = Clamp01(source.Metallic),
+                _roughness = Clamp01(source.Roughness),
+                _emissionR = Math.Max(0f, source.Emission.X),
+                _emissionG = Math.Max(0f, source.Emission.Y),
+                _emissionB = Math.Max(0f, source.Emission.Z),
+                _emissionEnergy = Math.Max(0f, source.EmissionStrength),
+                _normalScale = source.NormalScale,
+                _alphaCutoff = Clamp01(source.AlphaCutoff),
+                _doubleSided = source.DoubleSided,
+                _unlit = source.Unlit,
+                _uvSet = Math.Max(0, source.UvChannel),
+                _triplanar = needsTriplanar,
+                _albedoTexture = source.AlbedoTexture,
+                _normalTexture = source.NormalTexture,
+                _metallicTexture = source.MetallicTexture,
+                _roughnessTexture = source.RoughnessTexture,
+                _emissionTexture = source.EmissionTexture,
+                _occlusionTexture = source.OcclusionTexture,
+                _textureUrl = source.AlbedoTexture,
+            };
+
+            if (source.AlphaBlend)
+                material._a = Clamp01(source.Albedo.W);
+
+            return material;
+        }
+
         /// <summary>Generate editable material fields for the inspector.</summary>
         public override void BuildInspector(IInspector inspector)
         {
             inspector.Section("Colour");
+            inspector.ReadOnly("Source", string.IsNullOrWhiteSpace(MaterialName) ? "(authored)" : MaterialName);
             inspector.Float("Red", () => R, v => R = v);
             inspector.Float("Green", () => G, v => G = v);
             inspector.Float("Blue", () => B, v => B = v);
             inspector.Float("Alpha", () => A, v => A = v);
             inspector.Float("Metallic", () => Metallic, v => Metallic = v);
             inspector.Float("Roughness", () => Roughness, v => Roughness = v);
+            inspector.Float("Normal Scale", () => NormalScale, v => NormalScale = v);
+            inspector.Float("Alpha Cutoff", () => AlphaCutoff, v => AlphaCutoff = v);
+            inspector.Bool("Double Sided", () => DoubleSided, v => DoubleSided = v);
+            inspector.Bool("Unlit", () => Unlit, v => Unlit = v);
+            inspector.Section("Emission");
+            inspector.Float("Emission R", () => EmissionR, v => EmissionR = v);
+            inspector.Float("Emission G", () => EmissionG, v => EmissionG = v);
+            inspector.Float("Emission B", () => EmissionB, v => EmissionB = v);
+            inspector.Float("Emission Energy", () => EmissionEnergy, v => EmissionEnergy = v);
+            inspector.Section("Projection");
+            inspector.Bool("Triplanar", () => Triplanar, v => Triplanar = v);
+            inspector.Bool("Triplanar World", () => TriplanarWorld, v => TriplanarWorld = v);
+            inspector.Float("Triplanar Sharpness", () => TriplanarSharpness, v => TriplanarSharpness = v);
+            inspector.Int("UV Set", () => UvSet, v => UvSet = v);
             inspector.Section("UV");
             inspector.Float("UV Offset X", () => Uv1OffsetX, v => Uv1OffsetX = v);
             inspector.Float("UV Offset Y", () => Uv1OffsetY, v => Uv1OffsetY = v);
@@ -170,6 +335,7 @@ namespace V12.Components
             inspector.AssetPath("Metallic Map", () => MetallicTexture ?? "", v => MetallicTexture = v, TextureExtensions);
             inspector.AssetPath("Roughness Map", () => RoughnessTexture ?? "", v => RoughnessTexture = v, TextureExtensions);
             inspector.AssetPath("Emission Map", () => EmissionTexture ?? "", v => EmissionTexture = v, TextureExtensions);
+            inspector.AssetPath("Occlusion Map", () => OcclusionTexture ?? "", v => OcclusionTexture = v, TextureExtensions);
         }
 
         private static readonly string[] TextureExtensions =

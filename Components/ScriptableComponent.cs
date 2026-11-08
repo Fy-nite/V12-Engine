@@ -15,9 +15,15 @@ namespace V12.Components
     /// <code>
     /// public sealed class SpinComponent : ScriptableComponent
     /// {
-    ///     public float Speed = 1f;
+    ///     /// <summary>Degrees per second.</summary>
+    ///     public float Speed = 90f;
+    ///
     ///     public override void Update(float deltaTime)
-    ///         => Owner?.GetOrAddTransform().RY += Speed * deltaTime;
+    ///     {
+    ///         var transform = Owner?.GetOrAddTransform();
+    ///         if (transform != null)
+    ///             transform.RotationY += Speed * deltaTime; // RotationY is degrees
+    ///     }
     /// }
     /// </code>
     /// <para>
