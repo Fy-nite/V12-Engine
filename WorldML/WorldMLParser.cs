@@ -128,6 +128,9 @@ namespace V12.WorldML
             var description = GetAttr(node, "description");
 
             var element = new Element(name, description, parent);
+            var uidText = GetAttr(node, "uid");
+            if (!string.IsNullOrWhiteSpace(uidText) && Guid.TryParse(uidText, out var pinnedUid))
+                element.Uid = pinnedUid;
 
             if (parent is Element parentElement)
                 parentElement.AddChild(element);
@@ -142,7 +145,8 @@ namespace V12.WorldML
                 {
                     if (string.Equals(attr.Name, "name", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(attr.Name, "description", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(attr.Name, "template", StringComparison.OrdinalIgnoreCase))
+                        || string.Equals(attr.Name, "template", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(attr.Name, "uid", StringComparison.OrdinalIgnoreCase))
                         continue;
                     overrides[attr.Name] = attr.Value;
                 }
@@ -260,6 +264,9 @@ namespace V12.WorldML
                 if (tmplChild.NodeType != XmlNodeType.Element) continue;
                 var clone = tmplChild.CloneNode(true);
                 ApplyInterpolation(clone, overrides);
+                // A template's uid belongs to the template definition, not to
+                // each instance. Strip it so two instances never share a pin.
+                StripUidAttributes(clone);
                 ParseElement(clone, world, parent);
             }
         }
@@ -342,6 +349,10 @@ namespace V12.WorldML
             // Activator returns object; verify it really implements IComponent before proceeding.
             if (instance is not IComponent component) return null;
 
+            var uidText = GetAttr(node, "uid");
+            if (!string.IsNullOrWhiteSpace(uidText) && Guid.TryParse(uidText, out var pinnedUid))
+                component.Uid = pinnedUid;
+
             // Set simple properties from child <Property name="X" value="Y"/> or direct attributes on the component node
             // 1) attributes
             if (node.Attributes != null)
@@ -393,6 +404,9 @@ namespace V12.WorldML
 
             // 2b) Complex representable properties via <PropName><Value X="..." Y="..." Z="..." /></PropName>
             TryApplyComplexValues(instance, node);
+
+            // 2c) Reference hints (must run after the ref attribute itself).
+            ApplyReferenceHints(instance, node);
 
             // 3) If the component has an SvgContent string property, capture
             //    the raw inner XML of this node (e.g. embedded <svg> element).
@@ -461,6 +475,18 @@ namespace V12.WorldML
             {
                 try
                 {
+                    if (pi.PropertyType == typeof(V12.Core.References.ElementRef))
+                    {
+                        pi.SetValue(target, new V12.Core.References.ElementRef(value));
+                        return;
+                    }
+
+                    if (pi.PropertyType == typeof(V12.Core.References.ComponentRef))
+                    {
+                        pi.SetValue(target, new V12.Core.References.ComponentRef(value));
+                        return;
+                    }
+
                     // Defer if property type is a component/interface and value is a string
                     if ((pi.PropertyType.IsInterface || typeof(IComponent).IsAssignableFrom(pi.PropertyType)) && pi.PropertyType != typeof(string))
                     {
@@ -498,6 +524,41 @@ namespace V12.WorldML
             {
                 Console.WriteLine($"[WorldMLParser] Error setting {propName}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Applies "PropertyHint" attributes to ref properties after the ref
+        /// itself has been set. Hints are advisory fingerprints used only to
+        /// rank relink suggestions.
+        /// </summary>
+        private static void ApplyReferenceHints(object instance, XmlNode node)
+        {
+            if (node.Attributes == null) return;
+
+            foreach (XmlAttribute attr in node.Attributes)
+            {
+                if (!attr.Name.EndsWith("Hint", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var propName = attr.Name[..^"Hint".Length];
+                var prop = instance.GetType().GetProperty(propName,
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (prop == null || !prop.CanRead) continue;
+
+                var value = prop.GetValue(instance);
+                if (value is V12.Core.References.ElementRef elementRef)
+                    elementRef.Hint = attr.Value;
+                else if (value is V12.Core.References.ComponentRef componentRef)
+                    componentRef.Hint = attr.Value;
+            }
+        }
+
+        /// <summary>Removes uid attributes from a cloned template subtree.</summary>
+        private static void StripUidAttributes(XmlNode node)
+        {
+            node.Attributes?.RemoveNamedItem("uid");
+            foreach (XmlNode child in node.ChildNodes)
+                if (child.NodeType == XmlNodeType.Element)
+                    StripUidAttributes(child);
         }
 
         private object? ConvertToType(string value, Type targetType)

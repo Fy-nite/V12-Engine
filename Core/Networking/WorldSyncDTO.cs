@@ -17,6 +17,9 @@ namespace V12.Core.Networking
     public class ElementSyncDTO
     {
         public long Id { get; set; }
+        /// <summary>Pinned authored id. Required so <c>@uid</c> reference
+        /// selectors resolve on peers that receive a BSON world snapshot.</summary>
+        public Guid Uid { get; set; }
         public string? Name { get; set; }
         public string? Description { get; set; }
         /// <summary>Element transform. Carried explicitly because Element.LocalTransform is a
@@ -64,6 +67,8 @@ namespace V12.Core.Networking
     public class ElementUpdateDTO
     {
         public long Id { get; set; }
+        /// <summary>Pinned authored id. Empty when the element never pinned one.</summary>
+        public Guid Uid { get; set; }
         /// <summary>Id of the parent element. 0 means a world root.</summary>
         public long ParentId { get; set; }
         public string? Name { get; set; }

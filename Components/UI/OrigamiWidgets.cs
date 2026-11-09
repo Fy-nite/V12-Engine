@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using MongoDB.Bson.Serialization.Attributes;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.References;
 
 namespace V12.Components.UI
 {
@@ -17,8 +18,17 @@ namespace V12.Components.UI
         public override string Name => "PropertyGrid";
         public override string Description => "Origami property grid (public fields)";
 
-        /// <summary>Element to inspect. 0 inspects the owning element.</summary>
+        /// <summary>Element to inspect. Empty inspects the owning element.</summary>
+        [ReferenceTarget(Kind = ReferenceTargetKind.Element, Required = false)]
+        public ElementRef TargetRef { get; set; } = new();
+
+        /// <summary>Legacy runtime id. Not persisted; use <see cref="TargetRef"/>.</summary>
+        [BsonIgnore]
         public long TargetElementId { get; set; }
+
+        /// <summary>0 means inspect the owning element.</summary>
+        public long ResolveTargetElementId(IWorldElement owner)
+            => TargetRef.Resolve(owner)?.Id ?? TargetElementId;
 
         /// <summary>Draw a header above each inspected object.</summary>
         public bool ShowHeader { get; set; } = true;

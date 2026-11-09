@@ -23,6 +23,12 @@ namespace V12.Core.Core.Interfaces
         long Id { get; }
 
         /// <summary>
+        /// Optional stable authored id. Guid.Empty means "not pinned". Written
+        /// to WorldML only when the author pins the component.
+        /// </summary>
+        Guid Uid { get => Guid.Empty; set { } }
+
+        /// <summary>
         /// The Entity ID that this component is attached to. This is used to identify which entity this component belongs to in the system. This ID should be unique across all entities.
         /// May be Unused
         /// </summary>

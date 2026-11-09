@@ -730,6 +730,7 @@ namespace V12.Core.Networking
                     dto.Elements.Add(new ElementUpdateDTO
                     {
                         Id          = e.Id,
+                        Uid         = e.Uid,
                         ParentId    = e.Parent?.Id ?? 0,
                         Name        = e.Name,
                         Description = e.Description,

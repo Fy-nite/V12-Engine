@@ -24,6 +24,14 @@ namespace V12.Core.Core.Interfaces
         long Id { get; set; }
 
         /// <summary>
+        /// Optional stable authored id. Unlike <see cref="Id"/> (a runtime
+        /// counter), this is written to WorldML only when the author pins it,
+        /// and it is what <c>@uid</c> selector references resolve against.
+        /// Guid.Empty means "not pinned".
+        /// </summary>
+        Guid Uid { get => Guid.Empty; set { } }
+
+        /// <summary>
         /// Gets or sets the name associated with the entity.
         /// </summary>
         /// <remarks>The name can be null, indicating that no name has been assigned. It is recommended to

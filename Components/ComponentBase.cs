@@ -16,10 +16,39 @@ namespace V12.Components
         public long Id { get; set; }
         public long? EntityId { get; set; }
 
+        private Guid _uid = Guid.Empty;
+        private string? _name;
+
+        /// <summary>Optional pinned authored id. Empty for normal components.
+        /// Unlike a plain auto-property, changes are dirty-tracked so pinned
+        /// component references stay valid across peers.</summary>
+        public Guid Uid
+        {
+            get => _uid;
+            set
+            {
+                if (_uid == value) return;
+                _uid = value;
+                MarkDirty();
+            }
+        }
+
         [BsonIgnore]
         public IWorldElement? Owner { get; private set; }
 
-        public virtual string? Name { get; set; }
+        /// <summary>Author-facing component name used by <c>element#name</c>
+        /// reference selectors. Changes are dirty-tracked so peers relink.</summary>
+        public virtual string? Name
+        {
+            get => _name;
+            set
+            {
+                if (_name == value) return;
+                _name = value;
+                MarkDirty();
+            }
+        }
+
         public virtual string? Description { get; set; }
         public bool IsDirty => OnDirty != null;
         public bool Active {  get; set; } = true;

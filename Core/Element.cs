@@ -38,6 +38,25 @@ namespace V12.Core
         public long ID { get; set; }
         // Preferred camel-cased property exposed via IWorldElement.Id.
         public long Id { get => ID; set => ID = value; }
+
+        private Guid _uid = Guid.Empty;
+
+        /// <summary>
+        /// Optional stable authored id. Empty unless the author pinned it with
+        /// a <c>uid</c> attribute (or the editor's Pin action). Selector refs
+        /// do not require it. Changes are dirty-tracked so runtime pinning
+        /// reaches peers through <c>WorldElementUpdate</c>.
+        /// </summary>
+        public Guid Uid
+        {
+            get => _uid;
+            set
+            {
+                if (_uid == value) return;
+                _uid = value;
+                MarkDirty();
+            }
+        }
         private string? _description;
         public string? Description
         {

@@ -32,7 +32,7 @@ namespace V12.Core.Networking
             if (el == null) return null;
             // Editor-transient subtrees (gizmo handles) are never synced.
             if (V12.Components.NonPersistentComponent.IsTransient(el)) return null;
-            var esDto = new ElementSyncDTO { Id = el.Id, Name = el.Name, Description = el.Description };
+            var esDto = new ElementSyncDTO { Id = el.Id, Uid = el.Uid, Name = el.Name, Description = el.Description };
             esDto.Position = el.LocalTransform.Position;
             esDto.Rotation = el.LocalTransform.Rotation;
             esDto.Scale = el.LocalTransform.Scale;
@@ -81,6 +81,10 @@ namespace V12.Core.Networking
             if (es == null) return null;
             var element = new V12.Core.Element(es.Name, es.Description);
             element.Id = es.Id;
+            // An incoming pin wins only when it is set; never wipe a locally
+            // authored uid on a peer that loaded the archive from disk.
+            if (es.Uid != Guid.Empty)
+                element.Uid = es.Uid;
             element.LocalTransform = new V12.Core.Interfaces.Renderer.TRS
             {
                 Position = es.Position,
@@ -155,7 +159,7 @@ namespace V12.Core.Networking
                 return null;
             }
 
-            // Resolve type – try exact name then short name fallback.
+            // Resolve type: try exact name then short name fallback.
             var type = Type.GetType(dto.TypeName)
                     ?? AppDomain.CurrentDomain.GetAssemblies()
                            .Select(a => { try { return a.GetType(dto.TypeName.Split(',')[0].Trim()); } catch { return null; } })

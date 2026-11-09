@@ -117,30 +117,9 @@ namespace V12.Core.Rendering
         public bool HasCollider;
     }
 
-    public struct AudioSourceSnapshot
-    {
-        public long OwnerElementId;
-        public Vector3 Position;
-        public float Volume;
-        public float Pitch;
-        public float MaxDistance;
-        public bool IsPlaying;
-        public string ClipPath;
-    }
-
-    public struct AudioListenerSnapshot
-    {
-        public Vector3 Position;
-        public Vector3 Forward;
-        public Vector3 Up;
-        public bool HasValue;
-    }
-
     public class FrameSnapshot
     {
         public List<RenderableSnapshot> Renderables = new();
-        public List<AudioSourceSnapshot> AudioSources = new();
-        public AudioListenerSnapshot Listener;
 
         /// <summary>Ids of every viewport element that claimed world content this
         /// frame (ViewportComponent with RenderWorld=true). Renderers use this to

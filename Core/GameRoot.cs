@@ -303,6 +303,10 @@ namespace V12.Core
             // Register core InputService so glue code can forward platform input
             var inputService = new V12.Core.Input.InputService();
             Registry.Register("InputService", inputService);
+
+            // Game-side audio bridge. It resolves "IAudioEngine" when Initialize runs;
+            // hosts register their backend before calling GameRoot.Initialize().
+            Registry.Register("AudioSystem", new V12.Core.Audio.AudioSystem());
      
             // XRTrackingService is registered by the renderer (e.g. TwoDog)
             // when XR mode is active. PlayerComponent finds head/hand elements
@@ -884,7 +888,7 @@ namespace V12.Core
             if (element.GetComponent<V12.Components.UI.PropertyGridComponent>() is { } propGrid)
             {
                 node.Kind = UIWidgetKind.PropertyGrid;
-                node.Targets = ResolveInspectTargets(element, propGrid.TargetElementId);
+                node.Targets = ResolveInspectTargets(element, propGrid.ResolveTargetElementId(element));
                 node.Depth = propGrid.Depth;
                 node.Bool = propGrid.ExpandByDefault;
                 node.Text = propGrid.ShowHeader ? "1" : "";
@@ -1484,50 +1488,6 @@ namespace V12.Core
                 var renderedIds = new HashSet<long>();
                 foreach (var root in world.Root.ToArray())
                     CaptureRenderables(root, renderedIds, worldViewportId);
-
-                // ── Audio sources ──
-                void CaptureAudio(IWorldElement element)
-                {
-                    if (element?.Components == null) return;
-                    foreach (var c in element.Components.ToArray())
-                    {
-                        if (c is IAudioSource src)
-                        {
-                            var a = new AudioSourceSnapshot();
-                            a.OwnerElementId = src.Id;
-                            a.Position = src.Position;
-                            a.Volume = src.Volume;
-                            a.Pitch = src.Pitch;
-                            a.MaxDistance = src.MaxDistance;
-                            a.IsPlaying = src.IsPlaying;
-                            a.ClipPath = src.AudioClipPath ?? "";
-                            snapshot.AudioSources.Add(a);
-                        }
-                    }
-                    if (element.Children != null)
-                        foreach (var child in element.Children)
-                            CaptureAudio(child);
-                }
-
-                foreach (var root in world.Root.ToArray())
-                    CaptureAudio(root);
-
-                // ── Audio listener ──
-                var listenerElement = world.FindElementWithComponentRecursive<IAudioListener>();
-                if (listenerElement != null)
-                {
-                    var listenerComp = listenerElement.GetComponent<IAudioListener>();
-                    if (listenerComp != null)
-                    {
-                        snapshot.Listener = new AudioListenerSnapshot
-                        {
-                            Position = listenerComp.Position,
-                            Forward = listenerComp.Forward,
-                            Up = listenerComp.Up,
-                            HasValue = true
-                        };
-                    }
-                }
             }
             finally { world.Lock.ExitReadLock(); }
         }

@@ -359,7 +359,7 @@ namespace V12.Core.UI.Paper
 
         private static readonly HashSet<string> Excluded = new(StringComparer.Ordinal)
         {
-            "Id", "EntityId", "Owner", "IsDirty", "Name", "Description", "IsPersistent",
+            "Id", "EntityId", "Uid", "Owner", "IsDirty", "Name", "Description", "IsPersistent",
             "Active", "Runtime", "IsInitialized", "IsPlaying", "Position", "Forward", "Up",
             "RenderType", "Transform", "WorldTransform", "LocalTransform", "IsWorldLocked",
             "Material", "Mesh", "MeshPoints", "Indices", "MeshPointsValue", "IndicesValue",

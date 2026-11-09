@@ -1,6 +1,8 @@
 using System;
+using MongoDB.Bson.Serialization.Attributes;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.References;
 
 namespace V12.Components
 {
@@ -45,11 +47,23 @@ namespace V12.Components
             set { if (Math.Abs(_height - value) > 0.001f) { _height = Math.Max(0.1f, value); MarkDirty(); } }
         }
 
+        /// <summary>
+        /// Authored reference to the destination portal. This is the persisted
+        /// form; the long below stays as a runtime compatibility shim.
+        /// </summary>
+        [ReferenceTarget(Kind = ReferenceTargetKind.Element, AcceptsComponent = typeof(PortalComponent), Required = false)]
+        public ElementRef ExitPortalRef { get; set; } = new();
+
+        /// <summary>Legacy runtime id. Not persisted; use <see cref="ExitPortalRef"/>.</summary>
+        [BsonIgnore]
         public long ExitPortalElementId
         {
-            get => _exitPortalElementId;
+            get => ExitPortalRef.Resolve(Owner)?.Id ?? _exitPortalElementId;
             set { if (_exitPortalElementId != value) { _exitPortalElementId = value; MarkDirty(); } }
         }
+
+        /// <summary>Resolve the destination portal for this component's owner world.</summary>
+        public IWorldElement? ResolveExitPortal() => ExitPortalRef.Resolve(Owner);
 
         public bool IsActive
         {

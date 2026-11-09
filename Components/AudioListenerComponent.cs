@@ -28,7 +28,7 @@ namespace V12.Components
             {
                 if (Owner == null) return -Vector3.UnitZ;
                 var m = Owner.WorldTransform;
-                var fwd = new Vector3(m.M31, m.M32, m.M33);
+                var fwd = -new Vector3(m.M31, m.M32, m.M33);
                 return fwd.LengthSquared() > 0.0001f ? Vector3.Normalize(fwd) : -Vector3.UnitZ;
             }
         }

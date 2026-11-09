@@ -30,7 +30,7 @@ namespace V12.WorldML
         private static readonly HashSet<string> ExcludedProps = new(StringComparer.OrdinalIgnoreCase)
         {
             // ComponentBase plumbing
-            "Id", "EntityId", "Owner", "Name", "Description", "Active", "IsDirty",
+            "Id", "EntityId", "Uid", "Owner", "Name", "Description", "Active", "IsDirty",
             "IsPersistent", // authoring switch: false = omitted entirely, true = default on load
             // Render interfaces / handled separately
             "Transform", "WorldTransform", "LocalTransform", "RenderType",
@@ -67,6 +67,8 @@ namespace V12.WorldML
             sb.Append($"{ind}<Element name=\"{Escape(el.Name ?? "")}\"");
             if (!string.IsNullOrEmpty(el.Description))
                 sb.Append($" description=\"{Escape(el.Description)}\"");
+            if (el.Uid != Guid.Empty)
+                sb.Append($" uid=\"{el.Uid:N}\"");
 
             if ((el.Components == null || el.Components.Count == 0) && el.Children.Count == 0)
             {
@@ -112,8 +114,22 @@ namespace V12.WorldML
             var type = comp.GetType();
             var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
             var attrs = new List<string>();
-            if (!string.IsNullOrEmpty(nameOverride))
-                attrs.Add($"name=\"{Escape(nameOverride)}\"");
+
+            // A pinned component uid is the only uid ever written. Normal
+            // components leave it empty so hand-authored files stay clean.
+            if (comp.Uid != Guid.Empty)
+                attrs.Add($"uid=\"{comp.Uid:N}\"");
+
+            // Component names are needed by "#name" reference selectors. Only
+            // write a name when it differs from the type's default, so files
+            // do not gain a redundant name on every component.
+            var emittedName = nameOverride;
+            if (string.IsNullOrEmpty(emittedName) && !string.IsNullOrWhiteSpace(comp.Name)
+                && !string.Equals(comp.Name, DefaultName(type), StringComparison.Ordinal))
+                emittedName = comp.Name;
+
+            if (!string.IsNullOrEmpty(emittedName))
+                attrs.Add($"name=\"{Escape(emittedName!)}\"");
 
             // Collect complex representable props to emit as <PropName><Value .../></PropName>
             var complexChildren = new List<(string propName, string valueTag)>();
@@ -122,7 +138,9 @@ namespace V12.WorldML
                 if (!p.CanWrite) continue;
                 if (ExcludedProps.Contains(p.Name)) continue;
                 if (p.GetCustomAttribute<BsonIgnoreAttribute>() != null) continue;
-                bool isComplex = IsComplexType(p.PropertyType);
+                bool isRef = p.PropertyType == typeof(V12.Core.References.ElementRef)
+                          || p.PropertyType == typeof(V12.Core.References.ComponentRef);
+                bool isComplex = !isRef && IsComplexType(p.PropertyType);
                 if (isComplex && !IsRepresentableComplex(p.PropertyType)) continue;
                 if (isComplex) // will be emitted as nested Value, not attribute
                     continue;
@@ -131,6 +149,24 @@ namespace V12.WorldML
                 try { val = p.GetValue(comp); }
                 catch { continue; }
                 if (val == null) continue;
+
+                if (val is V12.Core.References.ElementRef elementRef)
+                {
+                    if (!elementRef.IsSet) continue;
+                    attrs.Add($"{p.Name}=\"{Escape(elementRef.ToSelector())}\"");
+                    if (!string.IsNullOrEmpty(elementRef.Hint))
+                        attrs.Add($"{p.Name}Hint=\"{Escape(elementRef.Hint!)}\"");
+                    continue;
+                }
+
+                if (val is V12.Core.References.ComponentRef componentRef)
+                {
+                    if (!componentRef.IsSet) continue;
+                    attrs.Add($"{p.Name}=\"{Escape(componentRef.ToSelector())}\"");
+                    if (!string.IsNullOrEmpty(componentRef.Hint))
+                        attrs.Add($"{p.Name}Hint=\"{Escape(componentRef.Hint!)}\"");
+                    continue;
+                }
 
                 if (val is string s)
                 {
@@ -183,6 +219,40 @@ namespace V12.WorldML
                 }
                 sb.Append($"{ind}</Component>\n");
             }
+        }
+
+        /// <summary>
+        /// The name a component gets when it does not override Name itself.
+        /// Used to avoid writing redundant name attributes for the common
+        /// "PortalComponent" -> "Portal" convention.
+        /// </summary>
+        private static readonly Dictionary<Type, string?> _defaultNames = new();
+
+        private static string? DefaultName(Type type)
+        {
+            if (_defaultNames.TryGetValue(type, out var cached)) return cached;
+
+            string? name = null;
+            try
+            {
+                // Do not run constructors during serialization: components may
+                // allocate. An uninitialized instance is enough to read the
+                // constant virtual Name overrides used for the default.
+                if (System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(type) is IComponent instance)
+                    name = instance.Name;
+            }
+            catch
+            {
+                // Types without a usable parameterless shape fall back to the
+                // type-name heuristic below.
+            }
+
+            name ??= type.Name.EndsWith("Component", StringComparison.Ordinal)
+                ? type.Name[..^"Component".Length]
+                : type.Name;
+
+            _defaultNames[type] = name;
+            return name;
         }
 
         private static bool IsRepresentableComplex(Type t)

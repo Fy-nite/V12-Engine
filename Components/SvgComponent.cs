@@ -9,7 +9,17 @@ namespace V12.Components
 {
     public class SvgComponent : ComponentBase, ISvgRenderable
     {
-        public override string Name { get; set; } = "Svg";
+        private string? _name = "Svg";
+        public override string? Name
+        {
+            get => _name;
+            set
+            {
+                if (_name == value) return;
+                _name = value;
+                MarkDirty();
+            }
+        }
         public override string Description => "Inline SVG vector graphic";
 
         public string SvgContent { get; set; } = "";

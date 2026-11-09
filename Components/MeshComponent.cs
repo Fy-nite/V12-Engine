@@ -70,7 +70,17 @@ namespace V12.Components
         /// <summary>Sync key prefix, derived from element ID and component ID.</summary>
         private string Key => $"mesh/{Owner?.Id ?? 0}/{Id}";
 
-		public override string Name { get; set; } = "Mesh";
+		private string? _name = "Mesh";
+		public override string? Name
+		{
+			get => _name;
+			set
+			{
+				if (_name == value) return;
+				_name = value;
+				MarkDirty();
+			}
+		}
         public override string Description => "Primitive mesh shape";
 
         /// <summary>Generate editable mesh fields for the inspector.</summary>

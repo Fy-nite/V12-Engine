@@ -98,6 +98,23 @@ namespace V12.Core
             GameRoot.Instance?.MarkRenderDirty();
         }
 
+        /// <summary>
+        /// True when <paramref name="element"/> is still indexed in this world.
+        /// Used by reference caches to drop targets that were deleted or moved
+        /// to another world before a lazy re-resolve.
+        /// </summary>
+        public bool ContainsElement(IWorldElement? element)
+        {
+            if (element == null) return false;
+            Lock.EnterReadLock();
+            try
+            {
+                return _elementsById.TryGetValue(element.Id, out var indexed)
+                    && ReferenceEquals(indexed, element);
+            }
+            finally { Lock.ExitReadLock(); }
+        }
+
         /// <summary>Remove an element from the world and fire <see cref="ElementRemoved"/>.</summary>
         public void RemoveElement(IWorldElement element)
         {
