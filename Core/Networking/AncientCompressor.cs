@@ -15,7 +15,7 @@ namespace V12.Core.Networking
             // (interface-typed), which BSON cannot serialize without discriminator class maps.
             if (obj is V12.Core.World w)
             {
-                var snap = new WorldSyncDTO { WorldName = w.WorldName };
+                var snap = new WorldSyncDTO { WorldId = w.Id, WorldName = w.WorldName };
                 foreach (var el in w.Root)
                 {
                     var esDto = CompressElement(el);
@@ -65,6 +65,8 @@ namespace V12.Core.Networking
             {
                 var snap = BsonSerializer.Deserialize<WorldSyncDTO>(data);
                 var world = new V12.Core.World(snap.WorldName ?? "World");
+                if (snap.WorldId != Guid.Empty)
+                    world.Id = snap.WorldId;
                 foreach (var es in snap.Elements)
                 {
                     var element = DecompressElement(es);

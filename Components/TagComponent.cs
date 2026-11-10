@@ -26,7 +26,7 @@ namespace V12.Components
             set
             {
                 var normalised = NormaliseTags(value);
-                if (_tags != normalised) { _tags = normalised; MarkDirty(); }
+                SetSync(ref _tags, normalised);
             }
         }
 

@@ -240,6 +240,6 @@ Raised when element state changes. Subscribe via `DirtyTracker.TrackElement()`.
 
 ## See Also
 - [NETWORKING_GUIDE.md](NETWORKING_GUIDE.md) - Full networking documentation
-- [TransformComponent.cs](Components/TransformComponent.cs) - Example implementation
+- [VelocityComponent.cs](Components/VelocityComponent.cs) - Example implementation
 - [DirtyTrackingTests.cs](../V12.Headlesstests/DirtyTrackingTests.cs) - xUnit tests
 - [V12.Headlesstests README](../V12.Headlesstests/README.md) - Test project documentation

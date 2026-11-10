@@ -85,25 +85,14 @@ namespace V12.Core
             get => _localTransform;
             set
             {
-                // Avoid signalling dirty (and re-syncing the TransformComponent) when the
-                // new transform is effectively identical to the current one. This is the
-                // single biggest source of spurious dirty traffic: many systems assign
-                // LocalTransform every tick even when nothing actually moved.
+                // Avoid signalling dirty when the new transform is effectively
+                // identical to the current one. This is the single biggest source
+                // of spurious dirty traffic: many systems assign LocalTransform
+                // every tick even when nothing actually moved.
                 if (TRSApproximatelyEqual(_localTransform, value))
                     return;
 
                 _localTransform = value;
-                var tc = GetComponent<TransformComponent>();
-                if (tc != null)
-                {
-                    tc.X = value.Position.X;
-                    tc.Y = value.Position.Y;
-                    tc.Z = value.Position.Z;
-                    var (yaw, pitch, roll) = ToEulerAngles(value.Rotation);
-                    tc.RY = yaw;
-                    tc.RX = pitch;
-                    tc.RZ = roll;
-                }
                 MarkDirty();
             }
         }
@@ -134,26 +123,13 @@ namespace V12.Core
                 && MathF.Abs(a.Scale.Z - b.Scale.Z) < TransformEpsilon;
         }
 
-        private static (float yaw, float pitch, float roll) ToEulerAngles(Quaternion q)
-        {
-            float siny_cosp = 2 * (q.W * q.Y + q.Z * q.X);
-            float cosy_cosp = 1 - 2 * (q.Y * q.Y + q.Z * q.Z);
-            float yaw = MathF.Atan2(siny_cosp, cosy_cosp);
-            float sinp = 2 * (q.W * q.X - q.Y * q.Z);
-            float pitch = Math.Abs(sinp) >= 1 ? MathF.CopySign(MathF.PI / 2, sinp) : MathF.Asin(sinp);
-            float sinr_cosp = 2 * (q.W * q.Z + q.X * q.Y);
-            float cosr_cosp = 1 - 2 * (q.X * q.X + q.Z * q.Z);
-            float roll = MathF.Atan2(sinr_cosp, cosr_cosp);
-            return (yaw, pitch, roll);
-        }
-
         public Matrix4x4 WorldTransform
         {
             get
             {
                 // Single definition of local placement lives in
-                // ElementPlacement (TransformComponent when present, else
-                // LocalTransform × ScaleComponent); ancestors compose here.
+                // ElementPlacement (LocalTransform × ScaleComponent);
+                // ancestors compose here.
                 var local = ElementPlacement.ElementLocalMatrix(this);
                 if (Parent != null)
                     return local * Parent.WorldTransform;

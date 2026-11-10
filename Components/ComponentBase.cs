@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using MongoDB.Bson.Serialization.Attributes;
@@ -82,6 +84,41 @@ namespace V12.Components
         {
             try { OnDirty?.Invoke(this); } catch { }
             Core.GameRoot.Instance?.MarkRenderDirty();
+        }
+
+        /// <summary>
+        /// Write a field and mark the component dirty when it changed. This is the
+        /// single entry point component properties should use instead of calling
+        /// <see cref="MarkDirty"/> directly. The caller member name is captured so
+        /// the typed field-sync layer can bind the field without reflection later.
+        /// </summary>
+        protected bool SetSync<T>(ref T field, T value, [CallerMemberName] string? member = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+            field = value;
+            MarkDirty();
+            return true;
+        }
+
+        /// <summary>Float overload with an epsilon check, preserving the
+        /// threshold behaviour components already use for transforms and physics.</summary>
+        protected bool SetSync(ref float field, float value, float epsilon, [CallerMemberName] string? member = null)
+        {
+            if (MathF.Abs(field - value) <= epsilon) return false;
+            field = value;
+            MarkDirty();
+            return true;
+        }
+
+        /// <summary>Nullable-float overload with an epsilon check and null transition.</summary>
+        protected bool SetSync(ref float? field, float? value, float epsilon, [CallerMemberName] string? member = null)
+        {
+            if (field.HasValue == value.HasValue
+                && (!value.HasValue || MathF.Abs(field!.Value - value.Value) <= epsilon))
+                return false;
+            field = value;
+            MarkDirty();
+            return true;
         }
 
         private static long _nextId = 1;

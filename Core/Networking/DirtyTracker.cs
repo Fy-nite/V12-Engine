@@ -58,13 +58,15 @@ namespace V12.Core.Networking
         {
             public readonly IWorldElement Element;
             public readonly long ParentId;
+            public readonly Guid WorldId;
             public readonly string WorldName;
 
-            public PendingCreate(IWorldElement element, long parentId, string worldName)
+            public PendingCreate(IWorldElement element, long parentId, World? world)
             {
                 Element = element;
                 ParentId = parentId;
-                WorldName = worldName ?? "";
+                WorldId = world?.Id ?? Guid.Empty;
+                WorldName = world?.WorldName ?? "";
             }
         }
 
@@ -72,11 +74,13 @@ namespace V12.Core.Networking
         {
             public readonly long ElementId;
             public readonly long ComponentId;
+            public readonly Guid WorldId;
 
-            public PendingRemoval(long elementId, long componentId)
+            public PendingRemoval(long elementId, long componentId, Guid worldId)
             {
                 ElementId = elementId;
                 ComponentId = componentId;
+                WorldId = worldId;
             }
         }
 
@@ -257,7 +261,7 @@ namespace V12.Core.Networking
             TrackElement(element);
             if (!IsAuthority || _suppressCapture) return;
             if (IsPlayerElement(element)) return;
-            QueueCreate(element, 0, world.WorldName);
+            QueueCreate(element, 0, world);
         }
 
         private void OnWorldElementRemoved(World world, IWorldElement element)
@@ -282,7 +286,7 @@ namespace V12.Core.Networking
             // create is sent — queueing it separately would emit a duplicate.
             if (child.Parent == null || !IsAttachedToWorld(child.Parent)) return;
 
-            QueueCreate(child, child.Parent.Id, GetWorldNameFor(child));
+            QueueCreate(child, child.Parent.Id, GetWorldFor(child));
         }
 
         private void OnElementChildRemoved(IWorldElement child)
@@ -294,19 +298,25 @@ namespace V12.Core.Networking
             QueueDelete(child);
         }
 
-        private static string GetWorldNameFor(IWorldElement element)
+        private static World? GetWorldFor(IWorldElement? element)
         {
             var g = GameRoot.Instance;
-            if (g == null || element == null) return "";
+            if (g == null || element == null) return null;
             var root = element.GetRoot();
-            if (root == null) return "";
+            if (root == null) return null;
             if (g.PersistentWorld._elementsById.ContainsKey(root.Id))
-                return g.PersistentWorld.WorldName;
+                return g.PersistentWorld;
             foreach (var w in g.Worlds)
                 if (w._elementsById.ContainsKey(root.Id))
-                    return w.WorldName;
-            return g.SelectedWorld?.WorldName ?? "";
+                    return w;
+            return g.SelectedWorld;
         }
+
+        private static string GetWorldNameFor(IWorldElement? element)
+            => GetWorldFor(element)?.WorldName ?? "";
+
+        private static Guid GetWorldIdFor(IWorldElement? element)
+            => GetWorldFor(element)?.Id ?? Guid.Empty;
 
         /// <summary>
         /// True when the element's root is registered in a world's <c>_elementsById</c>
@@ -358,7 +368,7 @@ namespace V12.Core.Networking
             return false;
         }
 
-        private void QueueCreate(IWorldElement element, long parentId, string worldName)
+        private void QueueCreate(IWorldElement element, long parentId, World? world)
         {
             if (NonPersistentComponent.IsTransient(element)) return;
             lock (_deltaLock)
@@ -376,7 +386,7 @@ namespace V12.Core.Networking
                 // A prior pending delete of the same id is cancelled by this create.
                 _pendingDeletes.Remove(element.Id);
 
-                _pendingCreates.Add(new PendingCreate(element, parentId, worldName));
+                _pendingCreates.Add(new PendingCreate(element, parentId, world));
             }
         }
 
@@ -410,7 +420,7 @@ namespace V12.Core.Networking
 
             lock (_deltaLock)
             {
-                _pendingRemovals.Add(new PendingRemoval(element.Id, component.Id));
+                _pendingRemovals.Add(new PendingRemoval(element.Id, component.Id, GetWorldIdFor(element)));
             }
         }
 
@@ -569,7 +579,13 @@ namespace V12.Core.Networking
                     {
                         var esDto = AncientCompressor.CompressElement(pc.Element);
                         if (esDto != null)
-                            dto.Creates.Add(new ElementCreateDTO { ParentId = pc.ParentId, WorldName = pc.WorldName, Element = esDto });
+                            dto.Creates.Add(new ElementCreateDTO
+                            {
+                                ParentId = pc.ParentId,
+                                WorldId = pc.WorldId,
+                                WorldName = pc.WorldName,
+                                Element = esDto
+                            });
                     }
                     catch (Exception ex)
                     {
@@ -623,6 +639,7 @@ namespace V12.Core.Networking
                     var dto = new ComponentRemovalDTO
                     {
                         ElementId = group.Key,
+                        WorldId = group.FirstOrDefault(r => r.WorldId != Guid.Empty).WorldId,
                         Timestamp = DateTime.UtcNow
                     };
                     foreach (var r in group)
@@ -671,10 +688,12 @@ namespace V12.Core.Networking
                     }
                     catch { /* non-serializable component: skip payload */ }
 
+                    var owner = FindOwnerElement(c);
                     dto.Components.Add(new ComponentSnapshot
                     {
                         Id        = c.Id,
-                        ElementId = FindOwnerElementId(c),
+                        WorldId   = GetWorldIdFor(owner),
+                        ElementId = owner?.Id ?? 0,
                         Name      = c.Name,
                         Payload   = payload
                     });
@@ -700,19 +719,19 @@ namespace V12.Core.Networking
         /// wire (<see cref="ComponentSnapshot.ElementId"/>). Prefers the tracked owner
         /// map, falling back to a recursive world scan for untracked components.
         /// </summary>
-        private long FindOwnerElementId(IComponent component)
+        private IWorldElement? FindOwnerElement(IComponent component)
         {
             if (component != null && _componentOwners.TryGetValue(component.Id, out var owner) && owner != null)
-                return owner.Id;
+                return owner;
 
             var g = GameRoot.Instance;
             if (g != null && component != null)
-            {
-                var el = g.FindElement(e => e.Components != null && e.Components.Any(c => c.Id == component.Id));
-                if (el != null) return el.Id;
-            }
-            return 0;
+                return g.FindElement(e => e.Components != null && e.Components.Any(c => c.Id == component.Id));
+            return null;
         }
+
+        private long FindOwnerElementId(IComponent component)
+            => FindOwnerElement(component)?.Id ?? 0;
 
         private void SendElementBatch(List<IWorldElement> elements)
         {
@@ -730,6 +749,7 @@ namespace V12.Core.Networking
                     dto.Elements.Add(new ElementUpdateDTO
                     {
                         Id          = e.Id,
+                        WorldId     = GetWorldIdFor(e),
                         Uid         = e.Uid,
                         ParentId    = e.Parent?.Id ?? 0,
                         Name        = e.Name,
@@ -826,6 +846,8 @@ namespace V12.Core.Networking
         public class ComponentSnapshot
         {
             public long Id { get; set; }
+            /// <summary>World that owns the element. Empty on older payloads.</summary>
+            public Guid WorldId { get; set; }
             /// <summary>Id of the element owning this component (0 if unknown). Used by the
             /// receiver to attach previously-unknown components to the right element.</summary>
             public long ElementId { get; set; }

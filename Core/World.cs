@@ -12,6 +12,10 @@ namespace V12.Core
 
         public List<IWorldElement> Root { get; set; }
 
+        /// <summary>Stable world identity carried on the wire. The local element ids
+        /// remain scoped to this world during the single-region phase.</summary>
+        public Guid Id { get; set; } = Guid.NewGuid();
+
         /// <summary>Binding context for this world. Lazily created by <see cref="Bind.Current"/>.</summary>
         public BindingContext? Bindings { get; set; }
         public string WorldName { get; set; }
@@ -111,6 +115,20 @@ namespace V12.Core
             {
                 return _elementsById.TryGetValue(element.Id, out var indexed)
                     && ReferenceEquals(indexed, element);
+            }
+            finally { Lock.ExitReadLock(); }
+        }
+
+        /// <summary>Look up an element by id inside this world only. Unlike
+        /// <see cref="GameRoot.FindElement(Func{IWorldElement,bool})"/>, this never
+        /// falls through to another active world, so it is safe once multiple
+        /// worlds or regions are loaded at the same time.</summary>
+        public IWorldElement? FindElementById(long id)
+        {
+            Lock.EnterReadLock();
+            try
+            {
+                return _elementsById.TryGetValue(id, out var element) ? element : null;
             }
             finally { Lock.ExitReadLock(); }
         }

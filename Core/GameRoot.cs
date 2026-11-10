@@ -14,6 +14,7 @@ using V12.Core.Networking;
 using V12.Core.Registry;
 using V12.Core.Input;
 using V12.Core.Rendering;
+using V12.Core.Timing;
 using V12.Core.UI;
 using V12.Components.UI;
 using V12.Components;
@@ -100,6 +101,59 @@ namespace V12.Core
 
         /// <summary>Convenience accessor for the local Player element in PersistentWorld.</summary>
         public IWorldElement? Player => PersistentWorld.Root.FirstOrDefault(e => e.Name == "Player");
+
+        /// <summary>Fixed-step simulation clock. Hosts feed real frame delta into
+        /// <see cref="Update"/>; gameplay always receives a constant step.</summary>
+        public FixedStepClock Simulation { get; } = new();
+
+        /// <summary>Seeded random source for deterministic gameplay. Reset it with
+        /// <see cref="SetSimulationSeed"/> and capture <see cref="DeterministicRandom.State"/>
+        /// for replay or rollback.</summary>
+        public DeterministicRandom Random { get; } = new();
+
+        /// <summary>Fixed simulation step size. Defaults to 60 Hz.</summary>
+        public float FixedDeltaTime
+        {
+            get => Simulation.FixedDeltaTime;
+            set => Simulation.FixedDeltaTime = value;
+        }
+
+        /// <summary>When true, real time advances but fixed simulation steps do not.</summary>
+        public bool SimulationPaused
+        {
+            get => Simulation.IsPaused;
+            set => Simulation.IsPaused = value;
+        }
+
+        /// <summary>Simulation speed multiplier. 1 is normal speed.</summary>
+        public float TimeScale
+        {
+            get => Simulation.TimeScale;
+            set => Simulation.TimeScale = value;
+        }
+
+        /// <summary>Fraction of a fixed step left for render interpolation.</summary>
+        public float InterpolationAlpha => Simulation.Alpha;
+
+        /// <summary>Number of fixed simulation steps executed so far.</summary>
+        public long SimulationTick => Simulation.Tick;
+
+        /// <summary>Total simulated time. Advances only when a fixed step runs.</summary>
+        public double SimulationTime => Simulation.SimulationTime;
+
+        /// <summary>Raised after every fixed simulation step, after worlds and
+        /// registry services have updated.</summary>
+        public event Action<float>? OnFixedUpdate;
+
+        /// <summary>Reset the deterministic random sequence for a new replay or session.</summary>
+        public void SetSimulationSeed(ulong seed) => Random.Reset(seed);
+
+        /// <summary>Reset the clock and the deterministic random sequence together.</summary>
+        public void ResetSimulation(ulong seed = 0ul)
+        {
+            Simulation.Reset();
+            Random.Reset(seed);
+        }
 
         /// <summary>
         /// The physics backend the engine should use. Selects the highest-priority
@@ -1042,36 +1096,16 @@ namespace V12.Core
 
                 if (element.Components != null)
                 {
-                    // Only add TransformComponent as IRenderable if the element
-                    // has no other IRenderable (avoiding duplicate nodes).
-                    bool hasOtherRenderable = false;
-                    bool hasMeshRenderer = false;
-                    TransformComponent transformComp = null;
-                    foreach (var component in element.Components.ToArray())
-                    {
-                        if (component is TransformComponent tc)
-                            transformComp = tc;
-                        else if (component is V12.Components.Renderables.MeshRenderer)
-                        {
-                            hasMeshRenderer = true;
-                            hasOtherRenderable = true;
-                        }
-                        else if (component is IRenderable)
-                            hasOtherRenderable = true;
-                    }
-
-                    if (transformComp != null && !hasOtherRenderable)
-                        renderables.Add(transformComp);
+                    bool hasMeshRenderer = element.Components.Any(c => c is V12.Components.Renderables.MeshRenderer);
 
                     foreach (var component in element.Components.ToArray())
                     {
-                        if (component is IRenderable r && !(component is TransformComponent))
-                        {
-                            // Skip bare MeshComponent when a MeshRenderer wrapper exists
-                            if (component is V12.Components.MeshComponent && hasMeshRenderer)
-                                continue;
-                            renderables.Add(r);
-                        }
+                        if (component is not IRenderable r) continue;
+
+                        // Skip bare MeshComponent when a MeshRenderer wrapper exists
+                        if (component is V12.Components.MeshComponent && hasMeshRenderer)
+                            continue;
+                        renderables.Add(r);
                     }
                 }
 
@@ -1126,36 +1160,16 @@ namespace V12.Core
 
                 if (element.Components != null)
                 {
-                    // Only add TransformComponent as IRenderable if the element
-                    // has no other IRenderable (avoiding duplicate nodes).
-                    bool hasOtherRenderable = false;
-                    bool hasMeshRenderer = false;
-                    TransformComponent transformComp = null;
-                    foreach (var component in element.Components.ToArray())
-                    {
-                        if (component is TransformComponent tc)
-                            transformComp = tc;
-                        else if (component is V12.Components.Renderables.MeshRenderer)
-                        {
-                            hasMeshRenderer = true;
-                            hasOtherRenderable = true;
-                        }
-                        else if (component is IRenderable)
-                            hasOtherRenderable = true;
-                    }
-
-                    if (transformComp != null && !hasOtherRenderable)
-                        renderables.Add((element, transformComp, viewportId));
+                    bool hasMeshRenderer = element.Components.Any(c => c is V12.Components.Renderables.MeshRenderer);
 
                     foreach (var component in element.Components.ToArray())
                     {
-                        if (component is IRenderable r && !(component is TransformComponent))
-                        {
-                            // Skip bare MeshComponent when a MeshRenderer wrapper exists
-                            if (component is V12.Components.MeshComponent && hasMeshRenderer)
-                                continue;
-                            renderables.Add((element, r, viewportId));
-                        }
+                        if (component is not IRenderable r) continue;
+
+                        // Skip bare MeshComponent when a MeshRenderer wrapper exists
+                        if (component is V12.Components.MeshComponent && hasMeshRenderer)
+                            continue;
+                        renderables.Add((element, r, viewportId));
                     }
                 }
 
@@ -1228,32 +1242,16 @@ namespace V12.Core
                         viewportId = element.Id;
 
                     // Determine which components to snapshot (avoid duplicates per element)
-                    bool hasMeshRenderer = false;
-                    bool hasOtherRenderable = false;
-                    TransformComponent transformComp = null;
+                    bool hasMeshRenderer = element.Components.Any(c => c is V12.Components.Renderables.MeshRenderer);
+
                     IRenderable primaryRenderable = null;
                     foreach (var c in element.Components)
                     {
-                        if (c is TransformComponent tc)
-                            transformComp = tc;
-                        else if (c is V12.Components.Renderables.MeshRenderer)
-                            hasMeshRenderer = hasOtherRenderable = true;
-                        else if (c is IRenderable)
-                            hasOtherRenderable = true;
+                        if (c is not IRenderable r) continue;
+                        if (r is MeshComponent && hasMeshRenderer) continue;
+                        primaryRenderable = r;
+                        break;
                     }
-
-                    // Pick the primary renderable: prefer non-Transform if one exists
-                    foreach (var c in element.Components)
-                    {
-                        if (c is IRenderable r)
-                        {
-                            if (r is TransformComponent) continue;
-                            if (r is MeshComponent && hasMeshRenderer) continue;
-                            primaryRenderable = r;
-                            break;
-                        }
-                    }
-                    primaryRenderable ??= transformComp;
 
                     if (primaryRenderable != null)
                         EmitSnapshot(element, primaryRenderable, renderedElementIds, viewportId);
@@ -1314,17 +1312,8 @@ namespace V12.Core
                             parentRs.ParentId = isViewport ? 0 : (ancestor.Parent?.Id ?? 0);
                             parentRs.ViewportId = isViewport ? ancestor.Id : viewportId;
                             parentRs.NodeType = SnapshotNodeType.RawElement;
-                            var atc = ancestor.GetComponent<TransformComponent>();
                             parentRs.Transform = ancestor.WorldTransform;
-                            if (atc != null)
-                                parentRs.LocalTransform = atc.Transform;
-                            else
-                            {
-                                var alt = ancestor.LocalTransform;
-                                parentRs.LocalTransform = System.Numerics.Matrix4x4.CreateScale(alt.Scale)
-                                                        * System.Numerics.Matrix4x4.CreateFromQuaternion(alt.Rotation)
-                                                        * System.Numerics.Matrix4x4.CreateTranslation(alt.Position);
-                            }
+                            parentRs.LocalTransform = ElementPlacement.ElementLocalMatrix(ancestor);
                             parentRs.HasLocalTransform = true;
                             snapshot.Renderables.Add(parentRs);
                         }
@@ -1763,17 +1752,35 @@ namespace V12.Core
             Registry.Get<NetworkClient>("NetworkClient")?.Dispose();
         }
 
+        /// <summary>
+        /// Feed real frame delta time into the fixed-step simulation. The clock
+        /// runs zero or more fixed steps and calls <see cref="FixedUpdate"/> with
+        /// a constant delta. Hosts should keep calling this once per rendered frame.
+        /// </summary>
         public void Update(float deltaTime)
         {
-            using var _zone = V12Profiler.BeginZone("GameRoot.Update(inner)", V12Profiler.Colors.World);
+            using var _zone = V12Profiler.BeginZone("GameRoot.Update(real)", V12Profiler.Colors.World);
+            Simulation.Advance(deltaTime, FixedUpdate);
+        }
+
+        /// <summary>
+        /// Run exactly one deterministic simulation step. Worlds and registry
+        /// services receive the same <paramref name="fixedDeltaTime"/>.
+        /// </summary>
+        public void FixedUpdate(float fixedDeltaTime)
+        {
+            using var _zone = V12Profiler.BeginZone("GameRoot.FixedUpdate", V12Profiler.Colors.World);
+
             // PersistentWorld always ticks (Player, camera, shell content);
             // SelectedWorld ticks too unless a host paused it.
             if (PersistentWorld.TickingEnabled)
-                PersistentWorld.Update(deltaTime);
+                PersistentWorld.Update(fixedDeltaTime);
             if (SelectedWorld != null && SelectedWorld.TickingEnabled && !ReferenceEquals(SelectedWorld, PersistentWorld))
-                SelectedWorld.Update(deltaTime);
+                SelectedWorld.Update(fixedDeltaTime);
 
-            Registry.Update(deltaTime);
+            Registry.Update(fixedDeltaTime);
+
+            try { OnFixedUpdate?.Invoke(fixedDeltaTime); } catch { }
         }
 
         // Input handler that toggles the core Dashboard/Inspector on Escape or Dash.

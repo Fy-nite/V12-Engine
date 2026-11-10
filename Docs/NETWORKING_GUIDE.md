@@ -3,6 +3,14 @@
 ## Overview
 V12 now supports headless server hosting and client connections via TCP networking.
 
+For the value-level `SyncValue<T>` side channel, see
+[SYNC_VALUE_GUIDE.md](SYNC_VALUE_GUIDE.md). It covers declaration, publishing,
+remote apply, the batch wire format, and the known gaps.
+
+For the broader federated world topology, VNode/V12 split, host leases, and
+worker process model, see
+[FEDERATED_INSTANCES.md](../../Docs/FEDERATED_INSTANCES.md).
+
 ## Architecture
 - **NetworkCables**: Thread-safe message queue system with event-based processing
 - **NetworkHost**: TCP server that accepts multiple clients and broadcasts messages

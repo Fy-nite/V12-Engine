@@ -10,18 +10,18 @@ using MongoDB.Bson.Serialization.Attributes;
 using V12.Components;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.Networking;
 
 namespace V12.WorldML
 {
     /// <summary>
     /// Serializes a V12 element tree into WorldML XML, mirroring the format the
     /// <see cref="WorldMLParser"/> reads back: each element becomes an
-    /// <c>&lt;Element&gt;</c> with <c>&lt;Component type="…" … /&gt;</c> children
-    /// carrying one attribute per simple property.
+    /// <c>&lt;Element&gt;</c> with an optional <c>&lt;LocalTransform&gt;</c>
+    /// block and <c>&lt;Component type="…" … /&gt;</c> children carrying one
+    /// attribute per simple property.
     ///
-    /// Elements without a TransformComponent get a synthesized one from their
-    /// LocalTransform (plus a ScaleComponent when scaled), so every saved
-    /// element round-trips its transform.
+    /// The element owns its pose, so there is no TransformComponent to emit.
     /// </summary>
     public static class WorldMLSerializer
     {
@@ -70,37 +70,38 @@ namespace V12.WorldML
             if (el.Uid != Guid.Empty)
                 sb.Append($" uid=\"{el.Uid:N}\"");
 
-            if ((el.Components == null || el.Components.Count == 0) && el.Children.Count == 0)
+            var lt = el.LocalTransform;
+            bool hasPose = lt.Position != System.Numerics.Vector3.Zero
+                || lt.Rotation != System.Numerics.Quaternion.Identity
+                || lt.Scale != System.Numerics.Vector3.One;
+            bool hasComponents = el.Components is { Count: > 0 };
+
+            if (!hasPose && !hasComponents && el.Children.Count == 0)
             {
                 sb.Append(" />\n");
                 return;
             }
             sb.Append(">\n");
 
-            // Transform: emit the element's TransformComponent if it has one,
-            // otherwise synthesize one from its LocalTransform so position and
-            // rotation survive the round-trip. A non-identity scale becomes a
-            // ScaleComponent. A non-persistent TransformComponent is treated as
-            // absent (the synthesized fallback still carries the element's pose).
-            var tc = el.GetComponent<TransformComponent>();
-            if (tc != null && tc.IsPersistent)
+            // The element owns its pose. Write it as the SDK <LocalTransform>
+            // block so it round-trips exactly, with no component mirror.
+            if (hasPose)
             {
-                EmitComponent(sb, ind, tc, null);
-            }
-            else
-            {
-                var lt = el.LocalTransform;
-                var (yaw, pitch, roll) = ToEulerDegrees(lt.Rotation);
-                sb.Append($"{ind}<Component type=\"TransformComponent\" x=\"{F(lt.Position.X)}\" y=\"{F(lt.Position.Y)}\" z=\"{F(lt.Position.Z)}\" rotationX=\"{F(yaw)}\" rotationY=\"{F(pitch)}\" rotationZ=\"{F(roll)}\" />\n");
-                if (lt.Scale != System.Numerics.Vector3.One)
-                    sb.Append($"{ind}<Component type=\"ScaleComponent\" ScaleX=\"{F(lt.Scale.X)}\" ScaleY=\"{F(lt.Scale.Y)}\" ScaleZ=\"{F(lt.Scale.Z)}\" />\n");
+                sb.Append($"{ind}\t<LocalTransform>\n");
+                sb.Append($"{ind}\t\t<Position>{F(lt.Position.X)},{F(lt.Position.Y)},{F(lt.Position.Z)}</Position>\n");
+                var (pitch, yaw, roll) = ToEulerDegrees(lt.Rotation);
+                sb.Append($"{ind}\t\t<Rotation>{F(pitch)},{F(yaw)},{F(roll)}</Rotation>\n");
+                sb.Append($"{ind}\t\t<Scale>{F(lt.Scale.X)},{F(lt.Scale.Y)},{F(lt.Scale.Z)}</Scale>\n");
+                sb.Append($"{ind}\t</LocalTransform>\n");
             }
 
-            foreach (var comp in el.Components)
+            if (hasComponents)
             {
-                if (comp is TransformComponent) continue; // emitted above
-                if (!comp.IsPersistent) continue;         // runtime/editor-only: not part of the saved world
-                EmitComponent(sb, ind, comp, null);
+                foreach (var comp in el.Components)
+                {
+                    if (!comp.IsPersistent) continue; // runtime/editor-only: not part of the saved world
+                    EmitComponent(sb, ind, comp, null);
+                }
             }
 
             foreach (var child in el.Children)
@@ -138,6 +139,7 @@ namespace V12.WorldML
                 if (!p.CanWrite) continue;
                 if (ExcludedProps.Contains(p.Name)) continue;
                 if (p.GetCustomAttribute<BsonIgnoreAttribute>() != null) continue;
+                if (typeof(ISyncValue).IsAssignableFrom(p.PropertyType)) continue;
                 bool isRef = p.PropertyType == typeof(V12.Core.References.ElementRef)
                           || p.PropertyType == typeof(V12.Core.References.ComponentRef);
                 bool isComplex = !isRef && IsComplexType(p.PropertyType);
@@ -184,6 +186,7 @@ namespace V12.WorldML
                 if (!p.CanWrite) continue;
                 if (ExcludedProps.Contains(p.Name)) continue;
                 if (p.GetCustomAttribute<BsonIgnoreAttribute>() != null) continue;
+                if (typeof(ISyncValue).IsAssignableFrom(p.PropertyType)) continue;
                 if (!IsComplexType(p.PropertyType) || !IsRepresentableComplex(p.PropertyType)) continue;
 
                 object? val;
@@ -329,17 +332,25 @@ namespace V12.WorldML
             return Convert.ToString(val, CultureInfo.InvariantCulture) ?? "";
         }
 
-        private static (float yaw, float pitch, float roll) ToEulerDegrees(System.Numerics.Quaternion q)
+        /// <summary>Quaternion to XYZ degrees in the same order the parser
+        /// accepts: X pitch, Y yaw, Z roll.</summary>
+        private static (float pitch, float yaw, float roll) ToEulerDegrees(System.Numerics.Quaternion q)
         {
-            float siny_cosp = 2 * (q.W * q.Y + q.Z * q.X);
-            float cosy_cosp = 1 - 2 * (q.Y * q.Y + q.Z * q.Z);
-            float yaw = MathF.Atan2(siny_cosp, cosy_cosp);
             float sinp = 2 * (q.W * q.X - q.Y * q.Z);
-            float pitch = Math.Abs(sinp) >= 1 ? MathF.CopySign(MathF.PI / 2, sinp) : MathF.Asin(sinp);
-            float sinr_cosp = 2 * (q.W * q.Z + q.X * q.Y);
-            float cosr_cosp = 1 - 2 * (q.X * q.X + q.Z * q.Z);
-            float roll = MathF.Atan2(sinr_cosp, cosr_cosp);
-            return (yaw * 180f / MathF.PI, pitch * 180f / MathF.PI, roll * 180f / MathF.PI);
+            float pitch = MathF.Abs(sinp) >= 1
+                ? MathF.CopySign(MathF.PI / 2, sinp)
+                : MathF.Asin(sinp);
+
+            float yaw = MathF.Atan2(
+                2 * (q.X * q.Z + q.W * q.Y),
+                1 - 2 * (q.X * q.X + q.Y * q.Y));
+
+            float roll = MathF.Atan2(
+                2 * (q.X * q.Y + q.W * q.Z),
+                1 - 2 * (q.X * q.X + q.Z * q.Z));
+
+            const float rad2deg = 180f / MathF.PI;
+            return (pitch * rad2deg, yaw * rad2deg, roll * rad2deg);
         }
 
         private static string Escape(string s)

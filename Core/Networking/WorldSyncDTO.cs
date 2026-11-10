@@ -10,6 +10,8 @@ namespace V12.Core.Networking
     /// </summary>
     public class WorldSyncDTO
     {
+        /// <summary>Stable world id. Empty on payloads from older peers.</summary>
+        public Guid WorldId { get; set; }
         public string? WorldName { get; set; }
         public List<ElementSyncDTO> Elements { get; set; } = new();
     }
@@ -67,6 +69,8 @@ namespace V12.Core.Networking
     public class ElementUpdateDTO
     {
         public long Id { get; set; }
+        /// <summary>World that owns the element. Empty on older payloads.</summary>
+        public Guid WorldId { get; set; }
         /// <summary>Pinned authored id. Empty when the element never pinned one.</summary>
         public Guid Uid { get; set; }
         /// <summary>Id of the parent element. 0 means a world root.</summary>
@@ -93,6 +97,8 @@ namespace V12.Core.Networking
     public class ComponentRemovalDTO
     {
         public long ElementId { get; set; }
+        /// <summary>World that owns the element. Empty on older payloads.</summary>
+        public Guid WorldId { get; set; }
         public List<long> ComponentIds { get; set; } = new();
         public DateTime Timestamp { get; set; }
     }
@@ -102,6 +108,8 @@ namespace V12.Core.Networking
     {
         /// <summary>Id of the parent element the new element was attached to. 0 means a world root.</summary>
         public long ParentId { get; set; }
+        /// <summary>Stable id of the world the element was added to (root creates only).</summary>
+        public Guid WorldId { get; set; }
         /// <summary>Name of the sender's world the element was added to (root creates only).</summary>
         public string? WorldName { get; set; }
         /// <summary>Full element subtree (id, transform, components, children).</summary>

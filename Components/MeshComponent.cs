@@ -60,11 +60,11 @@ namespace V12.Components
         // SyncManager path (separate from DirtyTracker's component-level BSON sync).
         // They provide fine-grained value-level sync for mesh vertex/index data.
         /// <summary>SyncValue wrapper for <see cref="MeshPoints"/> — syncs the computed/generated mesh vertex data.</summary>
-        [Sync, BsonIgnore]
+        [Sync]
         public SyncValue<double[]>? MeshPointsValue { get; set; }
 
         /// <summary>SyncValue wrapper for <see cref="Indices"/> — syncs the computed/generated mesh index data.</summary>
-        [Sync, BsonIgnore]
+        [Sync]
         public SyncValue<uint[]>? IndicesValue { get; set; }
 
         /// <summary>Sync key prefix, derived from element ID and component ID.</summary>

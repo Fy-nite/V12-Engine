@@ -151,8 +151,8 @@ Conversion rules in `SetPropertyIfExists` / `ConvertToType`:
 - A conversion failure is logged and ignored; parsing continues.
 - Complex values such as `Vector3`, `Quaternion`, and arrays are not parsed
   from a single attribute string. Expose scalar properties, use
-  `TransformComponent`'s `X/Y/Z`, use `<LocalTransform>`, or add a dedicated
-  parser payload (as `MeshComponent` does for custom vertices).
+  `<LocalTransform>`, or add a dedicated parser payload (as `MeshComponent`
+  does for custom vertices).
 
 Deferred references use a component name:
 
@@ -174,35 +174,34 @@ to be assignable to the property.
 
 ### 1.7 Transforms and precedence
 
-An element has a `LocalTransform` (`Position`, `Rotation`, `Scale`) and may also
-have a `TransformComponent`. Both forms are accepted:
+An element owns its pose through `LocalTransform` (`Position`, `Rotation`,
+`Scale`). That is the only transform storage; there is no TransformComponent.
 
 ```xml
 <Element name="Crate">
-  <!-- Canonical component form -->
-  <Component type="TransformComponent" x="4" y="0.5" z="0" rotationX="0" rotationY="45" rotationZ="0" />
+  <!-- Canonical form -->
+  <LocalTransform>
+    <Position>4,0.5,0</Position>
+    <Rotation>0,45,0</Rotation>
+    <Scale>1,1,1</Scale>
+  </LocalTransform>
 </Element>
 
 <Element name="Crate">
-  <!-- SDK value-block form -->
-  <LocalTransform>
-    <Position>4,0.5,0</Position>
-    <Rotation>0,0.3827,0,0.9239</Rotation>
-    <Scale>1,1,1</Scale>
-  </LocalTransform>
+  <!-- Legacy form: still read, converted to LocalTransform, never attached -->
+  <Component type="TransformComponent" x="4" y="0.5" z="0" rotationX="0" rotationY="45" rotationZ="0" />
 </Element>
 ```
 
 - `<LocalTransform>` fields accept `x,y,z`, `(x, y, z)`, `[x; y; z]`, and
-  whitespace separators. Rotation is `x,y,z,w` and is normalized; all-zero
-  rotation is treated as identity.
-- A `TransformComponent` always wins over a `<LocalTransform>` block: the block
-  is not applied when a `TransformComponent` was created. The parser compares
-  the block against `Element.LocalTransform` only to decide whether to log a
-  note; it does not merge the two.
-- The parser does not synthesize a `TransformComponent` from a
-  `<LocalTransform>` block. The serializer does the reverse synthesis when
-  saving.
+  whitespace separators. Rotation is `x,y,z` degrees, where X is pitch, Y is
+  yaw, and Z is roll. The parser converts it to the element quaternion.
+- A legacy four-value `x,y,z,w` quaternion is still accepted. An all-zero
+  quaternion is treated as identity.
+- A legacy `TransformComponent` node wins over a `<LocalTransform>` block. It is
+  parsed as pose data and is not attached as a component.
+- The serializer writes a `<LocalTransform>` block when the pose is non-default.
+  It never synthesizes a TransformComponent.
 
 ### 1.8 Templates
 
@@ -289,9 +288,8 @@ What is written:
 - Floats and doubles use `0.###` with the invariant culture.
 - Booleans are written as `True` / `False`.
 - Null and empty strings are omitted.
-- `TransformComponent` is emitted when persistent; otherwise a synthesized
-  `TransformComponent` is emitted from `LocalTransform`, plus a
-  `ScaleComponent` when scale is not `(1,1,1)`.
+- A `<LocalTransform>` block is emitted from the element pose when it is not
+  the default. No TransformComponent is emitted.
 
 What is never written:
 
@@ -316,13 +314,9 @@ Round-trip notes:
   the first compatible component when the name no longer matches.
 - A component that exposes only fields, or only complex properties, will save
   as an empty component.
-- Transform rotation is written as Euler `rotationX/Y/Z` (degrees), not as a
-  quaternion, even if the live component used per-axis values.
-- As written, the serializer maps its extracted yaw to `rotationX` and pitch
-  to `rotationY`, while `TransformComponent` reads `rotationX` as pitch (`RX`)
-  and `rotationY` as yaw (`RY`). Verify non-axis-aligned rotations after a
-  save/load round-trip, or set orientation through the component's Euler
-  fields.
+- Transform rotation is written as XYZ Euler degrees inside `<LocalTransform>`
+  (X pitch, Y yaw, Z roll), so authors never have to hand-compute a quaternion.
+  A four-value quaternion is still accepted on read.
 
 ### 1.11 Hot reload
 
@@ -386,15 +380,15 @@ IBinding hp = Bind.To<HealthComponent, float>(
     boss, c => c.CurrentHealth, value => Console.WriteLine(value));
 
 // Strongly typed, two-way.
-var x = Bind.ToTwoWay<TransformComponent, float>(boss, c => c.X);
-x.SetValue(10f);
+var health = Bind.ToTwoWay<HealthComponent, float>(boss, c => c.CurrentHealth);
+health.SetValue(10f);
 
 // Dynamic, scripting/serialization style.
-IBinding b = Bind.To("world://Arena/entity/42/component/8/property/X");
+IBinding b = Bind.To("world://Arena/entity/42/component/8/property/CurrentHealth");
 
 // String parameters, one-way and two-way.
-IBinding b2 = Bind.To<float>("Arena", 42, 8, "TransformComponent", "X");
-var b3 = Bind.ToTwoWay<float>("Arena", 42, 8, "TransformComponent", "X");
+IBinding b2 = Bind.To<float>("Arena", 42, 8, "HealthComponent", "CurrentHealth");
+var b3 = Bind.ToTwoWay<float>("Arena", 42, 8, "HealthComponent", "CurrentHealth");
 
 // Computed. Sources must be Bindable<T> (or cast an IBinding) to read Value.
 // boss and clone are two elements that both carry a HealthComponent.
@@ -670,7 +664,7 @@ scripting workflow.
 | WorldML types | Type lookup scans loaded assemblies and takes the first simple-name match. Use full names if two assemblies share a component name. |
 | WorldML errors | Unknown components warn and are skipped; property conversion errors are logged and ignored. Parsing continues. |
 | Templates | Inline `<Templates>` are ignored unless `TemplateProvider` is a `WorldTemplateProvider`. |
-| Transform | `TransformComponent` wins over `<LocalTransform>`. A `<LocalTransform>` block without a component does not create one. |
+| Transform | Legacy `TransformComponent` nodes are read as pose data and win over `<LocalTransform>`. Neither form creates a component. |
 | Serializer | Complex properties (`Vector3`, `Quaternion`, arrays, interfaces) are not written. Use string companion fields for references. |
 | Serializer names | Component `name` attributes are not written. Named component references can fall back to the wrong component after a round-trip. |
 | Serializer | `IsPersistent = false` components and `NonPersistentComponent` subtrees are omitted. |

@@ -160,13 +160,10 @@ namespace V12.WorldML
             }
 
             var deferredList = new List<DeferredPropertySet>();
-            // The <LocalTransform> block is recorded here and applied AFTER every
-            // component is attached, so it survives whichever dialect wrote the
-            // file: it wins over a synthesized TransformComponent, and a
-            // TransformComponent written as attributes wins over it (see ApplyLocalTransform).
+            // The element owns its pose. Read the SDK <LocalTransform> block and
+            // accept legacy TransformComponent nodes as transform data only, never
+            // as an attached component.
             var explicitTransform = ReadLocalTransform(node);
-
-            bool transformSeen = false;
 
             // Process component child nodes and nested elements
             foreach (XmlNode child in node.ChildNodes)
@@ -201,15 +198,17 @@ namespace V12.WorldML
                     continue;
                 }
 
+                if (IsTransformComponentNode(child))
+                {
+                    explicitTransform = ReadLegacyTransformComponent(child) ?? explicitTransform;
+                    continue;
+                }
+
                 if (IsComponentNode(childName))
                 {
                     var comp = CreateComponentFromNode(child, deferredList);
                     if (comp != null)
-                    {
                         element.AddComponent(comp);
-                        if (string.Equals(comp.Name, "Transform", StringComparison.OrdinalIgnoreCase))
-                            transformSeen = true;
-                    }
                     continue;
                 }
 
@@ -217,7 +216,7 @@ namespace V12.WorldML
                 ParseElement(child, world, element);
             }
 
-            ApplyLocalTransform(element, explicitTransform, transformSeen);
+            ApplyLocalTransform(element, explicitTransform);
 
             // Resolve deferred properties for this element
             foreach (var ds in deferredList)
@@ -803,52 +802,63 @@ namespace V12.WorldML
                 }
                 else if (string.Equals(fname, "Rotation", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (TryParseQuaternion(raw, out var q)) trs.Rotation = q;
+                    if (TryParseRotation(raw, out var q)) trs.Rotation = q;
                 }
             }
             return trs;
         }
 
-        /// <summary>Apply a parsed transform to the element. A TransformComponent
-        /// written as attributes always wins (it is the canonical sheet); otherwise
-        /// the value block is pushed through <see cref="Element.LocalTransform"/>,
-        /// which mirrors into the TransformComponent when one exists.</summary>
-        private static void ApplyLocalTransform(Element element, TRS? explicitTransform, bool transformSeen)
+        /// <summary>Apply the parsed pose to the element. Both the SDK
+        /// <c>&lt;LocalTransform&gt;</c> block and legacy TransformComponent
+        /// attributes land here; the element owns the only copy.</summary>
+        private static void ApplyLocalTransform(Element element, TRS? explicitTransform)
         {
             if (explicitTransform == null) return;
-            if (transformSeen)
-            {
-                // Canonical files carry both; the attributes already applied.
-                // Only adopt the block when it actually says something different.
-                var lt = element.LocalTransform;
-                if (!TRSApproximatelyEqual(lt, explicitTransform.Value))
-                {
-                    Console.WriteLine($"[WorldMLParser] NOTE: '{element.Name}' has both a TransformComponent and a <LocalTransform>; using the TransformComponent.");
-                }
-                return;
-            }
             element.LocalTransform = explicitTransform.Value;
         }
 
-        private static bool TRSApproximatelyEqual(TRS a, TRS b)
+        private static bool IsTransformComponentNode(XmlNode node)
         {
-            const float eps = 1e-3f;
-            return MathF.Abs(a.Position.X - b.Position.X) < eps
-                && MathF.Abs(a.Position.Y - b.Position.Y) < eps
-                && MathF.Abs(a.Position.Z - b.Position.Z) < eps
-                && MathF.Abs(a.Scale.X - b.Scale.X) < eps
-                && MathF.Abs(a.Scale.Y - b.Scale.Y) < eps
-                && MathF.Abs(a.Scale.Z - b.Scale.Z) < eps
-                && QuaternionApproximatelyEqual(a.Rotation, b.Rotation);
+            if (string.Equals(node.Name, "TransformComponent", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var type = GetAttr(node, "type")
+                ?? GetAttr(node, "Type")
+                ?? ChildElementValue(node, "Type");
+            return string.Equals(type, "TransformComponent", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool QuaternionApproximatelyEqual(Quaternion a, Quaternion b)
+        /// <summary>Read a legacy TransformComponent node as a pose. Axis names
+        /// match the old component: X/Y/Z position, rotationX pitch, rotationY
+        /// yaw, rotationZ roll, all in degrees. The node is never attached.</summary>
+        private static TRS? ReadLegacyTransformComponent(XmlNode node)
         {
-            const float eps = 1e-3f;
-            return (MathF.Abs(a.X - b.X) < eps && MathF.Abs(a.Y - b.Y) < eps
-                 && MathF.Abs(a.Z - b.Z) < eps && MathF.Abs(a.W - b.W) < eps)
-                || (MathF.Abs(a.X + b.X) < eps && MathF.Abs(a.Y + b.Y) < eps
-                 && MathF.Abs(a.Z + b.Z) < eps && MathF.Abs(a.W + b.W) < eps);
+            float Read(string name, float fallback = 0f)
+            {
+                var raw = GetAttr(node, name) ?? ChildElementValue(node, name);
+                return float.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                    ? value
+                    : fallback;
+            }
+
+            bool Has(string name)
+                => GetAttr(node, name) != null || ChildElementValue(node, name) != null;
+
+            if (!Has("x") && !Has("y") && !Has("z")
+                && !Has("rotation") && !Has("rotationX") && !Has("rotationY") && !Has("rotationZ"))
+                return null;
+
+            const float deg2rad = MathF.PI / 180f;
+            float yaw = Has("rotationY") ? Read("rotationY") : Read("rotation");
+            float pitch = Read("rotationX");
+            float roll = Read("rotationZ");
+
+            return new TRS
+            {
+                Position = new Vector3(Read("x"), Read("y"), Read("z")),
+                Rotation = Quaternion.CreateFromYawPitchRoll(yaw * deg2rad, pitch * deg2rad, roll * deg2rad),
+                Scale = Vector3.One
+            };
         }
 
         private static bool TryParseVector3(string raw, out Vector3 value)
@@ -874,13 +884,25 @@ namespace V12.WorldML
             return result;
         }
 
-        /// <summary>Quaternions are read as <c>x,y,z,w</c>. The degenerate
-        /// <c>0,0,0,0</c> block (how the old template wrote "no rotation") is read
-        /// as identity rather than as a zero quaternion.</summary>
-        private static bool TryParseQuaternion(string raw, out Quaternion value)
+        /// <summary>Rotation accepts either the author-friendly three-value
+        /// Euler form (<c>x,y,z</c> degrees: pitch, yaw, roll) or the legacy
+        /// four-value quaternion form (<c>x,y,z,w</c>). A degenerate all-zero
+        /// quaternion is read as identity.</summary>
+        private static bool TryParseRotation(string raw, out Quaternion value)
         {
             value = Quaternion.Identity;
             var parts = SplitComponents(raw);
+
+            if (parts.Length == 3)
+            {
+                const float deg2rad = MathF.PI / 180f;
+                value = Quaternion.CreateFromYawPitchRoll(
+                    yaw: parts[1] * deg2rad,
+                    pitch: parts[0] * deg2rad,
+                    roll: parts[2] * deg2rad);
+                return true;
+            }
+
             if (parts.Length != 4) return false;
             if (parts[0] == 0 && parts[1] == 0 && parts[2] == 0 && parts[3] == 0) return true;
             value = Quaternion.Normalize(new Quaternion(parts[0], parts[1], parts[2], parts[3]));

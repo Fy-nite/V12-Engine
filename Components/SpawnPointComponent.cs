@@ -6,7 +6,7 @@ namespace V12.Components
 {
     /// <summary>
     /// Marker component that indicates this element is a player spawn point.
-    /// Use a <see cref="TransformComponent"/> on the same element to set the spawn position.
+    /// The element's own <c>LocalTransform</c> sets the spawn position.
     /// </summary>
     [ComponentEntry("GAMEPLAY", "Spawn Point", SingleInstance = true, SortOrder = 3, Icon = "location-dot")]
     public class SpawnPointComponent : ComponentBase

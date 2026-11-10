@@ -57,7 +57,7 @@ canvas.AddComponent(new CanvasComponent { ScreenSpace = false });
 ```
 
 - The host creates a `RenderTexture`, renders UI components into it via Paper, and applies it as a material on a 3D quad
-- The quad is positioned and scaled using the element's `TransformComponent` and `ScaleComponent`
+- The quad is positioned and scaled using the element's `LocalTransform` and `ScaleComponent`
 - Useful for in-world monitors, screens, holograms, etc.
 - Handles input via raycasting against the 3D quad
 
@@ -114,7 +114,12 @@ var world = root.CreateWorld("UISample");
 
 // ── World-space canvas ───────────────────────────
 var worldCanvas = new Element("Monitor");
-worldCanvas.AddComponent(new TransformComponent(2f, 2f, 0f));
+worldCanvas.LocalTransform = new TRS
+{
+    Position = new System.Numerics.Vector3(2f, 2f, 0f),
+    Rotation = System.Numerics.Quaternion.Identity,
+    Scale = System.Numerics.Vector3.One,
+};
 worldCanvas.AddComponent(new ScaleComponent(2f, 2f, 1f));
 worldCanvas.AddComponent(new CanvasComponent());
 world.AddElement(worldCanvas);

@@ -19,14 +19,14 @@ namespace V12.Components
         public override string Name        => "Velocity";
         public override string Description => "Linear and angular velocity";
 
-        public float VelX { get => _velX; set { if (Math.Abs(_velX - value) > 0.0001f) { _velX = value; MarkDirty(); } } }
-        public float VelY { get => _velY; set { if (Math.Abs(_velY - value) > 0.0001f) { _velY = value; MarkDirty(); } } }
-        public float VelZ { get => _velZ; set { if (Math.Abs(_velZ - value) > 0.0001f) { _velZ = value; MarkDirty(); } } }
+        public float VelX { get => _velX; set => SetSync(ref _velX, value, 0.0001f); }
+        public float VelY { get => _velY; set => SetSync(ref _velY, value, 0.0001f); }
+        public float VelZ { get => _velZ; set => SetSync(ref _velZ, value, 0.0001f); }
 
         /// <summary>Angular velocity in degrees/sec around each axis.</summary>
-        public float AngX { get => _angX; set { if (Math.Abs(_angX - value) > 0.0001f) { _angX = value; MarkDirty(); } } }
-        public float AngY { get => _angY; set { if (Math.Abs(_angY - value) > 0.0001f) { _angY = value; MarkDirty(); } } }
-        public float AngZ { get => _angZ; set { if (Math.Abs(_angZ - value) > 0.0001f) { _angZ = value; MarkDirty(); } } }
+        public float AngX { get => _angX; set => SetSync(ref _angX, value, 0.0001f); }
+        public float AngY { get => _angY; set => SetSync(ref _angY, value, 0.0001f); }
+        public float AngZ { get => _angZ; set => SetSync(ref _angZ, value, 0.0001f); }
 
         public VelocityComponent() { }
         public VelocityComponent(float vx, float vy, float vz, float ax = 0f, float ay = 0f, float az = 0f)

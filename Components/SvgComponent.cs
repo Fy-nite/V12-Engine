@@ -47,19 +47,9 @@ namespace V12.Components
         {
             get
             {
-                if (Owner != null)
-                {
-                    var t = Owner.GetComponent<TransformComponent>();
-                    var s = Owner.GetComponent<ScaleComponent>();
-                    float sx = s?.ScaleX ?? 1f;
-                    float sy = s?.ScaleY ?? 1f;
-                    float sz = s?.ScaleZ ?? 1f;
-                    if (t != null)
-                        return Matrix4x4.CreateScale(sx, sy, sz)
-                             * Matrix4x4.CreateFromYawPitchRoll(t.RY, t.RX, t.RZ)
-                             * Matrix4x4.CreateTranslation(t.X, t.Y, t.Z);
-                }
-                return Matrix4x4.Identity;
+                return Owner != null
+                    ? ElementPlacement.ElementLocalMatrix(Owner)
+                    : Matrix4x4.Identity;
             }
         }
 

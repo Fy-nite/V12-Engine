@@ -138,21 +138,9 @@ namespace V12.Components
         {
             get
             {
-                if (Owner != null)
-                {
-                    var t = Owner.GetComponent<TransformComponent>();
-                    var s = Owner.GetComponent<ScaleComponent>();
-
-                    Matrix4x4 scale = s != null ? Matrix4x4.CreateScale(s.ScaleX, s.ScaleY, s.ScaleZ) : Matrix4x4.Identity;
-
-                    if (t != null)
-                    {
-                        return scale
-                             * Matrix4x4.CreateFromYawPitchRoll(t.RY, t.RX, t.RZ)
-                             * Matrix4x4.CreateTranslation(t.X, t.Y, t.Z);
-                    }
-                }
-                return Matrix4x4.Identity;
+                return Owner != null
+                    ? ElementPlacement.ElementLocalMatrix(Owner)
+                    : Matrix4x4.Identity;
             }
         }
 

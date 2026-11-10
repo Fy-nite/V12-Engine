@@ -216,14 +216,11 @@ world.SpawnPosition = new Vector3(10f, 2f, -5f);
 ### Implementing a SpawnPoint Component
 
 For more advanced scenarios (multiple spawn points, team spawns, etc.), place
-a `TransformComponent` on an element with a custom `SpawnPointComponent` tag,
-then override the world's spawn on load:
+an element with a custom `SpawnPointComponent` tag and set its
+`LocalTransform`, then override the world's spawn on load:
 
 ```csharp
 var spawnPoint = world.FindElementWithComponent<SpawnPointComponent>();
 if (spawnPoint != null)
-{
-    var t = spawnPoint.GetComponent<TransformComponent>();
-    world.SpawnPosition = new Vector3(t.X, t.Y, t.Z);
-}
+    world.SpawnPosition = spawnPoint.LocalTransform.Position;
 ```
