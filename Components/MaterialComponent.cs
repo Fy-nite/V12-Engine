@@ -45,6 +45,7 @@ namespace V12.Components
         private float _uv1OffsetY;
         private float _uv1ScaleX = 1f;
         private float _uv1ScaleY = 1f;
+        private string? _shaderUri;
 
         public override string Name        => "Material";
         public override string Description => "Surface colour and PBR properties";
@@ -64,6 +65,21 @@ namespace V12.Components
         {
             get => _textureUrl;
             set { _textureUrl = value; MarkDirty(); }
+        }
+
+        /// <summary>
+        /// Optional <c>shader://</c> URI of a registered V12 shader. When set,
+        /// the material compiles that shader instead of the built-in lit/unlit
+        /// one. The PBR fields below still drive shader uniforms with matching
+        /// names (<c>albedoTex</c>, <c>albedoColor</c>, <c>metallic</c>,
+        /// <c>roughness</c>, <c>emission</c>, <c>emissionEnergy</c>,
+        /// <c>normalScale</c>, <c>alphaCutoff</c>, <c>uvScale</c>, <c>uvOffset</c>),
+        /// so a shader that declares those uniforms works with no extra wiring.
+        /// </summary>
+        public string? ShaderUri
+        {
+            get => _shaderUri;
+            set { if (_shaderUri != value) { _shaderUri = string.IsNullOrWhiteSpace(value) ? null : value; MarkDirty(); } }
         }
 
         public string? AlbedoTexture
@@ -300,6 +316,8 @@ namespace V12.Components
         /// <summary>Generate editable material fields for the inspector.</summary>
         public override void BuildInspector(IInspector inspector)
         {
+            inspector.Section("Shader");
+            inspector.String("Shader URI", () => ShaderUri ?? "", v => ShaderUri = v);
             inspector.Section("Colour");
             inspector.ReadOnly("Source", string.IsNullOrWhiteSpace(MaterialName) ? "(authored)" : MaterialName);
             inspector.Float("Red", () => R, v => R = v);

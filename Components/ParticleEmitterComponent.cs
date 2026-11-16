@@ -24,6 +24,12 @@ namespace V12.Components
         private float _spreadAngle   = 45f;
         private bool  _emitting      = true;
         private bool  _oneShot       = false;
+        private float _colorR        = 1f;
+        private float _colorG        = 1f;
+        private float _colorB        = 1f;
+        private float _colorA        = 1f;
+        private float _size          = 0.1f;
+        private float _gravity       = 0f;
 
         public override string Name        => "ParticleEmitter";
         public override string Description => "GPU particle emitter";
@@ -41,6 +47,20 @@ namespace V12.Components
         public bool  Emitting       { get => _emitting;      set { if (_emitting != value)                           { _emitting = value; MarkDirty(); } } }
         /// <summary>If true, emits one burst then stops.</summary>
         public bool  OneShot        { get => _oneShot;       set { if (_oneShot != value)                            { _oneShot = value; MarkDirty(); } } }
+
+        // ── Appearance ──────────────────────────────────────────────────────
+
+        /// <summary>Particle tint, 0–1 per channel. Alpha below 1 blends.</summary>
+        public float ColorR { get => _colorR; set { if (Math.Abs(_colorR - value) > 0.0001f) { _colorR = Clamp01(value); MarkDirty(); } } }
+        public float ColorG { get => _colorG; set { if (Math.Abs(_colorG - value) > 0.0001f) { _colorG = Clamp01(value); MarkDirty(); } } }
+        public float ColorB { get => _colorB; set { if (Math.Abs(_colorB - value) > 0.0001f) { _colorB = Clamp01(value); MarkDirty(); } } }
+        public float ColorA { get => _colorA; set { if (Math.Abs(_colorA - value) > 0.0001f) { _colorA = Clamp01(value); MarkDirty(); } } }
+
+        /// <summary>Quad size in world units.</summary>
+        public float Size { get => _size; set { if (Math.Abs(_size - value) > 0.0001f) { _size = MathF.Max(0.0001f, value); MarkDirty(); } } }
+
+        /// <summary>Downward acceleration in m/s². 0 makes them drift straight.</summary>
+        public float Gravity { get => _gravity; set { if (Math.Abs(_gravity - value) > 0.0001f) { _gravity = value; MarkDirty(); } } }
 
         public ParticleEmitterComponent() { }
         public ParticleEmitterComponent(int amount, float lifetime, float speedMin = 1f, float speedMax = 3f)
@@ -63,6 +83,13 @@ namespace V12.Components
             inspector.Float("Spread Angle", () => SpreadAngle, v => SpreadAngle = v);
             inspector.Bool("Emitting", () => Emitting, v => Emitting = v);
             inspector.Bool("One Shot", () => OneShot, v => OneShot = v);
+            inspector.Section("Appearance");
+            inspector.Float("Colour R", () => ColorR, v => ColorR = v);
+            inspector.Float("Colour G", () => ColorG, v => ColorG = v);
+            inspector.Float("Colour B", () => ColorB, v => ColorB = v);
+            inspector.Float("Opacity", () => ColorA, v => ColorA = v);
+            inspector.Float("Size", () => Size, v => Size = v);
+            inspector.Float("Gravity", () => Gravity, v => Gravity = v);
         }
 
         public override IWorldElement BuildUI()
@@ -71,5 +98,7 @@ namespace V12.Components
         }
         public override string ToString() =>
             $"Particles(Amount:{Amount} Life:{Lifetime:F2}s Speed:{SpeedMin:F1}–{SpeedMax:F1} Emitting:{Emitting})";
+
+        private static float Clamp01(float v) => MathF.Max(0f, MathF.Min(1f, v));
     }
 }

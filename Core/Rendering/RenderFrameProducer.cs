@@ -30,6 +30,8 @@ public sealed class RenderFrameProducer : IDisposable
         public double[]? Normals;
         public double[]? Tangents;
         public uint[]? Indices;
+        public float[]? BoneWeights;
+        public int[]? BoneIndices;
         public MeshData Data = MeshData.Empty;
         public long Version;
     }
@@ -38,6 +40,7 @@ public sealed class RenderFrameProducer : IDisposable
     private readonly RendererResourceCache _resources;
     private readonly PaperUiDrawBuilder _uiBuilder;
     private readonly Dictionary<long, MeshState> _meshStates = new();
+    private readonly HashSet<string> _warned = new(StringComparer.Ordinal);
     private readonly Func<string, TextureData?>? _textureLoader;
     private int _viewportWidth;
     private int _viewportHeight;
@@ -97,6 +100,7 @@ public sealed class RenderFrameProducer : IDisposable
         var env = environment ?? RenderEnvironmentData.Default;
         BuildViews(snapshot, env, builder);
         BuildItems(snapshot, builder);
+        BuildParticles(snapshot, builder);
         BuildLights(snapshot, builder);
 
         if (uiFrame is { } ui)
@@ -206,6 +210,7 @@ public sealed class RenderFrameProducer : IDisposable
     private void BuildItems(FrameSnapshot snapshot, RenderFrameBuilder builder)
     {
         var activeElements = new HashSet<long>();
+        var skinIndexById = new Dictionary<long, int>();
 
         foreach (var renderable in snapshot.Renderables)
         {
@@ -221,70 +226,37 @@ public sealed class RenderFrameProducer : IDisposable
 
             var mesh = GetMesh(renderable);
             var snapshotMaterial = ReadMaterial(renderable);
-            var material = GetMaterial(snapshotMaterial);
+            var material = GetMaterial(snapshotMaterial, out var shaderReflection);
 
-            int overridesIndex = builder.DrawOverrides.Count;
-            var overrides = new List<DrawOverride>
-            {
-                new DrawOverride(
-                    BuiltInMaterialParameters.Albedo,
-                    MaterialValue.From(new Vector4(
-                        snapshotMaterial.R,
-                        snapshotMaterial.G,
-                        snapshotMaterial.B,
-                        snapshotMaterial.A))),
-                new DrawOverride(
-                    BuiltInMaterialParameters.UvOffset,
-                    MaterialValue.From(snapshotMaterial.UvOffset)),
-                new DrawOverride(
-                    BuiltInMaterialParameters.UvScale,
-                    MaterialValue.From(snapshotMaterial.UvScale)),
-            };
+            // A custom shader owns its uniforms, so the built-in override table
+            // (indexed by BuiltInMaterialParameters) does not apply. Map the
+            // material fields onto the custom shader's own reflection instead.
+            int overridesIndex = -1;
+            List<DrawOverride> overrides = shaderReflection is null
+                ? BuildBuiltInOverrides(snapshotMaterial)
+                : BuildCustomOverrides(shaderReflection, snapshotMaterial);
 
-            if (snapshotMaterial.EmissionEnergy > 0f &&
-                (snapshotMaterial.EmissionR > 0f ||
-                 snapshotMaterial.EmissionG > 0f ||
-                 snapshotMaterial.EmissionB > 0f))
+            if (overrides.Count > 0)
             {
-                overrides.Add(new DrawOverride(
-                    BuiltInMaterialParameters.Emissive,
-                    MaterialValue.From(new Vector3(
-                        snapshotMaterial.EmissionR,
-                        snapshotMaterial.EmissionG,
-                        snapshotMaterial.EmissionB))));
-                overrides.Add(new DrawOverride(
-                    BuiltInMaterialParameters.EmissiveEnergy,
-                    MaterialValue.From(snapshotMaterial.EmissionEnergy)));
+                overridesIndex = builder.DrawOverrides.Count;
+                builder.DrawOverrides.Add(new DrawOverrides(overrides.ToArray()));
             }
 
-            if (snapshotMaterial.NormalScale > 0f)
+            int skinIndex = -1;
+            if (renderable.SkinId != 0 &&
+                renderable.SkinBoneLocals is { Length: > 0 } boneLocals &&
+                renderable.SkinBoneParents is { } boneParents &&
+                renderable.SkinInverseBinds is { } inverseBinds)
             {
-                overrides.Add(new DrawOverride(
-                    BuiltInMaterialParameters.NormalScale,
-                    MaterialValue.From(snapshotMaterial.NormalScale)));
+                skinIndex = EnsureSkin(
+                    builder,
+                    skinIndexById,
+                    renderable.SkinId,
+                    renderable.SkinWorld,
+                    boneLocals,
+                    boneParents,
+                    inverseBinds);
             }
-
-            if (snapshotMaterial.AlphaCutoff > 0f)
-            {
-                overrides.Add(new DrawOverride(
-                    BuiltInMaterialParameters.AlphaCutoff,
-                    MaterialValue.From(snapshotMaterial.AlphaCutoff)));
-            }
-
-            if (snapshotMaterial.Triplanar)
-            {
-                overrides.Add(new DrawOverride(
-                    BuiltInMaterialParameters.Triplanar,
-                    MaterialValue.From(1f)));
-                overrides.Add(new DrawOverride(
-                    BuiltInMaterialParameters.TriplanarWorld,
-                    MaterialValue.From(snapshotMaterial.TriplanarWorld ? 1f : 0f)));
-                overrides.Add(new DrawOverride(
-                    BuiltInMaterialParameters.TriplanarSharpness,
-                    MaterialValue.From(snapshotMaterial.TriplanarSharpness)));
-            }
-
-            builder.DrawOverrides.Add(new DrawOverrides(overrides.ToArray()));
 
             builder.Items.Add(new DrawItem
             {
@@ -298,6 +270,7 @@ public sealed class RenderFrameProducer : IDisposable
                 LayerMask = RenderLayers.Default,
                 Active = true,
                 OverridesIndex = overridesIndex,
+                SkinIndex = skinIndex,
             });
         }
 
@@ -308,6 +281,43 @@ public sealed class RenderFrameProducer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Emits one skin per skeleton element and appends its current bone pose to
+    /// the frame's shared bone array. Parts that share an element share the skin.
+    /// </summary>
+    private static int EnsureSkin(
+        RenderFrameBuilder builder,
+        Dictionary<long, int> cache,
+        long skinId,
+        Matrix4x4 world,
+        Matrix4x4[] boneLocals,
+        int[] boneParents,
+        Matrix4x4[] inverseBinds)
+    {
+        if (cache.TryGetValue(skinId, out int existing))
+            return existing;
+
+        int boneStart = builder.BoneTransforms.Count;
+        foreach (Matrix4x4 local in boneLocals)
+            builder.BoneTransforms.Add(local);
+
+        int index = builder.Skins.Count;
+        builder.Skins.Add(new SkinItem
+        {
+            ElementId = skinId,
+            Active = true,
+            World = world,
+            BoneStart = boneStart,
+            BoneCount = boneLocals.Length,
+            BoneParents = boneParents,
+            InverseBindPoses = inverseBinds,
+            LayerMask = RenderLayers.Default,
+        });
+
+        cache[skinId] = index;
+        return index;
+    }
+
     private MeshHandle GetMesh(in RenderableSnapshot renderable)
     {
         if (!_meshStates.TryGetValue(renderable.ElementId, out var state) ||
@@ -315,7 +325,9 @@ public sealed class RenderFrameProducer : IDisposable
             !ReferenceEquals(state.Uvs, renderable.MeshUvs) ||
             !ReferenceEquals(state.Normals, renderable.MeshNormals) ||
             !ReferenceEquals(state.Tangents, renderable.MeshTangents) ||
-            !ReferenceEquals(state.Indices, renderable.MeshIndices))
+            !ReferenceEquals(state.Indices, renderable.MeshIndices) ||
+            !ReferenceEquals(state.BoneWeights, renderable.MeshBoneWeights) ||
+            !ReferenceEquals(state.BoneIndices, renderable.MeshBoneIndices))
         {
             state = new MeshState
             {
@@ -324,12 +336,16 @@ public sealed class RenderFrameProducer : IDisposable
                 Normals = renderable.MeshNormals,
                 Tangents = renderable.MeshTangents,
                 Indices = renderable.MeshIndices,
+                BoneWeights = renderable.MeshBoneWeights,
+                BoneIndices = renderable.MeshBoneIndices,
                 Data = BuildMeshData(
                     renderable.MeshPoints!,
                     renderable.MeshIndices,
                     renderable.MeshUvs,
                     renderable.MeshNormals,
-                    renderable.MeshTangents),
+                    renderable.MeshTangents,
+                    renderable.MeshBoneWeights,
+                    renderable.MeshBoneIndices),
                 Version = ++_nextMeshVersion,
             };
             _meshStates[renderable.ElementId] = state;
@@ -341,8 +357,25 @@ public sealed class RenderFrameProducer : IDisposable
             state.Version);
     }
 
-    private MaterialHandle GetMaterial(in SnapshotMaterial material)
+    private MaterialHandle GetMaterial(in SnapshotMaterial material, out ShaderReflection? customReflection)
     {
+        customReflection = null;
+
+        if (!string.IsNullOrWhiteSpace(material.ShaderUri))
+        {
+            if (ShaderAssetRegistry.Instance.TryResolve(
+                    material.ShaderUri!, out var program, out long shaderVersion))
+            {
+                customReflection = program.Reflection ?? ShaderReflection.Empty;
+                return CreateCustomMaterial(material, program, shaderVersion);
+            }
+
+            WarnOnce(
+                "shader:" + material.ShaderUri,
+                "[Render] Material shader '{Shader}' is not registered; falling back to the built-in shader.",
+                material.ShaderUri);
+        }
+
         bool transparent = material.A < 0.999f;
         var blend = transparent ? BlendMode.Alpha : BlendMode.Opaque;
         var shader = _resources.GetOrCreateShader(
@@ -387,24 +420,236 @@ public sealed class RenderFrameProducer : IDisposable
         return _resources.GetOrCreateMaterial(key, shader, desc);
     }
 
+    /// <summary>
+    /// Compiles a gameplay material against a registered custom shader. Textures
+    /// are bound by the shader's own reflection names, and object colour values
+    /// travel through the per-draw override table so two elements can share one
+    /// shader without sharing a material.
+    /// </summary>
+    private MaterialHandle CreateCustomMaterial(
+        in SnapshotMaterial material,
+        in ShaderProgram program,
+        long shaderVersion)
+    {
+        var reflection = program.Reflection ?? ShaderReflection.Empty;
+        string uri = program.AssetUri ?? "custom";
+        var shader = _resources.GetOrCreateShader("shader:" + uri, program, shaderVersion);
+
+        var bindings = new List<MaterialTextureBinding>();
+        foreach (var slot in reflection.Textures)
+        {
+            if (!TryTextureFor(slot.Name, material, out var texture))
+                continue;
+            bindings.Add(new MaterialTextureBinding(slot.Slot, texture));
+        }
+
+        bool transparent = material.A < 0.999f;
+        var desc = new MaterialDesc(
+            Blend: transparent ? BlendMode.Alpha : BlendMode.Opaque,
+            Cull: material.DoubleSided ? CullMode.None : CullMode.Back,
+            DepthTest: !material.NoDepth,
+            DepthWrite: !transparent,
+            Lit: !material.Unlit,
+            CastShadows: !transparent,
+            ReceiveShadows: true,
+            Parameters: ReadOnlyMemory<MaterialValue>.Empty,
+            Textures: bindings.ToArray());
+
+        string key = string.Create(
+            CultureInfo.InvariantCulture,
+            $"custom-material:{uri}:{shaderVersion}:{(material.Unlit ? 1 : 0)}:" +
+            $"{(material.NoDepth ? 1 : 0)}:{(material.DoubleSided ? 1 : 0)}:" +
+            $"{(transparent ? 1 : 0)}:{material.AlbedoPath}|{material.NormalPath}|" +
+            $"{material.MetallicPath}|{material.RoughnessPath}|{material.EmissionPath}|" +
+            $"{material.OcclusionPath}");
+
+        return _resources.GetOrCreateMaterial(key, shader, desc, shaderVersion);
+    }
+
+    private static List<DrawOverride> BuildBuiltInOverrides(in SnapshotMaterial material)
+    {
+        var overrides = new List<DrawOverride>
+        {
+            new DrawOverride(
+                BuiltInMaterialParameters.Albedo,
+                MaterialValue.From(new Vector4(material.R, material.G, material.B, material.A))),
+            new DrawOverride(
+                BuiltInMaterialParameters.UvOffset,
+                MaterialValue.From(material.UvOffset)),
+            new DrawOverride(
+                BuiltInMaterialParameters.UvScale,
+                MaterialValue.From(material.UvScale)),
+        };
+
+        if (material.EmissionEnergy > 0f &&
+            (material.EmissionR > 0f || material.EmissionG > 0f || material.EmissionB > 0f))
+        {
+            overrides.Add(new DrawOverride(
+                BuiltInMaterialParameters.Emissive,
+                MaterialValue.From(new Vector3(material.EmissionR, material.EmissionG, material.EmissionB))));
+            overrides.Add(new DrawOverride(
+                BuiltInMaterialParameters.EmissiveEnergy,
+                MaterialValue.From(material.EmissionEnergy)));
+        }
+
+        if (material.NormalScale > 0f)
+        {
+            overrides.Add(new DrawOverride(
+                BuiltInMaterialParameters.NormalScale,
+                MaterialValue.From(material.NormalScale)));
+        }
+
+        if (material.AlphaCutoff > 0f)
+        {
+            overrides.Add(new DrawOverride(
+                BuiltInMaterialParameters.AlphaCutoff,
+                MaterialValue.From(material.AlphaCutoff)));
+        }
+
+        if (material.Triplanar)
+        {
+            overrides.Add(new DrawOverride(
+                BuiltInMaterialParameters.Triplanar,
+                MaterialValue.From(1f)));
+            overrides.Add(new DrawOverride(
+                BuiltInMaterialParameters.TriplanarWorld,
+                MaterialValue.From(material.TriplanarWorld ? 1f : 0f)));
+            overrides.Add(new DrawOverride(
+                BuiltInMaterialParameters.TriplanarSharpness,
+                MaterialValue.From(material.TriplanarSharpness)));
+        }
+
+        return overrides;
+    }
+
+    /// <summary>
+    /// Maps the authorable material fields onto a custom shader's declared
+    /// parameters. Names are matched case-insensitively, so a shader can use
+    /// <c>albedoTex</c>/<c>albedoColor</c>/<c>metallic</c> and friends and pick
+    /// the values up with no extra plumbing; unknown uniforms keep their shader
+    /// defaults.
+    /// </summary>
+    private static List<DrawOverride> BuildCustomOverrides(
+        ShaderReflection reflection,
+        in SnapshotMaterial material)
+    {
+        var overrides = new List<DrawOverride>(reflection.Parameters.Count);
+        foreach (var parameter in reflection.Parameters)
+        {
+            if (TryValueFor(parameter.Name, material, out var value))
+                overrides.Add(new DrawOverride(parameter.Index, value));
+        }
+
+        return overrides;
+    }
+
+    private static bool TryValueFor(
+        string name,
+        in SnapshotMaterial material,
+        out MaterialValue value)
+    {
+        switch (name.ToLowerInvariant())
+        {
+            case "albedocolor":
+            case "albedotint":
+            case "basecolor":
+            case "basetint":
+            case "tint":
+            case "color":
+                value = MaterialValue.From(new Vector4(material.R, material.G, material.B, material.A));
+                return true;
+            case "metallic":
+                value = MaterialValue.From(material.Metallic);
+                return true;
+            case "roughness":
+                value = MaterialValue.From(material.Roughness);
+                return true;
+            case "emission":
+            case "emissive":
+            case "emissioncolor":
+                value = MaterialValue.From(new Vector3(material.EmissionR, material.EmissionG, material.EmissionB));
+                return true;
+            case "emissionenergy":
+            case "emissionstrength":
+                value = MaterialValue.From(material.EmissionEnergy);
+                return true;
+            case "normalscale":
+                value = MaterialValue.From(material.NormalScale);
+                return true;
+            case "alphacutoff":
+                value = MaterialValue.From(material.AlphaCutoff);
+                return true;
+            case "uvoffset":
+                value = MaterialValue.From(material.UvOffset);
+                return true;
+            case "uvscale":
+                value = MaterialValue.From(material.UvScale);
+                return true;
+            default:
+                value = default;
+                return false;
+        }
+    }
+
+    private bool TryTextureFor(string name, in SnapshotMaterial material, out TextureHandle texture)
+    {
+        string? path = name.ToLowerInvariant() switch
+        {
+            "albedotex" or "albedo" or "albedotexture" or "tex0" or "maintex" => material.AlbedoPath,
+            "normaltex" or "normal" or "normaltexture" or "normalmap" => material.NormalPath,
+            "metallictex" or "metallic" or "metallictexture" or "metallicmap" => material.MetallicPath,
+            "roughnesstex" or "roughness" or "roughnesstexture" or "roughnessmap" => material.RoughnessPath,
+            "emissiontex" or "emission" or "emissiontexture" or "emissionmap" => material.EmissionPath,
+            "occlusiontex" or "occlusion" or "occlusiontexture" or "occlusionmap" or "aotex" => material.OcclusionPath,
+            _ => null,
+        };
+
+        if (path is null)
+        {
+            texture = default;
+            return false;
+        }
+
+        var colorSpace = path == material.EmissionPath || path == material.AlbedoPath
+            ? TextureColorSpace.Srgb
+            : TextureColorSpace.Linear;
+
+        return TryCreateTexture(path, colorSpace, out texture);
+    }
+
+    private void WarnOnce(string key, string message, string value)
+    {
+        if (_warned.Add(key))
+            GameRoot.Log?.Warning(message, value);
+    }
+
     private void AddTexture(
         string? path,
         int slot,
         TextureColorSpace colorSpace,
         List<MaterialTextureBinding> bindings)
     {
-        if (_textureLoader is null || string.IsNullOrWhiteSpace(path))
+        if (!TryCreateTexture(path, colorSpace, out var handle))
             return;
+
+        bindings.Add(new MaterialTextureBinding(slot, handle));
+    }
+
+    private bool TryCreateTexture(string? path, TextureColorSpace colorSpace, out TextureHandle texture)
+    {
+        texture = default;
+        if (_textureLoader is null || string.IsNullOrWhiteSpace(path))
+            return false;
 
         var data = _textureLoader(path);
         if (data is null)
-            return;
+            return false;
 
         data = data with { ColorSpace = colorSpace };
-        var handle = _resources.GetOrCreateTexture(
+        texture = _resources.GetOrCreateTexture(
             $"texture:{colorSpace}:{path}",
             data);
-        bindings.Add(new MaterialTextureBinding(slot, handle));
+        return true;
     }
 
     private static SnapshotMaterial ReadMaterial(in RenderableSnapshot renderable)
@@ -431,7 +676,8 @@ public sealed class RenderFrameProducer : IDisposable
             !string.IsNullOrEmpty(renderable.MatMetallicTexturePath) ||
             !string.IsNullOrEmpty(renderable.MatRoughnessTexturePath) ||
             !string.IsNullOrEmpty(renderable.MatEmissionTexturePath) ||
-            !string.IsNullOrEmpty(renderable.MatOcclusionTexturePath);
+            !string.IsNullOrEmpty(renderable.MatOcclusionTexturePath) ||
+            !string.IsNullOrEmpty(renderable.MatShaderUri);
 
         if (!hasMaterial)
         {
@@ -443,7 +689,8 @@ public sealed class RenderFrameProducer : IDisposable
                 false, false, false, 1f,
                 false, false,
                 Vector2.Zero, Vector2.One,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null,
+                null);
         }
 
         return new SnapshotMaterial(
@@ -472,7 +719,8 @@ public sealed class RenderFrameProducer : IDisposable
             EmptyToNull(renderable.MatMetallicTexturePath),
             EmptyToNull(renderable.MatRoughnessTexturePath),
             EmptyToNull(renderable.MatEmissionTexturePath),
-            EmptyToNull(renderable.MatOcclusionTexturePath));
+            EmptyToNull(renderable.MatOcclusionTexturePath),
+            EmptyToNull(renderable.MatShaderUri));
     }
 
     private static string? EmptyToNull(string? value) =>
@@ -504,7 +752,45 @@ public sealed class RenderFrameProducer : IDisposable
         string? MetallicPath,
         string? RoughnessPath,
         string? EmissionPath,
-        string? OcclusionPath);
+        string? OcclusionPath,
+        string? ShaderUri);
+
+    private void BuildParticles(FrameSnapshot snapshot, RenderFrameBuilder builder)
+    {
+        foreach (var renderable in snapshot.Renderables)
+        {
+            if (renderable.NodeType != SnapshotNodeType.Particle || renderable.ViewportId != 0)
+                continue;
+
+            var color = renderable.ParticleColor;
+            builder.Particles.Add(new ParticleItem
+            {
+                ElementId = renderable.ElementId,
+                Active = true,
+                World = renderable.Transform,
+                Amount = Math.Max(1, renderable.ParticleAmount),
+                Lifetime = Math.Max(0.01f, renderable.ParticleLifetime),
+                EmissionRadius = Math.Max(0f, renderable.ParticleEmissionRadius),
+                SpeedMin = Math.Max(0f, renderable.ParticleSpeedMin),
+                SpeedMax = Math.Max(renderable.ParticleSpeedMin, renderable.ParticleSpeedMax),
+                Direction = new Vector3(
+                    renderable.ParticleDirX,
+                    renderable.ParticleDirY,
+                    renderable.ParticleDirZ),
+                Spread = Math.Clamp(renderable.ParticleSpread, 0f, 180f),
+                Size = Math.Max(0.0001f, renderable.ParticleSize),
+                Color = new Vector4(
+                    color.R / 255f,
+                    color.G / 255f,
+                    color.B / 255f,
+                    color.A / 255f),
+                Gravity = renderable.ParticleGravity,
+                Emitting = renderable.ParticleEmitting,
+                OneShot = renderable.ParticleOneShot,
+                LayerMask = RenderLayers.Default,
+            });
+        }
+    }
 
     private void BuildLights(FrameSnapshot snapshot, RenderFrameBuilder builder)
     {
@@ -549,6 +835,41 @@ public sealed class RenderFrameProducer : IDisposable
         }
     }
 
+    private static Vector4[] BuildTangents(Vector3[] normals, double[]? sourceTangents)
+    {
+        var tangents = new Vector4[normals.Length];
+
+        if (sourceTangents is not null && sourceTangents.Length == normals.Length * 4)
+        {
+            for (int i = 0; i < tangents.Length; i++)
+            {
+                tangents[i] = new Vector4(
+                    (float)sourceTangents[i * 4],
+                    (float)sourceTangents[i * 4 + 1],
+                    (float)sourceTangents[i * 4 + 2],
+                    (float)sourceTangents[i * 4 + 3]);
+            }
+            return tangents;
+        }
+
+        for (int i = 0; i < tangents.Length; i++)
+        {
+            Vector3 normal = normals[i];
+            Vector3 axis = MathF.Abs(normal.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX;
+            Vector3 tangent = Vector3.Cross(axis, normal);
+            if (tangent.LengthSquared() < 1e-8f)
+                tangent = Vector3.Cross(Vector3.UnitZ, normal);
+
+            tangent = tangent.LengthSquared() > 1e-8f
+                ? Vector3.Normalize(tangent)
+                : Vector3.UnitX;
+
+            tangents[i] = new Vector4(tangent, 1f);
+        }
+
+        return tangents;
+    }
+
     private static Vector2[] BuildUvs(
         Vector3[] positions,
         Vector3[] normals,
@@ -590,7 +911,9 @@ public sealed class RenderFrameProducer : IDisposable
         uint[]? indices,
         double[]? sourceUvs,
         double[]? sourceNormals,
-        double[]? sourceTangents)
+        double[]? sourceTangents,
+        float[]? boneWeights,
+        int[]? boneIndices)
     {
         int vertexCount = points.Length / 3;
         if (vertexCount <= 0)
@@ -676,6 +999,24 @@ public sealed class RenderFrameProducer : IDisposable
         var uvs = BuildUvs(positions, normals, sourceUvs);
         var colors = new Vector4[vertexCount];
         Array.Fill(colors, Vector4.One);
+
+        // A skinned mesh always needs a full tangent basis for Godot's mesh
+        // format; when the source has none, derive a stable tangent per vertex.
+        if (boneWeights is not null && boneIndices is not null &&
+            boneWeights.Length == vertexCount * 4 &&
+            boneIndices.Length == vertexCount * 4)
+        {
+            var skinnedTangents = BuildTangents(normals, sourceTangents);
+            return MeshDataFactory.CreateSkinned(
+                positions,
+                normals,
+                uvs,
+                skinnedTangents,
+                colors,
+                boneWeights,
+                boneIndices,
+                validIndices.ToArray());
+        }
 
         // Tangents only ride along when the source supplied them; a mismatched
         // length would silently misalign every vertex's tangent basis.

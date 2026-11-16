@@ -164,6 +164,15 @@ namespace V12.Core
         public IPhysicsBackend? PhysicsBackend =>
             Registry.GetAll<IPhysicsBackend>().OrderByDescending(b => b.Priority).FirstOrDefault();
 
+        /// <summary>
+        /// The host's pointer-capture service, or null when the host cannot
+        /// capture (headless, tests, web). Games call <see cref="V12.Rendering.IMouseCapture.Capture"/>
+        /// for relative look and <see cref="V12.Rendering.IMouseCapture.Release"/>
+        /// for menus; the host owns what that means per platform.
+        /// </summary>
+        public V12.Rendering.IMouseCapture? MouseCapture =>
+            Registry.Get<V12.Rendering.IMouseCapture>();
+
         // ── ECS-style query API ───────────────────────────────────────────────
 
         /// <summary>
@@ -1256,10 +1265,55 @@ namespace V12.Core
                     if (primaryRenderable != null)
                         EmitSnapshot(element, primaryRenderable, renderedElementIds, viewportId);
 
+                    // A particle emitter is its own snapshot node: it can sit on
+                    // an element with a mesh or on a bare transform element, and
+                    // the backend runs the simulation from these parameters.
+                    if (element.GetComponent<V12.Components.ParticleEmitterComponent>() is { } emitter)
+                        EmitParticleSnapshot(element, emitter, viewportId);
+
                     if (element.Children != null)
                         foreach (var child in element.Children)
                             CaptureRenderables(child, renderedElementIds, viewportId);
                 }
+
+                void EmitParticleSnapshot(
+                    IWorldElement element,
+                    V12.Components.ParticleEmitterComponent emitter,
+                    long viewportId)
+                {
+                    var ps = new RenderableSnapshot
+                    {
+                        ElementId = element.Id,
+                        Name = element.Name ?? "",
+                        ViewportId = viewportId,
+                        NodeType = SnapshotNodeType.Particle,
+                        Transform = element.WorldTransform,
+                        LocalTransform = ElementPlacement.ElementLocalMatrix(element),
+                        HasLocalTransform = true,
+                        ParticleAmount = emitter.Amount,
+                        ParticleLifetime = emitter.Lifetime,
+                        ParticleEmissionRadius = emitter.EmissionRadius,
+                        ParticleSpeedMin = emitter.SpeedMin,
+                        ParticleSpeedMax = emitter.SpeedMax,
+                        ParticleDirX = emitter.DirX,
+                        ParticleDirY = emitter.DirY,
+                        ParticleDirZ = emitter.DirZ,
+                        ParticleSpread = emitter.SpreadAngle,
+                        ParticleSize = emitter.Size,
+                        ParticleColor = System.Drawing.Color.FromArgb(
+                            ToByte(emitter.ColorA),
+                            ToByte(emitter.ColorR),
+                            ToByte(emitter.ColorG),
+                            ToByte(emitter.ColorB)),
+                        ParticleGravity = emitter.Gravity,
+                        ParticleEmitting = emitter.Emitting,
+                        ParticleOneShot = emitter.OneShot,
+                    };
+                    snapshot.Renderables.Add(ps);
+                }
+
+                static int ToByte(float value) =>
+                    (int)Math.Clamp(value * 255f + 0.5f, 0f, 255f);
 
                 void EmitSnapshot(IWorldElement element, IRenderable renderable, HashSet<long> renderedElementIds, long viewportId)
                 {
@@ -1398,6 +1452,7 @@ namespace V12.Core
                             rs.MatA = matComp.A;
                             rs.MatUnlit = matComp.Unlit;
                             rs.MatNoDepth = matComp.NoDepthTest;
+                            rs.MatShaderUri = matComp.ShaderUri ?? "";
                             rs.MatMetallic = matComp.Metallic;
                             rs.MatRoughness = matComp.Roughness;
                             rs.MatEmissionR = matComp.EmissionR;
@@ -1426,6 +1481,17 @@ namespace V12.Core
                             // No MaterialComponent: the model keeps the material
                             // it was authored with instead of a flat default.
                             ApplyModelMaterial(ref rs, modelMat);
+                        }
+
+                        if (renderable is V12.Core.Interfaces.Renderer.ISkinnedMeshRenderable skinned)
+                        {
+                            rs.SkinId = skinned.SkeletonId;
+                            rs.SkinWorld = skinned.SkeletonWorld;
+                            rs.SkinBoneParents = skinned.BoneParents;
+                            rs.SkinBoneLocals = skinned.BoneLocals;
+                            rs.SkinInverseBinds = skinned.InverseBindPoses;
+                            rs.MeshBoneWeights = skinned.BoneWeights;
+                            rs.MeshBoneIndices = skinned.BoneIndices;
                         }
                     }
                     // Camera

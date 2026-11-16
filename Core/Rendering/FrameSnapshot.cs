@@ -21,7 +21,8 @@ namespace V12.Core.Rendering
         Sprite,
         Svg,
         Text,
-        Camera
+        Camera,
+        Particle
     }
 
     public struct RenderableSnapshot
@@ -67,6 +68,9 @@ namespace V12.Core.Rendering
         public float MatA;
         public bool MatUnlit;
         public bool MatNoDepth;
+        /// <summary>Optional shader:// URI. When set the backend compiles it as a
+        /// custom material instead of the built-in lit/unlit shader.</summary>
+        public string MatShaderUri;
         public float MatMetallic;
         public float MatRoughness;
         public float MatEmissionR;
@@ -112,9 +116,35 @@ namespace V12.Core.Rendering
         public CameraProjection Projection;
         public float OrthoSize;
 
+        // Particle emitter (NodeType == Particle)
+        public int ParticleAmount;
+        public float ParticleLifetime;
+        public float ParticleEmissionRadius;
+        public float ParticleSpeedMin;
+        public float ParticleSpeedMax;
+        public float ParticleDirX;
+        public float ParticleDirY;
+        public float ParticleDirZ;
+        public float ParticleSpread;
+        public float ParticleSize;
+        public Color ParticleColor;
+        public float ParticleGravity;
+        public bool ParticleEmitting;
+        public bool ParticleOneShot;
+
         // Whether the original V12 element has a ColliderComponent.
         // Used by renderers to decide whether to add physics shapes.
         public bool HasCollider;
+
+        // Skinning (ISkinnedMeshRenderable). Bone indices reference the skin's
+        // joint order, which is the same order the Motion skeleton uses.
+        public long SkinId;
+        public Matrix4x4 SkinWorld;
+        public int[]? SkinBoneParents;
+        public Matrix4x4[]? SkinBoneLocals;
+        public Matrix4x4[]? SkinInverseBinds;
+        public float[]? MeshBoneWeights;
+        public int[]? MeshBoneIndices;
     }
 
     public class FrameSnapshot
