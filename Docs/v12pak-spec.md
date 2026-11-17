@@ -201,23 +201,57 @@ V12PakLoader.Load(pakPath, options):
   1. Open pak → V12PakReader
   2. Read manifest.json
   3. Create V12PakAssetResolver wrapping the reader
-  4. For each world in manifest.worlds:
+  4. Register the resolver as "AssetResolver" *before* any world parses, so
+     components that load an asset in OnAttach (e.g. SkeletalManagerComponent)
+     can resolve their `v12://` URI
+  5. For each world in manifest.worlds:
      a. If !options.AllowWorldLoading → skip
      b. Parse world.xml via WorldMLParser
      c. Load templates from templatesDir
-     d. Mount resolver into registry as "AssetResolver"
+     d. Mount the world name → extraction directory
      e. Add world to GameRoot.Worlds
-  5. For each asset in manifest.assets:
+  6. For each asset in manifest.assets:
      a. Extract file extension from the archive path
      b. If AllowedAssetExtensions is set and extension not in set → skip, log
      c. If BlockedAssetKeys contains the key → skip, log
-     d. Asset is now readable through the resolver
-  6. For each DLL in manifest.paks:
+     d. Asset is readable through the resolver by manifest key *and* by
+        archive path (`v12://textures/crate.png` and `v12://assets/textures/crate.png`)
+  7. For each DLL in manifest.paks:
      a. If !options.LoadDlls → skip, log warning
-     b. Extract DLL to temp dir (%TEMP%/V12Paks/{pakName}/)
+     b. Extract the archive to its content-addressed cache directory
+        (`%TEMP%/V12Paks/{user}/{pakName}_{sha256}/`, or `V12_PAK_CACHE`)
      c. Load via GamepackLoader.LoadFromDirectory()
-  7. Return loaded world(s)
+  8. Return loaded world(s)
 ```
+
+### Extraction cache
+
+The archive is materialized once per unique content, not once per launch.
+`V12PakCache` names the directory from the pak's SHA-256 (first 128 bits), so
+starting the same game again reuses the previous extraction instead of writing a
+new copy; a rebuilt pak lands in a new directory. Extraction is staged in a
+sibling `.tmp-*` directory and renamed into place once the manifest is written,
+so an interrupted run never leaves a half-valid cache entry. `Dispose` keeps the
+cache; prune unused extractions with `V12PakCache.Prune()` (7-day default idle
+age) or delete them on demand with `V12PakCache.Purge()`.
+
+### Native libraries
+
+Native dependencies ride in `bin/` and are resolved per platform:
+
+- **RID-specific pack** (`vcsdk pack --runtime win-x64|linux-x64|osx-arm64`):
+  that platform's natives sit flattened at `bin/` (`assimp.dll`,
+  `libassimp.so`, `libassimp.dylib`).
+- **Universal pack** (`vcsdk pack --runtime any`): one pak carries every RID
+  under `bin/runtimes/<rid>/native/`.
+
+`V12PakLoader` registers `<root>/bin`, `<root>/paks` and
+`<root>/scripts`, plus the `runtimes/<rid>/native` folders matching the running
+process (exact RID, then OS/arch, then `any`), and hooks
+`AssemblyLoadContext.ResolvingUnmanagedDll` so a `DllImport("assimp")` in pak code
+finds the pak's copy on Linux and macOS as well as Windows. Probe order is
+exposed through `V12PakLoader.NativeProbeDirectories`; `TryFindNativeLibrary`
+answers "would this name resolve, and to what path".
 
 ### Default Trust Levels
 
