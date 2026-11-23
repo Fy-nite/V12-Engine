@@ -4,25 +4,45 @@ namespace V12.Core.Networking
     using System.Collections.Concurrent;
     using System.Collections.Generic;
 
-    public static class SyncRegistry
+    /// <summary>
+    /// Thread-safe key to <see cref="ISyncValue"/> map. The default instance keeps
+    /// the historical static API working; a <see cref="SyncChannel"/> owns a
+    /// separate instance so two worlds cannot collide on the same key.
+    /// </summary>
+    public sealed class SyncRegistry
     {
-        private static readonly ConcurrentDictionary<string, ISyncValue> _map = new ConcurrentDictionary<string, ISyncValue>();
+        private readonly ConcurrentDictionary<string, ISyncValue> _map =
+            new(StringComparer.Ordinal);
 
-        public static void Register(ISyncValue v)
+        /// <summary>Process-wide registry used by values that are not bound to a session.</summary>
+        public static SyncRegistry Default { get; } = new SyncRegistry();
+
+        public int Count => _map.Count;
+
+        public void Register(ISyncValue value)
         {
-            if (v == null) throw new ArgumentNullException(nameof(v));
-            _map[v.Key] = v;
+            if (value == null) throw new ArgumentNullException(nameof(value));
+            _map[value.Key] = value;
         }
 
-        public static bool TryGet(string key, out ISyncValue value) => _map.TryGetValue(key, out value);
-
-        public static IEnumerable<ISyncValue> AllValues() => _map.Values;
-
-        public static IEnumerable<ISyncValue> DirtyValues()
+        public bool Unregister(string key)
         {
-            foreach (var v in _map.Values)
-                if (v.IsDirty) yield return v;
+            if (string.IsNullOrEmpty(key)) return false;
+            return _map.TryRemove(key, out _);
         }
+
+        public void Clear() => _map.Clear();
+
+        public bool TryGet(string key, out ISyncValue value)
+            => _map.TryGetValue(key, out value!);
+
+        public IEnumerable<ISyncValue> AllValues() => _map.Values;
+
+        public IEnumerable<ISyncValue> DirtyValues()
+        {
+            foreach (var value in _map.Values)
+                if (value.IsDirty) yield return value;
+        }
+
     }
 }
-

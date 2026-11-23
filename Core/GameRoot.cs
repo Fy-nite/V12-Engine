@@ -24,6 +24,8 @@ using V12.Core.Diagnostics;
 using V12.Core.Interfaces;
 using V12.Core.Interfaces.Physics;
 using V12.Core.Interfaces.Renderer;
+using V12.Core.References;
+using RenderLayers = V12.Rendering.RenderLayers;
 using V12.WorldML;
 namespace V12.Core
 {
@@ -73,10 +75,20 @@ namespace V12.Core
 
         public List<World> Worlds = new List<World>();
         public static GameRoot Instance { get; private set; }
+
         /// <summary>
-        /// The currently selected or focused world. When set, only this world will be updated by Update().
+        /// Owns the live session around each world. Worlds added directly to
+        /// <see cref="Worlds"/> get a paused local session; use the manager to
+        /// focus, pin, or close them.
         /// </summary>
-        public World? SelectedWorld { get; private set; }
+        public WorldManager WorldManager { get; }
+
+        /// <summary>
+        /// The currently focused world. Focus decides input, UI, and the main
+        /// camera; it does not decide whether a world ticks or is replicated.
+        /// Kept as a compatibility alias for <see cref="FocusedWorld"/>.
+        /// </summary>
+        public World? SelectedWorld => WorldManager.FocusedWorld;
            //public World UserSpace = new World("UserSpace"); // always open and active no matter what, contains the UI for being able to control the game and select worlds, etc. This world is not meant to be used for actual game content, but rather for the user interface and control of the game.
            //public World HomeWorld = new World("HomeWorld");
 
@@ -176,18 +188,24 @@ namespace V12.Core
         // ── ECS-style query API ───────────────────────────────────────────────
 
         /// <summary>
-        /// All worlds that systems and queries should consider.
-        /// Currently yields PersistentWorld then SelectedWorld.
+        /// The simulated set. This keeps the old meaning of ActiveWorlds: systems
+        /// that tick, search, or capture use this. The persistent world is always
+        /// included when its session is simulating.
         /// </summary>
-        public IEnumerable<World> ActiveWorlds
-        {
-            get
-            {
-                yield return PersistentWorld;
-                if (SelectedWorld != null)
-                    yield return SelectedWorld;
-            }
-        }
+        public IEnumerable<World> ActiveWorlds => WorldManager.ActiveWorlds;
+
+        /// <summary>The rendered set: focused or pinned sessions that are hydrated.</summary>
+        public IEnumerable<World> VisibleWorlds => WorldManager.VisibleWorlds;
+
+        /// <summary>Every session, including hidden and unhydrated ones.</summary>
+        public IReadOnlyList<WorldSession> WorldSessions => WorldManager.Sessions;
+
+        public WorldSession? FocusedSession => WorldManager.FocusedSession;
+        public World? FocusedWorld => WorldManager.FocusedWorld;
+
+        /// <summary>Find a session by world identity. Returns null when unknown.</summary>
+        public WorldSession? FindWorldSession(World? world) => WorldManager.FindSession(world);
+        public WorldSession? FindWorldSession(Guid worldId) => WorldManager.FindSession(worldId);
 
         /// <summary>Find the first element matching a predicate across all active worlds (recursive).</summary>
         public IWorldElement? FindElement(Func<IWorldElement, bool> predicate)
@@ -199,6 +217,44 @@ namespace V12.Core
             }
             return null;
         }
+
+        /// <summary>
+        /// Find an element in any hydrated session, including a hidden or remote
+        /// world. Unlike <see cref="FindElement(Func{IWorldElement,bool})"/> this
+        /// does not depend on the world being in the simulated set.
+        /// </summary>
+        public IWorldElement? FindElementInLoadedWorlds(Func<IWorldElement, bool> predicate)
+        {
+            foreach (var session in WorldSessions)
+            {
+                if (!session.Applied.Hydrated) continue;
+                var result = FindInWorld(session.World, predicate);
+                if (result != null) return result;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Find the first element matching a predicate inside one world only.
+        /// Use this once more than one world is loaded; the global overload above
+        /// searches only the simulated set and can return an element from another
+        /// world.
+        /// </summary>
+        public IWorldElement? FindElement(World world, Func<IWorldElement, bool> predicate)
+            => world == null ? null : FindInWorld(world, predicate);
+
+        /// <summary>Find all elements matching a predicate inside one world only.</summary>
+        public List<IWorldElement> FindElements(World world, Func<IWorldElement, bool> predicate)
+        {
+            var results = new List<IWorldElement>();
+            if (world != null)
+                CollectInWorld(world, predicate, results);
+            return results;
+        }
+
+        /// <summary>Find an element by its stable authored UID inside one world.</summary>
+        public IWorldElement? FindElementByUid(World world, Guid uid)
+            => ReferenceResolver.FindElementByUid(world, uid);
 
         /// <summary>Find all elements matching a predicate across all active worlds (recursive).</summary>
         public List<IWorldElement> FindElements(Func<IWorldElement, bool> predicate)
@@ -347,6 +403,9 @@ namespace V12.Core
         public bool ConsumeRenderDirty() => Interlocked.Exchange(ref _renderDirty, false);
 
         public GameRoot() {
+            WorldManager = new WorldManager(this);
+            Registry.Register("WorldManager", WorldManager);
+
             //Worlds.Add(UserSpace);
             //Worlds.Add(HomeWorld);
             // Default to the first created world as the focused world
@@ -383,21 +442,9 @@ namespace V12.Core
             }
             catch { }
 
-            // Engine-level default UI library. Registers the canvas-based UI
-            // renderer built in Core/UI/Paper/PaperCanvasRenderer.cs, which
-            // captures meshes instead of drawing them directly.
-            // Hosts that provide their own "IUIRenderer" still win; when
-            // UseProwlPaper==false the built-in path stays dormant.
-            try
-            {
-                if (V12.Core.UI.Paper.ProwlPaperRenderer.UseProwlPaper && Registry.Get("IUIRenderer") == null)
-                {
-                    var paper = new V12.Core.UI.Paper.ProwlPaperRenderer(1280, 720, 1f);
-                    Registry.Register("IUIRenderer", paper);
-                    Log.Information("[GameRoot] Prowl Paper/Origami registered as default IUIRenderer (Paper/Quill 3.9.3) - Godot is fallback");
-                }
-            }
-            catch (Exception ex) { Log.Debug(ex, "[GameRoot] Paper IUIRenderer auto-register failed, falling back to Godot"); }
+            // UI is opt-in: the Paper implementation lives in V12.Paper, which
+            // the engine must not reference. Hosts register their own
+            // "IUIRenderer" / IUiSource before Initialize.
 
             Instance = this;
 
@@ -690,7 +737,8 @@ namespace V12.Core
             using var _zone = V12Profiler.BeginZone("GameRoot.CaptureUI", V12Profiler.Colors.Runtime);
             var frame = new UIFrame();
 
-            foreach (var world in ActiveWorlds)
+            // Screen-space UI follows what is visible, not every simulated world.
+            foreach (var world in VisibleAndPersistentWorlds())
             {
                 world.Lock.EnterReadLock();
                 try
@@ -824,7 +872,9 @@ namespace V12.Core
                 node.Kind = UIWidgetKind.Toggle;
                 node.Text = toggle.Label;
                 node.Bool = toggle.IsOn;
-                node.OnToggled = toggle.OnToggled;
+                // SetToggled writes the state back to the component, so the
+                // toggle does not snap back on the next capture.
+                node.OnToggled = toggle.SetToggled;
                 return node;
             }
             if (element.GetComponent<V12.Components.UI.CheckboxComponent>() is { } check)
@@ -832,14 +882,15 @@ namespace V12.Core
                 node.Kind = UIWidgetKind.Checkbox;
                 node.Text = check.Label;
                 node.Bool = check.Checked;
-                node.OnToggled = check.OnChanged;
+                node.OnToggled = check.SetChecked;
                 return node;
             }
             if (element.GetComponent<V12.Components.UI.SliderComponent>() is { } slider)
             {
                 node.Kind = UIWidgetKind.Slider;
+                node.Text = slider.Label;
                 node.Min = slider.Min; node.Max = slider.Max; node.Value = slider.Value; node.Step = slider.Step;
-                node.OnValueChanged = slider.OnChanged;
+                node.OnValueChanged = slider.SetValue;
                 return node;
             }
             if (element.GetComponent<V12.Components.UI.ProgressBarComponent>() is { } bar)
@@ -896,7 +947,7 @@ namespace V12.Core
             {
                 node.Kind = UIWidgetKind.Viewport;
                 node.Color = viewport.BackgroundColor;
-                node.Bool = viewport.RenderWorld;
+                node.ViewId = viewport.ViewId != 0 ? viewport.ViewId : element.Id;
                 if (element.GetComponent<V12.Components.UI.VLayoutComponent>() is { } v)
                 { node.Spacing = v.Spacing; node.Padding = v.Padding; node.Expand = v.Expand; }
                 else if (element.GetComponent<V12.Components.UI.HLayoutComponent>() is { } h)
@@ -1135,41 +1186,39 @@ namespace V12.Core
         }
 
         /// <summary>
-        /// Same as <see cref="GetAllRenderables"/> but also yields the viewport id
-        /// that claimed each renderable (0 = main screen). Mirrors the capture
-        /// rules in <see cref="CaptureFrame"/>: a ViewportComponent-bearing
-        /// element claims its whole subtree, and a RenderWorld=true viewport
-        /// claims every mesh in the world.
+        /// Legacy packet route: every renderable is reported against the main
+        /// screen. Viewport ownership is gone; new renderers consume
+        /// <see cref="GetAllRenderablesWithWorld"/> and build views explicitly.
         /// </summary>
         public List<(IWorldElement Element, IRenderable Renderable, long ViewportId)> GetAllRenderablesWithViewports()
         {
-            using var _zone = V12Profiler.BeginZone("GameRoot.GetAllRenderablesWithViewports", V12Profiler.Colors.Capture);
-            var renderables = new List<(IWorldElement, IRenderable, long)>();
+            var list = new List<(IWorldElement, IRenderable, long)>();
+            foreach (var (element, renderable, _, _, _) in GetAllRenderablesWithWorld())
+                list.Add((element, renderable, 0));
+            return list;
+        }
 
-            // First pass: find the RenderWorld=true viewport claim (first match wins).
-            long worldViewportId = 0;
-            foreach (var world in ActiveWorlds)
-            {
-                foreach (var rootEl in world.Root)
-                {
-                    var found = FindWorldViewportId(rootEl);
-                    if (found != 0) { worldViewportId = found; break; }
-                }
-                if (worldViewportId != 0) break;
-            }
+        /// <summary>
+        /// Every renderable with the world it belongs to, its layer mask and an
+        /// optional view restriction. Views filter by world and layer; a
+        /// renderable is not owned by a viewport.
+        /// </summary>
+        public List<(IWorldElement Element, IRenderable Renderable, Guid WorldId, uint LayerMask, long ViewId)> GetAllRenderablesWithWorld()
+        {
+            using var _zone = V12Profiler.BeginZone("GameRoot.GetAllRenderablesWithWorld", V12Profiler.Colors.Capture);
+            var renderables = new List<(IWorldElement, IRenderable, Guid, uint, long)>();
 
-            void CollectRenderables(IWorldElement element, long viewportId)
+            void CollectRenderables(IWorldElement element, Guid worldId)
             {
                 if (element == null)
                     return;
 
-                // An element bearing a ViewportComponent claims its whole subtree.
-                if (element.GetComponent<V12.Components.UI.ViewportComponent>() != null)
-                    viewportId = element.Id;
-
                 if (element.Components != null)
                 {
                     bool hasMeshRenderer = element.Components.Any(c => c is V12.Components.Renderables.MeshRenderer);
+                    var filter = element.GetComponent<RenderFilterComponent>();
+                    uint layerMask = filter?.LayerMask ?? RenderLayers.Default;
+                    long viewId = filter?.ViewId ?? 0;
 
                     foreach (var component in element.Components.ToArray())
                     {
@@ -1178,21 +1227,21 @@ namespace V12.Core
                         // Skip bare MeshComponent when a MeshRenderer wrapper exists
                         if (component is V12.Components.MeshComponent && hasMeshRenderer)
                             continue;
-                        renderables.Add((element, r, viewportId));
+                        renderables.Add((element, r, worldId, layerMask, viewId));
                     }
                 }
 
                 if (element.Children != null)
                 {
                     foreach (var child in element.Children.ToArray())
-                        CollectRenderables(child, viewportId);
+                        CollectRenderables(child, worldId);
                 }
             }
 
             foreach (var world in ActiveWorlds)
             {
                 foreach (var element in world.Root.ToArray())
-                    CollectRenderables(element, worldViewportId);
+                    CollectRenderables(element, world.Id);
             }
 
             return renderables;
@@ -1203,13 +1252,186 @@ namespace V12.Core
             using var _zone = V12Profiler.BeginZone("GameRoot.CaptureFrame", V12Profiler.Colors.Capture);
             var snapshot = new FrameSnapshot();
 
-            // Capture the selected world first so its IsCurrent camera wins, then
-            // the persistent world (Player, camera, shell content) last.
-            if (SelectedWorld != null && !ReferenceEquals(SelectedWorld, PersistentWorld))
-                CaptureWorldFrame(snapshot, SelectedWorld);
-            CaptureWorldFrame(snapshot, PersistentWorld);
+            var captured = new HashSet<Guid>();
+            void Capture(World? world)
+            {
+                if (world == null || !captured.Add(world.Id)) return;
+                CaptureWorldFrame(snapshot, world);
+            }
+
+            // Views may target a world that is not visible itself (picture-in-picture,
+            // editor previews), so collect them before deciding what to capture.
+            CaptureViews(snapshot);
+
+            foreach (var world in VisibleWorlds)
+                Capture(world);
+
+            foreach (var view in snapshot.Views)
+            {
+                var target = FindLoadedWorld(view.WorldId);
+                if (target != null)
+                    Capture(target);
+            }
+
+            // The persistent world owns shell content and legacy player/camera
+            // elements. Keep capturing it even when it has no render view.
+            Capture(PersistentWorld);
 
             return snapshot;
+        }
+
+        /// <summary>
+        /// Every hydrated world plus the persistent world, deduplicated by id.
+        /// Views are collected from all of these so a hidden world can still own
+        /// a view that targets another world.
+        /// </summary>
+        private IEnumerable<World> LoadedWorldsForCapture()
+        {
+            var seen = new HashSet<Guid>();
+            if (seen.Add(PersistentWorld.Id))
+                yield return PersistentWorld;
+
+            foreach (var session in WorldSessions)
+            {
+                if (!session.Applied.Hydrated) continue;
+                if (seen.Add(session.World.Id))
+                    yield return session.World;
+            }
+        }
+
+        /// <summary>The persistent world plus every visible world, deduplicated.</summary>
+        private IEnumerable<World> VisibleAndPersistentWorlds()
+        {
+            var seen = new HashSet<Guid>();
+            if (seen.Add(PersistentWorld.Id))
+                yield return PersistentWorld;
+
+            foreach (var world in VisibleWorlds)
+            {
+                if (seen.Add(world.Id))
+                    yield return world;
+            }
+        }
+
+        /// <summary>Resolve a loaded world by the stable id carried in a view.</summary>
+        private World? FindLoadedWorld(Guid worldId)
+        {
+            if (worldId == Guid.Empty) return null;
+            if (PersistentWorld.Id == worldId) return PersistentWorld;
+
+            foreach (var session in WorldSessions)
+            {
+                if (!session.Applied.Hydrated) continue;
+                if (session.World.Id == worldId) return session.World;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Collect every loaded <see cref="RenderViewComponent"/> into the
+        /// snapshot. Views are explicit; there is no implicit "first viewport
+        /// claims the world" pass.
+        /// </summary>
+        private void CaptureViews(FrameSnapshot snapshot)
+        {
+            using var _zone = V12Profiler.BeginZone("GameRoot.CaptureViews", V12Profiler.Colors.Capture);
+            var focused = FocusedWorld;
+
+            void Collect(IWorldElement element)
+            {
+                if (element == null) return;
+
+                if (element.GetComponent<RenderViewComponent>() is { } view && view.IsActive)
+                {
+                    var targetWorld = view.WorldId == Guid.Empty
+                        ? focused
+                        : FindLoadedWorld(view.WorldId);
+
+                    if (targetWorld == null)
+                    {
+                        Log?.Warning("[CaptureViews] View '{View}' targets unknown world {WorldId}.",
+                            element.Name, view.WorldId);
+                    }
+                    else
+                    {
+                        long cameraId = view.CameraId != 0
+                            ? view.CameraId
+                            : FindCurrentCamera(targetWorld);
+
+                        snapshot.Views.Add(new RenderViewSnapshot
+                        {
+                            ViewId = element.Id,
+                            ViewportId = view.ViewportId != 0 ? view.ViewportId : element.Id,
+                            CameraElementId = cameraId,
+                            WorldId = targetWorld.Id,
+                            LayerMask = view.LayerMask == 0 ? RenderLayers.Default : view.LayerMask,
+                            Clear = view.Clear,
+                            ClearColor = ParseHexColor(view.ClearColor, Color.FromArgb(26, 26, 32)),
+                            Priority = view.Priority,
+                            IsActive = true,
+                            Width = Math.Max(0, view.Width),
+                            Height = Math.Max(0, view.Height),
+                        });
+                    }
+                }
+
+                foreach (var child in element.Children)
+                    Collect(child);
+            }
+
+            foreach (var world in LoadedWorldsForCapture())
+            {
+                foreach (var root in world.Root.ToArray())
+                    Collect(root);
+            }
+
+            snapshot.Views.Sort((a, b) => a.Priority.CompareTo(b.Priority));
+        }
+        private static long FindCurrentCamera(World world)
+        {
+            foreach (var root in world.Root)
+            {
+                long found = FindCurrentCamera(root);
+                if (found != 0) return found;
+            }
+            return 0;
+        }
+
+        private static long FindCurrentCamera(IWorldElement element)
+        {
+            if (element.GetComponent<CameraComponent>() is { IsCurrent: true })
+                return element.Id;
+
+            foreach (var child in element.Children)
+            {
+                long found = FindCurrentCamera(child);
+                if (found != 0) return found;
+            }
+            return 0;
+        }
+
+        private static Color ParseHexColor(string? value, Color fallback)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return fallback;
+            var text = value.Trim();
+            if (text.StartsWith('#')) text = text[1..];
+
+            if (text.Length == 6 && int.TryParse(text, System.Globalization.NumberStyles.HexNumber, null, out var rgb))
+            {
+                return Color.FromArgb(255, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            }
+
+            if (text.Length == 8 && uint.TryParse(text, System.Globalization.NumberStyles.HexNumber, null, out var argb))
+            {
+                return Color.FromArgb(
+                    (int)((argb >> 24) & 0xFF),
+                    (int)((argb >> 16) & 0xFF),
+                    (int)((argb >> 8) & 0xFF),
+                    (int)(argb & 0xFF));
+            }
+
+            return fallback;
         }
 
         /// <summary>
@@ -1222,33 +1444,14 @@ namespace V12.Core
             world.Lock.EnterReadLock();
             try
             {
-                // A viewport with RenderWorld=true claims this world's elements.
-                // It may live in any active world (an editor's GameView panel in
-                // PersistentWorld can claim the SelectedWorld); the first match
-                // wins. Elements under a more specific nested viewport still win
-                // via the ancestor rule in CaptureRenderables.
-                long worldViewportId = 0;
-                foreach (var scanWorld in ActiveWorlds)
-                {
-                    foreach (var rootEl in scanWorld.Root)
-                    {
-                        var found = FindWorldViewportId(rootEl);
-                        if (found != 0) { worldViewportId = found; break; }
-                    }
-                    if (worldViewportId != 0) break;
-                }
-                if (worldViewportId != 0)
-                    snapshot.ActiveViewportIds.Add(worldViewportId);
+                // Views are explicit (RenderViewComponent). Scene content is
+                // captured once per world; renderers draw it into every view
+                // whose world and layer mask match.
 
                 // ── Walk tree for renderables ──
-                void CaptureRenderables(IWorldElement element, HashSet<long> renderedElementIds, long viewportId)
+                void CaptureRenderables(IWorldElement element, HashSet<long> renderedElementIds)
                 {
                     if (element?.Components == null) return;
-
-                    // An element bearing a ViewportComponent claims its whole
-                    // subtree: descendants render inside that viewport.
-                    if (element.GetComponent<V12.Components.UI.ViewportComponent>() != null)
-                        viewportId = element.Id;
 
                     // Determine which components to snapshot (avoid duplicates per element)
                     bool hasMeshRenderer = element.Components.Any(c => c is V12.Components.Renderables.MeshRenderer);
@@ -1263,29 +1466,31 @@ namespace V12.Core
                     }
 
                     if (primaryRenderable != null)
-                        EmitSnapshot(element, primaryRenderable, renderedElementIds, viewportId);
+                        EmitSnapshot(element, primaryRenderable, renderedElementIds);
 
                     // A particle emitter is its own snapshot node: it can sit on
                     // an element with a mesh or on a bare transform element, and
                     // the backend runs the simulation from these parameters.
                     if (element.GetComponent<V12.Components.ParticleEmitterComponent>() is { } emitter)
-                        EmitParticleSnapshot(element, emitter, viewportId);
+                        EmitParticleSnapshot(element, emitter);
 
                     if (element.Children != null)
                         foreach (var child in element.Children)
-                            CaptureRenderables(child, renderedElementIds, viewportId);
+                            CaptureRenderables(child, renderedElementIds);
                 }
 
                 void EmitParticleSnapshot(
                     IWorldElement element,
-                    V12.Components.ParticleEmitterComponent emitter,
-                    long viewportId)
+                    V12.Components.ParticleEmitterComponent emitter)
                 {
+                    var filter = element.GetComponent<RenderFilterComponent>();
                     var ps = new RenderableSnapshot
                     {
                         ElementId = element.Id,
                         Name = element.Name ?? "",
-                        ViewportId = viewportId,
+                        WorldId = world.Id,
+                        LayerMask = filter?.LayerMask ?? RenderLayers.Default,
+                        ViewId = filter?.ViewId ?? 0,
                         NodeType = SnapshotNodeType.Particle,
                         Transform = element.WorldTransform,
                         LocalTransform = ElementPlacement.ElementLocalMatrix(element),
@@ -1315,19 +1520,18 @@ namespace V12.Core
                 static int ToByte(float value) =>
                     (int)Math.Clamp(value * 255f + 0.5f, 0f, 255f);
 
-                void EmitSnapshot(IWorldElement element, IRenderable renderable, HashSet<long> renderedElementIds, long viewportId)
+                void EmitSnapshot(IWorldElement element, IRenderable renderable, HashSet<long> renderedElementIds)
                 {
                     var rs = new RenderableSnapshot();
                     rs.ElementId = element.Id;
                     rs.Name = element.Name ?? "";
-                    rs.ViewportId = viewportId;
+                    var filter = element.GetComponent<RenderFilterComponent>();
+                    rs.WorldId = world.Id;
+                    rs.LayerMask = filter?.LayerMask ?? RenderLayers.Default;
+                    rs.ViewId = filter?.ViewId ?? 0;
+                    rs.ViewportId = 0;
 
-                    // ParentId for hierarchy parenting. A viewport-bearing element
-                    // roots its own scene: no parent above it (the renderer parents
-                    // it into the SubViewport via ViewportId instead).
-                    if (element.GetComponent<V12.Components.UI.ViewportComponent>() != null)
-                        rs.ParentId = 0;
-                    else if (element.Parent != null)
+                    if (element.Parent != null)
                         rs.ParentId = element.Parent.Id;
 
                     // World transform (for non-hierarchy renderers)
@@ -1340,18 +1544,13 @@ namespace V12.Core
                     rs.HasLocalTransform = true;
                     rs.HasCollider = element.GetComponent<V12.Components.ColliderComponent>() != null;
 
-                    // Emit parent-chain placeholders for non-renderable ancestors.
-                    // The chain STOPS at a viewport-bearing element: that element's
-                    // node is the root of the viewport's own 3D scene, so it must
-                    // not chain into the main scene. It gets ParentId=0 and carries
-                    // its own ViewportId — the renderer parents it (and its whole
-                    // subtree) into the UI SubViewport.
+                    // Emit parent-chain placeholders for non-renderable ancestors so
+                    // hierarchy-based renderers can build transforms.
                     var ancestor = element.Parent;
                     while (ancestor != null)
                     {
                         if (!renderedElementIds.Add(ancestor.Id)) break;
 
-                        bool isViewport = ancestor.GetComponent<V12.Components.UI.ViewportComponent>() != null;
                         bool hasAnyRenderable = false;
                         foreach (var comp in ancestor.Components)
                         {
@@ -1363,18 +1562,16 @@ namespace V12.Core
                             var parentRs = new RenderableSnapshot();
                             parentRs.ElementId = ancestor.Id;
                             parentRs.Name = ancestor.Name ?? "";
-                            parentRs.ParentId = isViewport ? 0 : (ancestor.Parent?.Id ?? 0);
-                            parentRs.ViewportId = isViewport ? ancestor.Id : viewportId;
+                            parentRs.ParentId = ancestor.Parent?.Id ?? 0;
+                            parentRs.WorldId = world.Id;
+                            parentRs.LayerMask = RenderLayers.Default;
+                            parentRs.ViewId = 0;
                             parentRs.NodeType = SnapshotNodeType.RawElement;
                             parentRs.Transform = ancestor.WorldTransform;
                             parentRs.LocalTransform = ElementPlacement.ElementLocalMatrix(ancestor);
                             parentRs.HasLocalTransform = true;
                             snapshot.Renderables.Add(parentRs);
                         }
-
-                        // Never walk above a viewport boundary — the elements above
-                        // belong to a different render surface.
-                        if (isViewport) break;
                         ancestor = ancestor.Parent;
                     }
 
@@ -1542,9 +1739,46 @@ namespace V12.Core
 
                 var renderedIds = new HashSet<long>();
                 foreach (var root in world.Root.ToArray())
-                    CaptureRenderables(root, renderedIds, worldViewportId);
+                    CaptureRenderables(root, renderedIds);
+
+                CaptureWorldCanvasesLocked(snapshot, world);
             }
             finally { world.Lock.ExitReadLock(); }
+        }
+
+        /// <summary>
+        /// Captures placement for every world-space canvas. The UI model stays
+        /// in <see cref="UIFrame"/>; the renderer contract only gets the surface
+        /// size and the element transform it needs to place the canvas meshes.
+        /// Caller holds the world's read lock.
+        /// </summary>
+        private static void CaptureWorldCanvasesLocked(FrameSnapshot snapshot, World world)
+        {
+            void Collect(IWorldElement element)
+            {
+                if (element?.Components == null) return;
+
+                if (element.GetComponent<V12.Components.UI.CanvasComponent>() is { ScreenSpace: false } canvas)
+                {
+                    var (pixelWidth, pixelHeight) =
+                        WorldCanvasSnapshot.ResolvePixelSize(canvas.Width, canvas.Height);
+
+                    snapshot.Canvases.Add(WorldCanvasSnapshot.Create(
+                        element.Id,
+                        world.Id,
+                        pixelWidth,
+                        pixelHeight,
+                        element.WorldTransform,
+                        canvas.Priority,
+                        canvas.Interactive));
+                }
+
+                foreach (var child in element.Children.ToArray())
+                    Collect(child);
+            }
+
+            foreach (var root in world.Root.ToArray())
+                Collect(root);
         }
 
         /// <summary>
@@ -1567,11 +1801,17 @@ namespace V12.Core
             rs.MatG = source.AlbedoColor.Y;
             rs.MatB = source.AlbedoColor.Z;
             rs.MatA = source.AlbedoColor.W;
-            rs.MatUnlit = false;
+            rs.MatUnlit = source.Unlit;
             rs.MatNoDepth = false;
             rs.MatMetallic = source.Metallic;
             rs.MatRoughness = source.Roughness;
+            rs.MatEmissionR = source.Emission.X;
+            rs.MatEmissionG = source.Emission.Y;
+            rs.MatEmissionB = source.Emission.Z;
+            rs.MatEmissionEnergy = source.EmissionStrength;
             rs.MatNormalScale = 1f;
+            rs.MatAlphaCutoff = source.AlphaCutoff;
+            rs.MatDoubleSided = source.DoubleSided;
             rs.MatTriplanarSharpness = 1f;
             rs.MatTexturePath = source.AlbedoTexture ?? "";
             rs.MatNormalTexturePath = source.NormalTexture ?? "";
@@ -1582,24 +1822,6 @@ namespace V12.Core
             rs.MatUvOffsetY = 0f;
             rs.MatUvScaleX = 1f;
             rs.MatUvScaleY = 1f;
-        }
-
-        /// <summary>
-        /// Find the id of a <c>ViewportComponent</c> with <c>RenderWorld=true</c>
-        /// anywhere in <paramref name="el"/>'s subtree (first match, depth-first).
-        /// Returns 0 when none exists.
-        /// </summary>
-        private static long FindWorldViewportId(IWorldElement el)
-        {
-            // Tiny recursive helper - intentionally no Tracy zone to avoid per-element overhead.
-            var vp = el.GetComponent<V12.Components.UI.ViewportComponent>();
-            if (vp != null && vp.RenderWorld) return el.Id;
-            foreach (var child in el.Children)
-            {
-                var found = FindWorldViewportId(child);
-                if (found != 0) return found;
-            }
-            return 0;
         }
 
         private void SetupUI()
@@ -1725,11 +1947,14 @@ namespace V12.Core
                 IsAuthority = isHost
             };
 
-            if (SelectedWorld != null)
-                dirtyTracker.TrackWorld(SelectedWorld);
-
-            // Track the persistent world so Player components are synced
-            dirtyTracker.TrackWorld(PersistentWorld);
+            // Track every hydrated local/hosted session. Focus changes must not
+            // untrack a world; hidden worlds keep their replication.
+            foreach (var session in WorldManager.Sessions)
+            {
+                if (!session.Applied.Hydrated) continue;
+                if (session.Authority == WorldAuthority.Remote) continue;
+                dirtyTracker.TrackWorld(session.World);
+            }
 
             Registry.Register("DirtyTracker", dirtyTracker);
             Log.Information("DirtyTracker registered.");
@@ -1837,12 +2062,20 @@ namespace V12.Core
         {
             using var _zone = V12Profiler.BeginZone("GameRoot.FixedUpdate", V12Profiler.Colors.World);
 
-            // PersistentWorld always ticks (Player, camera, shell content);
-            // SelectedWorld ticks too unless a host paused it.
-            if (PersistentWorld.TickingEnabled)
-                PersistentWorld.Update(fixedDeltaTime);
-            if (SelectedWorld != null && SelectedWorld.TickingEnabled && !ReferenceEquals(SelectedWorld, PersistentWorld))
-                SelectedWorld.Update(fixedDeltaTime);
+            // Recompute visibility/simulation so a focused or pinned session can
+            // start ticking without a separate start call. ActiveWorlds keeps its
+            // old meaning: the simulated set.
+            WorldManager.ReconcileAll();
+            foreach (var world in WorldManager.ActiveWorlds)
+            {
+                if (!world.TickingEnabled) continue;
+                world.Update(fixedDeltaTime);
+            }
+
+            // Session-owned channels are independent of the legacy process-wide
+            // SyncManager. No-op until a link attaches a sender.
+            foreach (var session in WorldManager.Sessions)
+                session.PumpReplication(fixedDeltaTime);
 
             Registry.Update(fixedDeltaTime);
 
@@ -1874,32 +2107,42 @@ namespace V12.Core
             }
         }
 
+        /// <summary>Compatibility alias for <see cref="FocusWorld(World?)"/>.</summary>
         public void SelectWorld(World world)
         {
             using var _zone = V12Profiler.BeginZone("GameRoot.SelectWorld", V12Profiler.Colors.World);
-            if (world == null) return;
-            if (!Worlds.Contains(world)) return;
+            FocusWorld(world);
+        }
 
-            var oldWorld = SelectedWorld;
-            SelectedWorld = world;
+        /// <summary>
+        /// Focus a world for input, UI, and the main camera. Returns false when the
+        /// world is not registered with the root.
+        /// </summary>
+        public bool FocusWorld(World? world)
+        {
+            using var _zone = V12Profiler.BeginZone("GameRoot.FocusWorld", V12Profiler.Colors.World);
+            return WorldManager.FocusWorld(world);
+        }
 
-            // Rendering follows SelectedWorld — force a fresh snapshot so the
-            // new world's elements appear even if nothing else marks dirty.
-            MarkRenderDirty();
+        /// <summary>Focus a world by name. Returns false when it is not loaded.</summary>
+        public bool FocusWorld(string worldName)
+        {
+            using var _zone = V12Profiler.BeginZone("GameRoot.FocusWorld(name)", V12Profiler.Colors.World);
+            return WorldManager.FocusWorld(worldName);
+        }
 
-            // Auto-track via DirtyTracker when selecting a world.
-            // If the same world is being re-selected (e.g. after ReplaceFrom),
-            // still re-track it so new elements from ReplaceFrom are picked up.
-            var tracker = Registry.Get<DirtyTracker>("DirtyTracker");
-            if (tracker != null)
-            {
-                if (oldWorld != null && oldWorld != world)
-                    tracker.UntrackWorld(oldWorld);
-                tracker.TrackWorld(world);
-            }
+        /// <summary>Focus one session directly. Pass null to clear focus.</summary>
+        public bool FocusSession(WorldSession? session)
+        {
+            using var _zone = V12Profiler.BeginZone("GameRoot.FocusSession", V12Profiler.Colors.World);
+            return WorldManager.FocusSession(session);
+        }
 
-            // Teleport the Player to this world's spawn position
-        
+        /// <summary>Close a session. See <see cref="WorldManager.Close"/>.</summary>
+        public WorldCloseResult CloseWorld(WorldSession? session, WorldCloseOptions? options = null)
+        {
+            using var _zone = V12Profiler.BeginZone("GameRoot.CloseWorld", V12Profiler.Colors.World);
+            return WorldManager.Close(session, options);
         }
         // TODO: remove this; it belongs in game-specific code.
         // /// <summary>
@@ -1931,16 +2174,10 @@ namespace V12.Core
         public bool SelectWorldByName(string name)
         {
             using var _zone = V12Profiler.BeginZone("GameRoot.SelectWorldByName", V12Profiler.Colors.World);
-            var found = Worlds.Find(w => w.WorldName == name);
-            if (found != null)
-            {
-                SelectWorld(found);
-                return true;
-            }
-            return false;
+            return FocusWorld(name);
         }
 
-        public void DeselectWorld() => SelectedWorld = null;
+        public void DeselectWorld() => FocusSession(null);
 
         // Templates: mapping from template name -> factory that creates a World given the desired name
         public Dictionary<string, Func<string, World>> Templates { get; } = new Dictionary<string, Func<string, World>>(StringComparer.OrdinalIgnoreCase);
@@ -1958,7 +2195,7 @@ namespace V12.Core
             var existing = Worlds.Find(w => w.WorldName == worldName);
             if (existing != null)
             {
-                SelectedWorld = existing;
+                FocusWorld(existing);
                 return existing;
             }
 
@@ -1976,8 +2213,7 @@ namespace V12.Core
 
          
 
-            Worlds.Add(world);
-            SelectWorld(world);
+            WorldManager.OpenWorld(world, focus: true);
             return world;
         }
 
@@ -1994,8 +2230,7 @@ namespace V12.Core
             world.ExtractPath = result.TempDirectory;
             world.MountPoint = result.MountPoint;
 
-            Worlds.Add(world);
-            SelectedWorld = world;
+            WorldManager.OpenWorld(world, focus: true);
             return world;
         }
 

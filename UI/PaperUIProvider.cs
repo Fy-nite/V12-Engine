@@ -567,7 +567,8 @@ namespace V12.UI.Paper
         public PaperViewportHost(PaperUIProvider owner, string name) : base(owner, name)
         {
             Element.AddComponent(new VLayoutComponent { Expand = true });
-            Element.AddComponent(new ViewportComponent { RenderWorld = true, BackgroundColor = "#00000000" });
+            Element.AddComponent(new ViewportComponent { BackgroundColor = "#00000000" });
+            Element.AddComponent(new V12.Components.RenderViewComponent());
         }
         public string Name { get => Element.Name ?? ""; set => Element.Name = value; }
         public bool UseScrollableContent { set { } }

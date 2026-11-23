@@ -43,6 +43,12 @@ stable, defer structural changes, and capture `SimulationTick`,
 
 ## Current scope
 
+Physics follows the same fixed step: `PhysicsLocomotionSystem` (or
+`PhysicsService.Update` when it owns stepping) hands the constant
+`FixedDeltaTime` to the backend. The Bepu backend does not read a wall clock, so
+`TimeScale` speeds physics up and a paused clock stops it. Large direct `Step`
+calls are split into substeps up to the backend's `MaxSubStepsPerCall`.
+
 The clock is deterministic and the random source is seeded. Full world
 snapshot/restore and automatic render interpolation are separate features.
 `InterpolationAlpha` is exposed now so renderers and host loops can interpolate

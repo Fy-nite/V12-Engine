@@ -141,6 +141,24 @@ namespace V12.Core.Interfaces.Renderer
         public string? MetallicTexture { get; }
         public string? RoughnessTexture { get; }
         public string? EmissionTexture { get; }
+
+        // Surface flags. Defaulted so an existing source keeps compiling, but a
+        // loader that knows better must report them: dropping them is what makes
+        // an imported skybox render inside-out and unlit models come out shaded.
+        /// <summary>Draw both faces of every triangle.</summary>
+        public bool DoubleSided => false;
+
+        /// <summary>Skip lighting and draw the albedo straight.</summary>
+        public bool Unlit => false;
+
+        /// <summary>Emissive tint multiplied over <see cref="EmissionTexture"/>.</summary>
+        public Vector4 Emission => Vector4.Zero;
+
+        /// <summary>Multiplier on <see cref="Emission"/>.</summary>
+        public float EmissionStrength => 1f;
+
+        /// <summary>Alpha-test threshold for masked materials.</summary>
+        public float AlphaCutoff => 0.5f;
     }
 
     public interface ISpriteRenderable : ITransformRenderable

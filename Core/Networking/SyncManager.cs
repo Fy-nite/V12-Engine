@@ -1,41 +1,27 @@
 namespace V12.Core.Networking
 {
     using System;
-    using System.Collections.Generic;
 
+    /// <summary>
+    /// Compatibility facade for the process-wide sync channel. New code should
+    /// use the <see cref="SyncChannel"/> owned by a <see cref="WorldSession"/> so
+    /// keys are scoped per world.
+    /// </summary>
     public static class SyncManager
     {
-        // Hook to actually send bytes to remote peers. User of this library should set this.
-        public static Action<byte[]> SendBytes { get; set; }
+        /// <summary>The process-wide channel used by code that has no session.</summary>
+        public static SyncChannel Default { get; } = new SyncChannel(null, SyncRegistry.Default);
 
-        // Build a batch from all dirty values and send it using SendBytes.
-        public static void FlushDirty()
+        /// <summary>Hook to send bytes to remote peers for the default channel.</summary>
+        public static Action<byte[]>? SendBytes
         {
-            var dirty = new List<ISyncValue>();
-            foreach (var v in SyncRegistry.DirtyValues()) dirty.Add(v);
-            if (dirty.Count == 0) return;
-            var batch = SyncBatchBuilder.BuildBatch(dirty);
-            // mark cleared locally
-            foreach (var v in dirty) v.ClearDirty();
-            SendBytes?.Invoke(batch);
+            get => Default.SendBytes;
+            set => Default.SendBytes = value;
         }
 
-        // Apply an incoming batch produced by BuildBatch
-        public static void ApplyIncoming(ReadOnlyMemory<byte> batch, Uri sender = null)
-        {
-            foreach (var (key, payload) in SyncBatchBuilder.EnumerateBatch(batch))
-            {
-                if (SyncRegistry.TryGet(key, out var v))
-                {
-                    try { v.ApplyRemotePayload(payload.Span, sender); }
-                    catch { }
-                }
-                else
-                {
-                    // unknown key: ignore or log
-                }
-            }
-        }
+        public static void FlushDirty() => Default.FlushDirty();
+
+        public static void ApplyIncoming(ReadOnlyMemory<byte> batch, Uri? sender = null)
+            => Default.ApplyIncoming(batch, sender);
     }
 }
-

@@ -68,7 +68,8 @@ namespace V12.Core.Networking
             ConventionRegistry.Register(
                 "V12 transient members",
                 pack,
-                type => type.Namespace?.StartsWith("V12") == true);
+                type => type.Namespace?.StartsWith("V12") == true ||
+                        typeof(V12.Core.Core.Interfaces.IComponent).IsAssignableFrom(type));
         }
 
         private sealed class IgnoreTransientMemberConvention : IMemberMapConvention

@@ -26,6 +26,7 @@ namespace V12.Core.Networking
         WorldDelta,  // Element lifecycle batch: creates + deletes since the last delta
         Heartbeat,
         Error,
-        VNodeFileRequest
+        VNodeFileRequest,
+        PlayerWelcome
     }
 }

@@ -30,8 +30,9 @@ public class SyncValue<T> : ISyncValue
         _value = initial;
         _version = 0ul;
         _isDirty = markDirtyInitially;
-        // register in global registry for discovery
-        try { SyncRegistry.Register(this); } catch { }
+        // Register in the process-wide registry for legacy discovery. A session
+        // channel also wraps this value under its world-scoped key.
+        try { SyncRegistry.Default.Register(this); } catch { }
     }
 
     public T Value

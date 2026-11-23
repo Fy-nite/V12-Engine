@@ -100,6 +100,10 @@ namespace V12.Core.Rendering
         public float Step;
         public bool Bool;   // toggle/checkbox state, or progress Indeterminate
 
+        /// <summary>Render view id for <see cref="UIWidgetKind.Viewport"/>.
+        /// 0 means the owning element id is the view id.</summary>
+        public long ViewId;
+
         // ── Origami widgets ─────────────────────────────────────────────────
         /// <summary>Language id for CodeEditor (csharp, hlsl, json...)</summary>
         public string Language = "csharp";

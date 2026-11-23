@@ -41,6 +41,7 @@ namespace V12.Core.NetworkCable
                 case MessageType.PlayerBan:
                 case MessageType.PlayerKick:
                 case MessageType.PlayerAction:
+                case MessageType.PlayerWelcome:
                 case MessageType.SyncBatch:
                 case MessageType.VNodeFileRequest:
                 case MessageType.Error:

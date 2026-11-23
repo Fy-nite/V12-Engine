@@ -22,6 +22,16 @@ namespace V12.WorldML
     {
         private static readonly Regex _interpRegex = new(@"\$\{(\w+)\}", RegexOptions.Compiled);
 
+        // Ambiguous short type names warn once per name, not per element.
+        private static readonly HashSet<string> _ambiguousWarned = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly object _ambiguousGate = new();
+
+        private static bool MarkAmbiguousWarned(string typeName)
+        {
+            lock (_ambiguousGate)
+                return _ambiguousWarned.Add(typeName);
+        }
+
         /// <summary>Optional template provider for <c>template="name"</c> and <c>&lt;Instance&gt;</c> support.</summary>
         public ITemplateProvider TemplateProvider { get; set; }
 
@@ -48,18 +58,28 @@ namespace V12.WorldML
             {
                 doc.LoadXml(xml);
             }
-            catch (XmlException)
+            catch (XmlException first)
             {
-                // The input might be a fragment (multiple root elements, no <World> wrapper).
-                // Try wrapping it and parsing again before giving up.
-                try
+                // A declaration cannot be wrapped in a fragment, so retry only
+                // when the input is actually a fragment. The original error is
+                // reported either way; the retry message alone hid it.
+                bool recovered = false;
+                if (!xml.TrimStart().StartsWith("<?xml", StringComparison.OrdinalIgnoreCase))
                 {
-                    doc.LoadXml($"<World>{xml}</World>");
+                    try
+                    {
+                        doc.LoadXml($"<World>{xml}</World>");
+                        recovered = true;
+                    }
+                    catch (XmlException)
+                    {
+                    }
                 }
-                catch (XmlException ex2)
+
+                if (!recovered)
                 {
                     var preview = xml.Length > 200 ? xml.Substring(0, 200) + "..." : xml;
-                    throw new XmlException($"Failed to parse XML input. Preview: {preview}", ex2);
+                    throw new XmlException($"Failed to parse XML input: {first.Message} Preview: {preview}", first);
                 }
             }
 
@@ -326,13 +346,34 @@ namespace V12.WorldML
                 typeName = node.LocalName ?? node.Name;
             if (string.IsNullOrWhiteSpace(typeName)) return null;
 
-            // Try to find a type that implements IComponent
-            var compType = AppDomain.CurrentDomain.GetAssemblies()
-                .Where(a => !a.IsDynamic)
-                .SelectMany(a => SafeGetTypes(a))
-                .FirstOrDefault(t => typeof(IComponent).IsAssignableFrom(t) &&
-                    (string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase)
-                     || string.Equals(t.FullName, typeName, StringComparison.OrdinalIgnoreCase)));
+            // Live script types are resolved through the registry hook first:
+            // after a hot reload both the old and new assemblies are still in
+            // the AppDomain, and the old type must not win the scan.
+            var compType = ComponentTypeResolver.Resolve(typeName);
+            if (compType is null || !typeof(IComponent).IsAssignableFrom(compType))
+            {
+                var matches = AppDomain.CurrentDomain.GetAssemblies()
+                    .Where(a => !a.IsDynamic)
+                    .SelectMany(a => SafeGetTypes(a))
+                    .Where(t => typeof(IComponent).IsAssignableFrom(t) &&
+                        (string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(t.FullName, typeName, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+
+                compType = matches.FirstOrDefault();
+
+                // Short names collide (ButtonComponent lives in both
+                // V12.Components and V12.Components.UI). Silent resolution used
+                // to pick whichever assembly happened to load first, so say
+                // which one won and how to disambiguate.
+                if (matches.Count > 1 && MarkAmbiguousWarned(typeName))
+                {
+                    Console.WriteLine(
+                        $"[WorldMLParser] WARNING: component type '{typeName}' is ambiguous; using " +
+                        $"'{matches[0].FullName}'. Use a fully qualified type name to pick: " +
+                        string.Join(", ", matches.Select(m => m.FullName)));
+                }
+            }
 
             if (compType == null)
             {
@@ -404,7 +445,11 @@ namespace V12.WorldML
             // 2b) Complex representable properties via <PropName><Value X="..." Y="..." Z="..." /></PropName>
             TryApplyComplexValues(instance, node);
 
-            // 2c) Reference hints (must run after the ref attribute itself).
+            // 2c) List properties. Scalars cover List<string> via a comma-separated
+            // attribute; child blocks cover object lists and nested lists.
+            TryApplyListValues(instance, node, deferredList);
+
+            // 2d) Reference hints (must run after the ref attribute itself).
             ApplyReferenceHints(instance, node);
 
             // 3) If the component has an SvgContent string property, capture
@@ -493,6 +538,21 @@ namespace V12.WorldML
                         return;
                     }
 
+                    // List<string> from one attribute: Tabs="Controls,Data,About".
+                    if (GetListElementType(pi.PropertyType) == typeof(string))
+                    {
+                        if (pi.GetValue(target) is not System.Collections.IList textList)
+                        {
+                            if (Activator.CreateInstance(pi.PropertyType) is not System.Collections.IList created) return;
+                            textList = created;
+                        }
+
+                        textList.Clear();
+                        foreach (var part in SplitList(value)) textList.Add(part);
+                        pi.SetValue(target, textList);
+                        return;
+                    }
+
                     var converted = ConvertToType(value, pi.PropertyType);
                     pi.SetValue(target, converted);
                     //Console.WriteLine($"[WorldMLParser] Set {propName} to {value} on {target.GetType().Name}");
@@ -558,6 +618,119 @@ namespace V12.WorldML
             foreach (XmlNode child in node.ChildNodes)
                 if (child.NodeType == XmlNodeType.Element)
                     StripUidAttributes(child);
+        }
+
+        private static Type? GetListElementType(Type type)
+        {
+            if (!type.IsGenericType) return null;
+            return type.GetGenericTypeDefinition() == typeof(List<>)
+                ? type.GetGenericArguments()[0]
+                : null;
+        }
+
+        private static IEnumerable<string> SplitList(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) yield break;
+            foreach (var part in text.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var trimmed = part.Trim();
+                if (trimmed.Length > 0) yield return trimmed;
+            }
+        }
+
+        /// <summary>
+        /// Fills <c>List&lt;T&gt;</c> properties from child blocks, so widgets whose
+        /// data is a list can be authored in WorldML:
+        ///
+        /// <code>
+        /// &lt;Component type="V12.Components.UI.TableComponent"&gt;
+        ///   &lt;Columns&gt;
+        ///     &lt;Item Header="Signal" Flex="2" /&gt;
+        ///     &lt;Item Header="Live" Flex="1" /&gt;
+        ///   &lt;/Columns&gt;
+        ///   &lt;Rows&gt;
+        ///     &lt;Item&gt;&lt;Cells&gt;&lt;Item&gt;Pulse&lt;/Item&gt;&lt;Item&gt;0&lt;/Item&gt;&lt;/Cells&gt;&lt;/Item&gt;
+        ///   &lt;/Rows&gt;
+        /// &lt;/Component&gt;
+        /// </code>
+        ///
+        /// String lists also accept text or one attribute:
+        /// <c>&lt;Items&gt;Amber, Bone&lt;/Items&gt;</c> or <c>Items="Amber,Bone"</c>.
+        /// </summary>
+        private void TryApplyListValues(object instance, XmlNode ownerNode, List<DeferredPropertySet> deferredList)
+        {
+            foreach (XmlNode block in ownerNode.ChildNodes)
+            {
+                if (block.NodeType != XmlNodeType.Element) continue;
+                if (string.Equals(block.LocalName, "Property", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var prop = instance.GetType().GetProperty(
+                    block.LocalName,
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (prop is null || !prop.CanWrite) continue;
+
+                var elementType = GetListElementType(prop.PropertyType);
+                if (elementType is null) continue;
+
+                if (prop.GetValue(instance) is not System.Collections.IList list)
+                {
+                    if (Activator.CreateInstance(prop.PropertyType) is not System.Collections.IList created)
+                        continue;
+                    list = created;
+                    prop.SetValue(instance, list);
+                }
+
+                list.Clear();
+
+                bool hasElementChild = false;
+                foreach (XmlNode grandchild in block.ChildNodes)
+                    if (grandchild.NodeType == XmlNodeType.Element) { hasElementChild = true; break; }
+
+                if (!hasElementChild)
+                {
+                    foreach (var entry in SplitList(block.InnerText))
+                        AddListItem(list, elementType, entry);
+                    continue;
+                }
+
+                foreach (XmlNode item in block.ChildNodes)
+                {
+                    if (item.NodeType != XmlNodeType.Element) continue;
+
+                    if (elementType == typeof(string))
+                    {
+                        var value = item.InnerText.Trim();
+                        if (value.Length > 0) list.Add(value);
+                        continue;
+                    }
+
+                    object? entry = null;
+                    try { entry = Activator.CreateInstance(elementType); } catch { }
+                    if (entry is null) continue;
+
+                    if (item.Attributes != null)
+                        foreach (XmlAttribute attr in item.Attributes)
+                            SetPropertyIfExists(entry, attr.Name, attr.Value, deferredList);
+
+                    // Nested lists, e.g. a table row's <Cells>.
+                    TryApplyListValues(entry, item, deferredList);
+                    list.Add(entry);
+                }
+            }
+        }
+
+        private static void AddListItem(System.Collections.IList list, Type elementType, string value)
+        {
+            try
+            {
+                if (elementType == typeof(string)) { list.Add(value); return; }
+                if (elementType.IsEnum) { list.Add(Enum.Parse(elementType, value, true)); return; }
+                list.Add(Convert.ChangeType(value, elementType, CultureInfo.InvariantCulture));
+            }
+            catch
+            {
+                // A bad item is skipped; the rest of the list still loads.
+            }
         }
 
         private object? ConvertToType(string value, Type targetType)

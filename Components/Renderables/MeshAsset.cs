@@ -119,6 +119,11 @@ namespace V12.Components.Renderables
         public string? MetallicTexture => Dominant.MetallicTexture;
         public string? RoughnessTexture => Dominant.RoughnessTexture;
         public string? EmissionTexture => Dominant.EmissionTexture;
+        public bool DoubleSided => Dominant.DoubleSided;
+        public bool Unlit => Dominant.Unlit;
+        public Vector4 Emission => Dominant.Emission;
+        public float EmissionStrength => Dominant.EmissionStrength;
+        public float AlphaCutoff => Dominant.AlphaCutoff;
 
         private ModelMaterial Dominant
         {

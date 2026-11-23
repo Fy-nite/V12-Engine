@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Numerics;
+using V12.Rendering;
 
 namespace V12.Core.Rendering
 {
@@ -30,5 +32,9 @@ namespace V12.Core.Rendering
         float Height,
         bool HasCamera,
         Matrix4x4 View,
-        Matrix4x4 Projection);
+        Matrix4x4 Projection,
+        Guid WorldId = default,
+        uint LayerMask = RenderLayers.Default,
+        long CameraElementId = 0,
+        long ViewId = 0);
 }

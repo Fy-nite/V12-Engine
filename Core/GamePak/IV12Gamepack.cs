@@ -24,4 +24,14 @@ namespace V12
         /// </summary>
         void OnStart();
     }
+
+    /// <summary>
+    /// Optional lifecycle hook for a gamepak that can be stopped before a hot
+    /// reload replaces it. Implement it to unregister services, unsubscribe
+    /// events, or stop threads. The loader calls it in reverse load order.
+    /// </summary>
+    public interface IV12GamepackLifecycle
+    {
+        void OnStop();
+    }
 }

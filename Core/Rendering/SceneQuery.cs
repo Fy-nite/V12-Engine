@@ -45,6 +45,26 @@ namespace V12.Core.Rendering
             Vector3 direction,
             Func<IWorldElement, bool>? exclude = null)
         {
+            // Legacy overload: viewport ids no longer own geometry. Query all
+            // worlds/layers; callers that have a ViewportInfo should use the
+            // world/layer overload below.
+            return Raycast(root, Guid.Empty, V12.Rendering.RenderLayers.All, 0, origin, direction, exclude);
+        }
+
+        /// <summary>
+        /// Cast a ray against one world and layer mask. <paramref name="viewId"/>
+        /// is optional: 0 matches every view, a non-zero id also matches
+        /// view-restricted content for that view.
+        /// </summary>
+        public static SceneRaycastHit? Raycast(
+            GameRoot root,
+            Guid worldId,
+            uint layerMask,
+            long viewId,
+            Vector3 origin,
+            Vector3 direction,
+            Func<IWorldElement, bool>? exclude = null)
+        {
             if (root == null) return null;
 
             var dir = direction;
@@ -56,9 +76,11 @@ namespace V12.Core.Rendering
             IWorldElement? best = null;
             Vector3 bestPoint = default;
 
-            foreach (var (element, renderable, vpId) in root.GetAllRenderablesWithViewports())
+            foreach (var (element, renderable, itemWorldId, itemLayerMask, itemViewId) in root.GetAllRenderablesWithWorld())
             {
-                if (viewportId != 0 && vpId != viewportId) continue;
+                if (worldId != Guid.Empty && itemWorldId != worldId) continue;
+                if ((layerMask & itemLayerMask) == 0) continue;
+                if (viewId != 0 && itemViewId != 0 && itemViewId != viewId) continue;
                 if (element == null || renderable is not IMeshRenderable mesh) continue;
                 // Editor-gizmo (transient) subtrees render but are never selectable.
                 if (NonPersistentComponent.IsTransient(element)) continue;

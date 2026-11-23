@@ -236,6 +236,42 @@ namespace V12.Core.NetworkCable
         }
 
         // ── INetEventListener ──────────────────────────────────────────────────
+        /// <summary>
+        /// Send one message to a specific server-assigned player. Returns false
+        /// when that player is not connected.
+        /// </summary>
+        public bool SendToClient(long playerId, MessageDTO message)
+        {
+            using var _zone = V12Profiler.BeginZone("NetworkHost.SendToClient", V12Profiler.Colors.Runtime);
+            if (message == null || _net == null)
+                return false;
+
+            NetPeer? target = null;
+            foreach (var pair in _clientPlayerIds)
+            {
+                if (pair.Value != playerId) continue;
+                target = pair.Key;
+                break;
+            }
+
+            if (target == null || target.ConnectionState != ConnectionState.Connected)
+                return false;
+
+            try
+            {
+                byte[] bytes = LiteNetWire.Serialize(message);
+                var (method, channel) = LiteNetWire.DeliveryFor(message, bytes.Length);
+                target.Send(bytes, channel, method);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (DebugMode)
+                    Console.WriteLine($"[NetworkHost] SendToClient({playerId}) failed: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
         public void OnPeerConnected(NetPeer peer)
         {
             using var _zone = V12Profiler.BeginZone("NetworkHost.OnPeerConnected", V12Profiler.Colors.Runtime);

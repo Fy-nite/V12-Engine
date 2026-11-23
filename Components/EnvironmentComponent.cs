@@ -17,6 +17,8 @@ namespace V12.Components
         private float _skyR = 0.5f, _skyG = 0.6f, _skyB = 0.8f;
         private float _ambientR = 0.2f, _ambientG = 0.2f, _ambientB = 0.25f;
         private float _ambientEnergy = 1f;
+        private float _skyEnergy = 1f;
+        private float _skyboxRotation;
         private string _skyboxPath = string.Empty;
 
         public override string Name => "Environment";
@@ -40,6 +42,24 @@ namespace V12.Components
 
         /// <summary>Optional path to a skybox resource (Panorama or CubeMap).</summary>
         public string SkyboxPath { get => _skyboxPath; set { if (_skyboxPath != value) { _skyboxPath = value ?? string.Empty; MarkDirty(); } } }
+
+        /// <summary>Brightness of the sky. Only the skybox panorama and the solid
+        /// sky colour scale with it; 1 = the image's own values. Hosts that bake
+        /// no sky energy ignore it.</summary>
+        public float SkyEnergy
+        {
+            get => _skyEnergy;
+            set { if (Math.Abs(_skyEnergy - value) > 0.0001f) { _skyEnergy = MathF.Max(0f, value); MarkDirty(); } }
+        }
+
+        /// <summary>Yaw of the skybox panorama in degrees, rotating the image
+        /// around the world's up axis. Use it to line a panorama's prettiest
+        /// stretch up with the view the game opens on.</summary>
+        public float SkyboxRotation
+        {
+            get => _skyboxRotation;
+            set { if (Math.Abs(_skyboxRotation - value) > 0.0001f) { _skyboxRotation = value; MarkDirty(); } }
+        }
 
         // ── Shadows ─────────────────────────────────────────────────────────
 
@@ -105,6 +125,8 @@ namespace V12.Components
             inspector.Float("Ambient Blue", () => AmbientB, v => AmbientB = v);
             inspector.Float("Ambient Energy", () => AmbientEnergy, v => AmbientEnergy = v);
             inspector.String("Skybox Path", () => SkyboxPath, v => SkyboxPath = v);
+            inspector.Float("Sky Energy", () => SkyEnergy, v => SkyEnergy = v);
+            inspector.Float("Skybox Rotation", () => SkyboxRotation, v => SkyboxRotation = v);
             inspector.Section("Shadows");
             inspector.Bool("Enabled", () => ShadowsEnabled, v => ShadowsEnabled = v);
             inspector.Float("Distance", () => ShadowDistance, v => ShadowDistance = v);

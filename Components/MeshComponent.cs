@@ -371,8 +371,12 @@ namespace V12.Components
                 {
                     uint first = (uint)(i * (slices + 1) + j);
                     uint second = (uint)(first + slices + 1);
-                    indices.Add(first); indices.Add(second); indices.Add(first + 1);
-                    indices.Add(second); indices.Add(second + 1); indices.Add(first + 1);
+                    // Outward-facing winding. The old order was inward, which
+                    // was invisible under MonoGame's CullNone but made every
+                    // sphere/capsule render inside-out on a back-face culled
+                    // backend (NovaV2/Godot).
+                    indices.Add(first); indices.Add(first + 1); indices.Add(second);
+                    indices.Add(first + 1); indices.Add(second + 1); indices.Add(second);
                 }
             }
             return indices.ToArray();

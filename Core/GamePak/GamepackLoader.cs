@@ -80,13 +80,66 @@ namespace V12.Core.GamePak
             // Ensure game pak assemblies can resolve dependencies (V12.dll etc.)
             // to the SAME assembly instance already loaded by the app, avoiding
             // type identity mismatches between LoadFrom context and default context.
+            //
+            // A directory gamepak lives outside the host's output. Its
+            // dependencies (V12.Physics, V12.Gravity, ...) may be present in the
+            // host's output but not loaded yet, because .NET resolves references
+            // lazily. Search loaded assemblies first, then probe the host and
+            // gamepak directories for the DLL.
             AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
             {
                 var resolveName = new AssemblyName(args.Name).Name;
+                if (string.IsNullOrWhiteSpace(resolveName))
+                    return null;
+
                 Log.Debug("Assembly resolve request for '{Name}', searching loaded assemblies", resolveName);
-                return AssemblyFinder?.Invoke(resolveName)
+
+                var resolved = AssemblyFinder?.Invoke(resolveName)
                     ?? AppDomain.CurrentDomain.GetAssemblies()
                         .FirstOrDefault(a => a.GetName().Name == resolveName);
+                if (resolved != null)
+                    return resolved;
+
+                var probeDirectories = new List<string>();
+                void AddProbe(string? path)
+                {
+                    if (string.IsNullOrWhiteSpace(path)) return;
+                    var full = Path.GetFullPath(path);
+                    if (!probeDirectories.Contains(full, StringComparer.OrdinalIgnoreCase))
+                        probeDirectories.Add(full);
+                }
+
+                // The engine assembly sits beside every host-owned V12 DLL.
+                var engineLocation = typeof(GamepackLoader).Assembly.Location;
+                if (!string.IsNullOrWhiteSpace(engineLocation))
+                    AddProbe(Path.GetDirectoryName(engineLocation));
+                AddProbe(AppContext.BaseDirectory);
+                AddProbe(directory);
+
+                var requesting = args.RequestingAssembly?.Location;
+                if (!string.IsNullOrWhiteSpace(requesting))
+                    AddProbe(Path.GetDirectoryName(requesting));
+
+                foreach (var probeDirectory in probeDirectories)
+                {
+                    var candidate = Path.Combine(probeDirectory, resolveName + ".dll");
+                    if (!File.Exists(candidate)) continue;
+
+                    try
+                    {
+                        var loaded = AssemblyLoader != null
+                            ? AssemblyLoader(candidate)
+                            : Assembly.LoadFrom(candidate);
+                        Log.Debug("Resolved '{Name}' from '{Path}'", resolveName, candidate);
+                        return loaded;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Debug(ex, "Failed to load dependency '{Path}'", candidate);
+                    }
+                }
+
+                return null;
             };
 
             var dlls = Directory.EnumerateFiles(directory, "*.dll", SearchOption.AllDirectories).ToArray();
@@ -98,7 +151,14 @@ namespace V12.Core.GamePak
                 try
                 {
                     Log.Debug("Loading assembly: '{Path}'", dll);
-                    var assembly = AssemblyLoader != null ? AssemblyLoader(dll) : Assembly.LoadFrom(dll);
+                    // AssemblyLoadContext.LoadFromAssemblyPath requires an
+                    // absolute path. Directory.EnumerateFiles can return a path
+                    // relative to the host's working directory (e.g. "gamepaks/
+                    // SpaceFlight/SpaceFlight.dll"), so normalise it first.
+                    string assemblyPath = Path.GetFullPath(dll);
+                    var assembly = AssemblyLoader != null
+                        ? AssemblyLoader(assemblyPath)
+                        : Assembly.LoadFrom(assemblyPath);
                     var count = LoadFromAssembly(assembly);
                     if (count > 0)
                     {
@@ -306,6 +366,57 @@ namespace V12.Core.GamePak
             sw.Stop();
             Log.Information("StartAll complete: {Success} succeeded, {Failed} failed in {Elapsed}ms",
                 success, failed, sw.ElapsedMilliseconds);
+        }
+
+        /// <summary>
+        /// Call <see cref="IV12GamepackLifecycle.OnStop"/> on every loaded game
+        /// pak in reverse load order. Safe when no pak implements the optional
+        /// lifecycle hook.
+        /// </summary>
+        public void StopAll()
+        {
+            foreach (var pak in _gamepaks.AsEnumerable().Reverse().ToArray())
+                StopOne(pak);
+        }
+
+        /// <summary>
+        /// Stop and remove every gamepak that came from
+        /// <paramref name="assembly"/> (e.g. the old generation of a hot-reloaded
+        /// C# script set). Returns the number removed.
+        /// </summary>
+        public int RemoveFromAssembly(Assembly assembly)
+        {
+            if (assembly == null) return 0;
+
+            var removed = _gamepaks
+                .Where(pak => ReferenceEquals(pak.GetType().Assembly, assembly))
+                .ToArray();
+
+            foreach (var pak in removed)
+            {
+                StopOne(pak);
+                _gamepaks.Remove(pak);
+            }
+
+            if (removed.Length > 0)
+                Log.Information("Removed {Count} gamepak(s) from assembly '{Assembly}'",
+                    removed.Length, assembly.GetName().Name);
+
+            return removed.Length;
+        }
+
+        private static void StopOne(IV12Gamepack pak)
+        {
+            if (pak is not IV12GamepackLifecycle lifecycle) return;
+            try
+            {
+                Log.Information("Stopping gamepak '{Name}'...", pak.Name);
+                lifecycle.OnStop();
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to stop gamepak '{Name}'", pak.Name);
+            }
         }
 
         /// <summary>

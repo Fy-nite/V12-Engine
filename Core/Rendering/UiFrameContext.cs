@@ -1,15 +1,16 @@
 using V12.Core.UI.Paper;
-using V12.Rendering;
 
 namespace V12.Core.Rendering;
 
 /// <summary>
-/// Screen-space Paper UI input to the render-frame producer. The target is a
-/// transparent render target that the backend presents as an overlay.
+/// UI input to the render-frame producer. Both halves are engine-captured and
+/// immutable: <see cref="Captured"/> is the UI model (world-canvas layout source)
+/// and <see cref="Screen"/> is the laid-out screen-space Paper output. The
+/// producer owns UI views and the optional presentation target, so hosts never
+/// implement UI layout or UI targets.
 /// </summary>
 public readonly record struct UiFrameContext(
-    PaperFrame Frame,
-    RenderTargetHandle Target,
-    long ViewId,
+    UIFrame Captured,
+    PaperFrame Screen,
     int Width,
     int Height);

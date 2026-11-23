@@ -4,35 +4,45 @@ using V12.Core.Core.Interfaces;
 namespace V12.Components.UI
 {
     /// <summary>
-    /// Marks an element as a 3D scene viewport embedded in UI.
+    /// A UI surface that displays a render view's texture.
     ///
-    /// Frontends (e.g. Godot's WorldCanvasSystem) render this as a
-    /// SubViewportContainer + SubViewport inside the screen-space canvas.
-    /// Every renderable element whose parent chain passes through an element
-    /// bearing this component renders its 3D nodes inside that viewport
-    /// instead of the main screen, giving panels like an editor's game view
-    /// their own camera and scene.
+    /// This component only owns presentation: the screen rectangle, background
+    /// and active state. The camera, world, layers and clear mode belong to the
+    /// <see cref="V12.Components.RenderViewComponent"/> that feeds the surface.
     /// </summary>
     [ComponentEntry("UI", "Viewport", SingleInstance = true, SortOrder = 25, Icon = "window-maximize")]
     public class ViewportComponent : ComponentBase
     {
         public override string Name => "Viewport";
-        public override string Description => "Embeds a 3D scene viewport in UI";
+        public override string Description => "Displays a render view inside UI";
 
         /// <summary>
-        /// When true, the viewport renders the entire world it belongs to
-        /// (everything not already claimed by a nested viewport), not just the
-        /// elements under this element. Useful for an editor "game view" that
-        /// shows the selected world.
+        /// Element id of the <see cref="V12.Components.RenderViewComponent"/> to
+        /// display. 0 uses a render view on this element, or the element id as
+        /// the implicit view id.
         /// </summary>
-        public bool RenderWorld { get; set; } = false;
+        public long ViewId { get; set; }
 
-        /// <summary>Background color of the viewport's clear colour.</summary>
+        /// <summary>Background colour of the surface as "#rrggbb" or "#aarrggbb".</summary>
         public string BackgroundColor { get; set; } = "#1a1a20";
+
+        /// <summary>False stops laying out and drawing the surface.</summary>
+        public bool IsActive { get; set; } = true;
 
         public override IWorldElement BuildUI()
         {
             return new Element();
+        }
+
+        public override void BuildInspector(V12.Core.UI.IInspector inspector)
+        {
+            inspector.Section("Viewport");
+            inspector.String("View Id", () => ViewId.ToString(), v =>
+            {
+                ViewId = long.TryParse(v, out var parsed) ? parsed : 0;
+            });
+            inspector.String("Background Color", () => BackgroundColor, v => BackgroundColor = v);
+            inspector.Bool("Active", () => IsActive, v => IsActive = v);
         }
     }
 }

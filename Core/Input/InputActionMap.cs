@@ -27,8 +27,8 @@ namespace V12.Core.Input
     /// </code>
     /// <para>
     /// Key and pad-button axes read 1 while held; pad axes read their analog
-    /// value; name axes are a peak-hold over the frame window. Button edges are
-    /// derived from the combined held state of every source.
+    /// value; name axes take the latest signed value for the frame window.
+    /// Button edges are derived from the combined held state of every source.
     /// </para>
     /// <para>
     /// <see cref="OnInputEvent"/> may be called from another thread; the
@@ -111,6 +111,12 @@ namespace V12.Core.Input
         private readonly Dictionary<GamepadAxis, float> _padAxisValues = new();
         private readonly HashSet<string> _nameHeld = new();
         private readonly Dictionary<string, float> _nameAxisValues = new();
+        private readonly HashSet<string> _nameDownPending = new();
+        private readonly HashSet<string> _nameUpPending = new();
+        private readonly HashSet<InputKey> _keyDownPending = new();
+        private readonly HashSet<InputKey> _keyUpPending = new();
+        private readonly HashSet<GamepadButton> _padDownPending = new();
+        private readonly HashSet<GamepadButton> _padUpPending = new();
 
         // Resolved per-frame action state.
         private readonly Dictionary<string, float> _axisValues = new();
@@ -291,6 +297,12 @@ namespace V12.Core.Input
                 _padAxisValues.Clear();
                 _nameHeld.Clear();
                 _nameAxisValues.Clear();
+                _nameDownPending.Clear();
+                _nameUpPending.Clear();
+                _keyDownPending.Clear();
+                _keyUpPending.Clear();
+                _padDownPending.Clear();
+                _padUpPending.Clear();
             }
         }
 
@@ -365,27 +377,53 @@ namespace V12.Core.Input
                         }
                         else if (!string.IsNullOrEmpty(evt.Name))
                         {
-                            // Name axes are a peak-hold over the frame window.
-                            _nameAxisValues[evt.Name] = Math.Max(
-                                _nameAxisValues.GetValueOrDefault(evt.Name), evt.Value);
+                            // Name axes are signed. The host publishes one value
+                            // per frame, so the latest value wins; clamping with
+                            // Max() would silently drop every negative direction
+                            // (left / back / up).
+                            _nameAxisValues[evt.Name] = evt.Value;
                         }
                         break;
 
                     case InputEventType.ButtonDown:
                     {
                         var key = ResolveEventKey(evt);
-                        if (key.HasValue) _keyHeld.Add(key.Value);
-                        if (evt.PadButton.HasValue) _padHeld.Add(evt.PadButton.Value);
-                        if (!string.IsNullOrEmpty(evt.Name)) _nameHeld.Add(evt.Name);
+                        if (key.HasValue)
+                        {
+                            _keyHeld.Add(key.Value);
+                            _keyDownPending.Add(key.Value);
+                        }
+                        if (evt.PadButton.HasValue)
+                        {
+                            _padHeld.Add(evt.PadButton.Value);
+                            _padDownPending.Add(evt.PadButton.Value);
+                        }
+                        if (!string.IsNullOrEmpty(evt.Name))
+                        {
+                            _nameHeld.Add(evt.Name);
+                            _nameDownPending.Add(evt.Name);
+                        }
                         break;
                     }
 
                     case InputEventType.ButtonUp:
                     {
                         var key = ResolveEventKey(evt);
-                        if (key.HasValue) _keyHeld.Remove(key.Value);
-                        if (evt.PadButton.HasValue) _padHeld.Remove(evt.PadButton.Value);
-                        if (!string.IsNullOrEmpty(evt.Name)) _nameHeld.Remove(evt.Name);
+                        if (key.HasValue)
+                        {
+                            _keyHeld.Remove(key.Value);
+                            _keyUpPending.Add(key.Value);
+                        }
+                        if (evt.PadButton.HasValue)
+                        {
+                            _padHeld.Remove(evt.PadButton.Value);
+                            _padUpPending.Add(evt.PadButton.Value);
+                        }
+                        if (!string.IsNullOrEmpty(evt.Name))
+                        {
+                            _nameHeld.Remove(evt.Name);
+                            _nameUpPending.Add(evt.Name);
+                        }
                         break;
                     }
                 }
@@ -428,25 +466,52 @@ namespace V12.Core.Input
                 foreach (var (action, binding) in _buttonBindings)
                 {
                     bool current = false;
+                    bool pendingDown = false;
+                    bool pendingUp = false;
                     foreach (var source in binding.Sources)
                     {
                         if (SourceHeld(source))
-                        {
                             current = true;
-                            break;
+
+                        if (source.IsKey)
+                        {
+                            var key = source.Key.GetValueOrDefault();
+                            if (_keyDownPending.Contains(key)) pendingDown = true;
+                            if (_keyUpPending.Contains(key)) pendingUp = true;
+                        }
+                        else if (source.IsPadButton)
+                        {
+                            var pad = source.PadButton.GetValueOrDefault();
+                            if (_padDownPending.Contains(pad)) pendingDown = true;
+                            if (_padUpPending.Contains(pad)) pendingUp = true;
+                        }
+                        else if (source.IsName)
+                        {
+                            string name = source.Name ?? string.Empty;
+                            if (_nameDownPending.Contains(name)) pendingDown = true;
+                            if (_nameUpPending.Contains(name)) pendingUp = true;
                         }
                     }
 
                     bool previous = _buttonHeld.GetValueOrDefault(action);
                     _buttonHeld[action] = current;
 
-                    if (current && !previous) _justPressed.Add(action);
-                    if (!current && previous) _justReleased.Add(action);
+                    // A name button can go down and up between two fixed
+                    // steps (a quick click, or a headset poll). The held set
+                    // alone loses that tap, so pending edges are latched.
+                    if ((current && !previous) || pendingDown) _justPressed.Add(action);
+                    if ((!current && previous) || pendingUp) _justReleased.Add(action);
                 }
 
                 // Name axes are published every frame by the host; the window
                 // ends here.
                 _nameAxisValues.Clear();
+                _nameDownPending.Clear();
+                _nameUpPending.Clear();
+                _keyDownPending.Clear();
+                _keyUpPending.Clear();
+                _padDownPending.Clear();
+                _padUpPending.Clear();
             }
         }
 

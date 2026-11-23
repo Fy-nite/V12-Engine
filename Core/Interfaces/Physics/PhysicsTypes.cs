@@ -29,10 +29,13 @@ namespace V12.Core.Interfaces.Physics
         public Vector3 Size;
         public float Mass;
         public PhysicsBodyType Type;
+        /// <summary>Overlap-only intent. Backends without trigger support ignore it.</summary>
         public bool IsTrigger;
+        /// <summary>Multiplier for uniform gravity and point gravity fields. 0 is weightless.</summary>
         public float GravityScale;
         public float LinearDamping;
         public float AngularDamping;
+        /// <summary>When false the body is never allowed to sleep.</summary>
         public bool CanSleep;
         /// <summary>Keep the body upright by ignoring angular motion (character bodies).</summary>
         public bool LockRotation;
@@ -88,6 +91,7 @@ namespace V12.Core.Interfaces.Physics
         public Vector3 Point;
         public Vector3 Normal;
         public float Distance;
-        public IPhysicsBody Body;
+        /// <summary>The hit body, or null when the ray hit static geometry.</summary>
+        public IPhysicsBody? Body;
     }
 }

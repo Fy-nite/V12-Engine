@@ -15,24 +15,56 @@ namespace V12.Core.Rendering;
 internal sealed class PaperUiDrawBuilder
 {
     private readonly RendererResourceCache _resources;
-    private TextureHandle _whiteTexture;
     private long _uiVersion;
+
+    /// <summary>
+    /// The 1x1 white texture every untextured UI draw falls back to. The GPU
+    /// handle is never cached here: <see cref="RendererResourceCache"/> retires a
+    /// texture after a frame without use, and the handle would then be stale.
+    /// </summary>
+    private static readonly TextureData WhiteTextureData = new(
+        TextureDimension.Texture2D,
+        1,
+        1,
+        1,
+        1,
+        TextureFormat.Rgba8Unorm,
+        TextureColorSpace.Linear,
+        TextureUsage.Sampled,
+        new[] { new TextureSubresource(0, 0, 4, 4, new byte[] { 255, 255, 255, 255 }) });
 
     public PaperUiDrawBuilder(RendererResourceCache resources)
     {
         _resources = resources;
     }
 
-    public void Append(UiFrameContext context, RenderFrameBuilder builder)
+    /// <summary>
+    /// Resolves a render-target view id to its GPU texture. Used when Paper
+    /// draws a viewport surface; returning null falls back to white.
+    /// </summary>
+    public Func<long, TextureHandle?>? ViewTextureProvider { get; set; }
+
+    /// <summary>
+    /// Emits the screen-space UI as ordinary draw items.
+    /// </summary>
+    /// <param name="context">Captured Paper frame plus the surface size in pixels.</param>
+    /// <param name="target">Engine-owned target to render into, or null to draw
+    /// into the host's presentation surface.</param>
+    /// <param name="builder">Frame under construction.</param>
+    public void Append(UiFrameContext context, RenderTargetHandle? target, RenderFrameBuilder builder)
     {
-        var frame = context.Frame;
+        var frame = context.Screen;
         int width = Math.Max(1, context.Width > 0 ? context.Width : frame.Width);
         int height = Math.Max(1, context.Height > 0 ? context.Height : frame.Height);
         long version = ++_uiVersion;
 
+        // No camera: the ortho matrices carry placement. Drawn last so it
+        // composites over every scene view.
         builder.Views.Add(new RenderView
         {
-            Id = context.ViewId,
+            Id = RenderViewIds.ScreenUi,
+            ViewportId = 0,
+            WorldId = Guid.Empty,
             CameraElementId = 0,
             IsCurrentCamera = false,
             View = Matrix4x4.CreateTranslation(0f, 0f, -1f),
@@ -45,9 +77,10 @@ internal sealed class PaperUiDrawBuilder
                 height),
             Viewport = new ViewportRect(0f, 0f, width, height),
             Clear = new ClearSettings(ClearMode.Color, new Vector4(0f, 0f, 0f, 0f)),
-            Target = context.Target,
+            Target = target,
             LayerMask = RenderLayers.Ui,
             Eye = StereoEye.None,
+            Priority = int.MaxValue,
         });
 
         if (frame.Meshes.Count == 0)
@@ -71,7 +104,7 @@ internal sealed class PaperUiDrawBuilder
                 continue;
 
             var shader = _resources.GetOrCreateShader("shader:" + uri, program, shaderVersion);
-            var uiMesh = BuildMesh(mesh, width, height, version, i, context.ViewId);
+            var uiMesh = BuildMesh(mesh, width, height, version, i, RenderViewIds.ScreenUi);
             if (uiMesh is null)
                 continue;
 
@@ -90,7 +123,7 @@ internal sealed class PaperUiDrawBuilder
                 Textures: textures);
 
             var material = _resources.GetOrCreateMaterial(
-                $"ui-mat:{context.ViewId}:{i}:{uri}",
+                $"ui-mat:{RenderViewIds.ScreenUi}:{i}:{uri}",
                 shader,
                 desc,
                 version);
@@ -98,13 +131,116 @@ internal sealed class PaperUiDrawBuilder
             builder.Items.Add(new DrawItem
             {
                 ElementId = 0,
-                ViewportId = context.ViewId,
+                WorldId = Guid.Empty,
+                ViewId = RenderViewIds.ScreenUi,
                 Mesh = uiMesh.Value,
                 Material = material,
                 World = Matrix4x4.Identity,
                 Clip = ClipRect.None,
                 SortKey = (uint)i,
                 LayerMask = RenderLayers.Ui,
+                Active = true,
+                OverridesIndex = -1,
+            });
+        }
+    }
+
+    /// <summary>
+    /// Emits a world-space canvas as ordinary scene meshes. Vertices stay in
+    /// canvas pixel space so Paper's brush and scissor uniforms keep working
+    /// unchanged; the draw matrix scales them to metres and applies the canvas
+    /// placement. No view and no render target is created.
+    /// </summary>
+    public void AppendWorld(
+        long canvasId,
+        PaperFrame frame,
+        in WorldCanvasSnapshot canvas,
+        uint sortBase,
+        RenderFrameBuilder builder)
+    {
+        if (frame.Meshes.Count == 0)
+            return;
+
+        int width = Math.Max(1, canvas.PixelWidth);
+        int height = Math.Max(1, canvas.PixelHeight);
+        long version = ++_uiVersion;
+
+        // Pixel space -> canvas metres -> element placement (row-vector order).
+        float metresPerPixelX = canvas.WidthMetres / width;
+        float metresPerPixelY = canvas.HeightMetres / height;
+        var canvasToWorld = Matrix4x4.CreateScale(
+            metresPerPixelX,
+            metresPerPixelY,
+            MathF.Min(metresPerPixelX, metresPerPixelY)) * canvas.World;
+
+        // The shader reconstructs canvas pixels from vertex positions; make sure
+        // it has the surface size even if the frame was captured without one.
+        var shaderFrame = frame.Width > 0 && frame.Height > 0
+            ? frame
+            : new PaperFrame
+            {
+                Width = width,
+                Height = height,
+                ShapeShaderUri = frame.ShapeShaderUri,
+                TextShaderUri = frame.TextShaderUri,
+            };
+
+        string shapeUri = string.IsNullOrWhiteSpace(frame.ShapeShaderUri)
+            ? "shader://v12.paper/paper"
+            : frame.ShapeShaderUri;
+        string textUri = string.IsNullOrWhiteSpace(frame.TextShaderUri)
+            ? "shader://v12.paper/text"
+            : frame.TextShaderUri;
+
+        for (int i = 0; i < frame.Meshes.Count; i++)
+        {
+            var mesh = frame.Meshes[i];
+            if (mesh.Indices.Length < 3 || mesh.Positions.Length == 0)
+                continue;
+
+            string uri = mesh.IsText ? textUri : shapeUri;
+            if (!ShaderAssetRegistry.Instance.TryResolve(uri, out var program, out long shaderVersion))
+                continue;
+
+            var shader = _resources.GetOrCreateShader("shader:" + uri, program, shaderVersion);
+            var uiMesh = BuildMesh(mesh, width, height, version, i, canvasId);
+            if (uiMesh is null)
+                continue;
+
+            var parameters = BuildParameters(mesh, shaderFrame, program.Reflection);
+            var textures = BuildTextures(mesh, program.Reflection);
+
+            var desc = new MaterialDesc(
+                Blend: BlendMode.Alpha,
+                Cull: CullMode.None,
+                // Depth-test against the scene so a wall in front hides the
+                // canvas, but never write depth: UI layers are painter ordered.
+                DepthTest: true,
+                DepthWrite: false,
+                Lit: false,
+                CastShadows: false,
+                ReceiveShadows: false,
+                Parameters: parameters,
+                Textures: textures);
+
+            var material = _resources.GetOrCreateMaterial(
+                $"ui-mat:w{canvasId}:{i}:{uri}",
+                shader,
+                desc,
+                version);
+
+            builder.Items.Add(new DrawItem
+            {
+                ElementId = canvas.ElementId,
+                WorldId = canvas.WorldId,
+                // Scene item: renders in every view whose world/layer matches.
+                ViewId = 0,
+                Mesh = uiMesh.Value,
+                Material = material,
+                World = canvasToWorld,
+                Clip = ClipRect.None,
+                SortKey = sortBase + (uint)i,
+                LayerMask = RenderLayers.Default,
                 Active = true,
                 OverridesIndex = -1,
             });
@@ -147,8 +283,7 @@ internal sealed class PaperUiDrawBuilder
 
                 if (g < mesh.Colors.Length)
                 {
-                    var c = mesh.Colors[g];
-                    colors.Add(new Vector4(c.R, c.G, c.B, c.A));
+                    colors.Add(mesh.Colors[g]);
                 }
                 else
                 {
@@ -211,9 +346,9 @@ internal sealed class PaperUiDrawBuilder
             "scissorExt" => MaterialValue.From(mesh.ScissorExt),
             "brushTransform" => MaterialValue.From(mesh.BrushTransform),
             "brushTranslation" => MaterialValue.From(mesh.BrushTranslation),
-            "brushType" => MaterialValue.From((int)mesh.Brush.Type),
-            "brushColor1" => MaterialValue.From(ToVector4(mesh.Brush.Color1)),
-            "brushColor2" => MaterialValue.From(ToVector4(mesh.Brush.Color2)),
+            "brushType" => MaterialValue.From(mesh.Brush.Type),
+            "brushColor1" => MaterialValue.From(mesh.Brush.Color1),
+            "brushColor2" => MaterialValue.From(mesh.Brush.Color2),
             "brushParams" => MaterialValue.From(new Vector4(
                 mesh.Brush.Point1.X,
                 mesh.Brush.Point1.Y,
@@ -237,12 +372,23 @@ internal sealed class PaperUiDrawBuilder
     {
         var bindings = new List<MaterialTextureBinding>(2);
 
-        var texture = mesh.TextureData is null
-            ? GetWhiteTexture()
-            : _resources.GetOrCreateTexture(
+        TextureHandle texture;
+        if (mesh.Texture is PaperTextureRef viewRef &&
+            ViewTextureProvider?.Invoke(viewRef.ViewId) is { } viewTexture)
+        {
+            texture = viewTexture;
+        }
+        else if (mesh.TextureData is null)
+        {
+            texture = GetWhiteTexture();
+        }
+        else
+        {
+            texture = _resources.GetOrCreateTexture(
                 "ui-tex:" + TextureKey(mesh.Texture, mesh.TextureId),
                 mesh.TextureData,
                 mesh.TextureVersion);
+        }
 
         var font = mesh.FontAtlasData is null
             ? GetWhiteTexture()
@@ -275,24 +421,9 @@ internal sealed class PaperUiDrawBuilder
 
     private TextureHandle GetWhiteTexture()
     {
-        if (_whiteTexture.IsValid)
-            return _whiteTexture;
-
-        var pixels = new byte[4] { 255, 255, 255, 255 };
-        var subresource = new TextureSubresource(0, 0, 4, 4, pixels);
-        var data = new TextureData(
-            TextureDimension.Texture2D,
-            1,
-            1,
-            1,
-            1,
-            TextureFormat.Rgba8Unorm,
-            TextureColorSpace.Linear,
-            TextureUsage.Sampled,
-            new[] { subresource });
-
-        _whiteTexture = _resources.GetOrCreateTexture("ui-white", data, 0);
-        return _whiteTexture;
+        // Asked of the cache every time on purpose: the entry may have been
+        // retired, and a retained handle would fail validation downstream.
+        return _resources.GetOrCreateTexture("ui-white", WhiteTextureData, 0);
     }
 
     private static string TextureKey(object? texture, string id) =>
@@ -302,6 +433,4 @@ internal sealed class PaperUiDrawBuilder
                 ? "null"
                 : RuntimeHelpers.GetHashCode(texture).ToString();
 
-    private static Vector4 ToVector4(Prowl.Vector.Color c) =>
-        new(c.R, c.G, c.B, c.A);
 }

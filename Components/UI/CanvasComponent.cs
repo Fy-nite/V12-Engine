@@ -25,6 +25,19 @@ public class CanvasComponent : ComponentBase
     public int Width { get; set; } = 0;
     public int Height { get; set; } = 0;
 
+    /// <summary>
+    /// Sorting weight across surfaces. Higher draws later. Screen-space uses
+    /// this only for overlapping world canvases; a world canvas with a higher
+    /// priority orders above lower ones at the same distance.
+    /// </summary>
+    public int Priority { get; set; } = 0;
+
+    /// <summary>
+    /// False makes a world canvas display-only: it still renders, but pointer
+    /// input and focus skip it.
+    /// </summary>
+    public bool Interactive { get; set; } = true;
+
     public CanvasComponent()
     {
         _x = 0;

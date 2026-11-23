@@ -102,6 +102,13 @@ namespace V12.Core.Networking
         /// </summary>
         public Func<bool>? HasConnectedPeer { get; set; }
 
+        /// <summary>
+        /// Optional per-session value channel. When set, SyncValue batches flush
+        /// through this channel's scoped registry instead of the process-wide
+        /// <see cref="SyncManager"/> facade.
+        /// </summary>
+        public SyncChannel? Sync { get; set; }
+
         private float _timeSinceLastSend = 0f;
 
         public DirtyTracker(NetworkCables? cables = null, string? senderUri = null)
@@ -206,23 +213,26 @@ namespace V12.Core.Networking
         /// <summary>
         /// Subscribe to all elements in a world and their components,
         /// and auto-track any elements added/removed in the future.
+        /// Idempotent per element; safe to call again after a content hot reload
+        /// replaces the world tree.
         /// </summary>
         public void TrackWorld(World world)
         {
             if (world?.Root == null) return;
             lock (_trackLock)
             {
-                if (_worldAddedHandlers.ContainsKey(world)) return; // already tracking
-
-                Action<IWorldElement> onAdded = el => OnWorldElementAdded(world, el);
-                Action<IWorldElement> onRemoved = el => OnWorldElementRemoved(world, el);
-                world.ElementAdded += onAdded;
-                world.ElementRemoved += onRemoved;
-                _worldAddedHandlers[world] = onAdded;
-                _worldRemovedHandlers[world] = onRemoved;
+                if (!_worldAddedHandlers.ContainsKey(world))
+                {
+                    Action<IWorldElement> onAdded = el => OnWorldElementAdded(world, el);
+                    Action<IWorldElement> onRemoved = el => OnWorldElementRemoved(world, el);
+                    world.ElementAdded += onAdded;
+                    world.ElementRemoved += onRemoved;
+                    _worldAddedHandlers[world] = onAdded;
+                    _worldRemovedHandlers[world] = onRemoved;
+                }
             }
 
-            foreach (var element in world.Root)
+            foreach (var element in world.Root.ToArray())
             {
                 TrackElement(element);
             }
@@ -547,14 +557,19 @@ namespace V12.Core.Networking
                 SendComponentRemovals();
             }
 
-            // Also flush any SyncValue-based dirty state via SyncManager
+            // Also flush any SyncValue-based dirty state. A session-owned channel
+            // keeps its keys scoped to one world; the static facade remains the
+            // compatibility path for code with no session.
             try
             {
-                SyncManager.FlushDirty();
+                if (Sync != null)
+                    Sync.FlushDirty();
+                else
+                    SyncManager.FlushDirty();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[DirtyTracker] Error flushing SyncManager: {ex.Message}");
+                Console.WriteLine($"[DirtyTracker] Error flushing SyncChannel: {ex.Message}");
             }
         }
 

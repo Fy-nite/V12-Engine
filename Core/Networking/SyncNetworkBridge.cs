@@ -4,22 +4,30 @@ namespace V12.Core.Networking
     using V12.Core.NetworkCable;
 
     /// <summary>
-    /// Bridge that wires the SyncManager send/receive pipeline to a NetworkCables transport.
-    /// Sets SyncManager.SendBytes to emit a MessageDTO on the provided NetworkCables instance
-    /// and listens for incoming WorldSync/WorldUpdate messages to apply via SyncManager.ApplyIncoming.
+    /// Wires one <see cref="SyncChannel"/> to a <see cref="NetworkCables"/>
+    /// transport. The parameterless channel overload is the process-wide legacy
+    /// path; session-aware code passes the channel owned by its world session.
     /// </summary>
     public class SyncNetworkBridge : IDisposable
     {
         private readonly NetworkCables _cables;
+        private readonly SyncChannel _channel;
         private readonly Uri _senderUri;
+        private readonly Action<byte[]> _send;
+        private bool _disposed;
 
         public SyncNetworkBridge(NetworkCables? cables = null, string? senderUri = null)
+            : this(SyncManager.Default, cables, senderUri)
         {
+        }
+
+        public SyncNetworkBridge(SyncChannel channel, NetworkCables? cables = null, string? senderUri = null)
+        {
+            _channel = channel ?? throw new ArgumentNullException(nameof(channel));
             _cables = cables ?? NetworkCables.Default;
             _senderUri = new Uri(senderUri ?? "networkcables://syncbridge");
 
-            // Hook send path: when SyncManager.FlushDirty calls SendBytes it will enqueue a MessageDTO
-            SyncManager.SendBytes = (bytes) =>
+            _send = bytes =>
             {
                 if (bytes == null) return;
                 var dto = new MessageDTO
@@ -31,7 +39,7 @@ namespace V12.Core.Networking
                 _cables.SendData(dto);
             };
 
-            // Listen for incoming messages from the transport and apply sync batches
+            _channel.SendBytes = _send;
             _cables.OnMessageReceived += OnMessageReceived;
         }
 
@@ -39,32 +47,28 @@ namespace V12.Core.Networking
         {
             if (message == null || message.Message == null) return;
 
-            // Only process SyncBatch messages (dedicated MessageType for SyncManager value-level sync).
-            // This avoids conflicting with DirtyTracker's WorldUpdate/WorldSync (component-level BSON sync).
-            if (message.MessageType == MessageType.SyncBatch)
+            // Only process SyncBatch messages. DirtyTracker owns the component
+            // and element-level paths; this bridge is the value-level channel.
+            if (message.MessageType != MessageType.SyncBatch) return;
+
+            try
             {
-                try
-                {
-                    SyncManager.ApplyIncoming(new ReadOnlyMemory<byte>(message.Message), message.Sender);
-                }
-                catch (Exception)
-                {
-                    // swallow to avoid crashing network thread
-                }
+                _channel.ApplyIncoming(new ReadOnlyMemory<byte>(message.Message), message.Sender);
+            }
+            catch (Exception)
+            {
+                // Never let a malformed batch take down the network thread.
             }
         }
 
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
+
             try { _cables.OnMessageReceived -= OnMessageReceived; } catch { }
-            // Clear the send hook if it points to this bridge
-            try
-            {
-                if (SyncManager.SendBytes != null)
-                    SyncManager.SendBytes = null;
-            }
-            catch { }
+            if (ReferenceEquals(_channel.SendBytes, _send))
+                _channel.SendBytes = null;
         }
     }
 }
-

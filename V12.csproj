@@ -43,7 +43,6 @@
   <PackageReference Include="AssimpNetter" Version="6.0.4" />
   <PackageReference Include="LiteNetLib" Version="1.1.0" />
   <PackageReference Include="MongoDB.Bson" Version="2.25.0" />
-  <PackageReference Include="BepuPhysics" Version="2.5.0-beta.29" />
   <PackageReference Include="MoonSharp" Version="2.0.0" />
   <PackageReference Include="Prowl.Origami" Version="3.9.3" />
   <PackageReference Include="Prowl.Paper" Version="3.9.3" />
@@ -57,6 +56,12 @@
     <ProjectReference Include="..\Contract\Contract.Runtime\Contract.Runtime.csproj" />
     <ProjectReference Include="$(V12RenderingProject)" />
     <ProjectReference Include="$(V12AudioProject)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Render-frame producer internals (Paper UI draw batching) are exercised
+         directly by the architecture tests. -->
+    <InternalsVisibleTo Include="V12.Architecture.Tests" />
   </ItemGroup>
 
   <ItemGroup>

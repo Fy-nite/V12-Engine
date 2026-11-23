@@ -9,20 +9,23 @@ namespace V12.Core.UI
     {
         public IWorldElement Root { get; set; }
 
+        // The builder root is a free-standing screen UI surface (it never joins a
+        // World), so its canvas defaults to screen space. A world-space canvas here
+        // would bake a stray quad at the world origin.
         public UIBuilder()
         {
             Root = new Element("CanvasRoot");
-            Root.Components.Add(new CanvasComponent());
+            Root.Components.Add(new CanvasComponent { ScreenSpace = true });
         }
         public UIBuilder(IWorldElement root)
         {
             Root = root;
-            Root.Components.Add(new CanvasComponent());
+            Root.Components.Add(new CanvasComponent { ScreenSpace = true });
         }
         public UIBuilder(IWorldElement root, int x, int y)
         {
             Root = root;
-            Root.Components.Add(new CanvasComponent(x,y));
+            Root.Components.Add(new CanvasComponent(x,y) { ScreenSpace = true });
         }
 
         public void SetScale(float scale)

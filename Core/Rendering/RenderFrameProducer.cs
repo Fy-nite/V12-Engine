@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Numerics;
+using V12.Core.Input;
 using V12.Core.Interfaces.Renderer;
+using V12.Core.UI.Paper;
 using V12.Rendering;
 using RenderEnvironmentData = V12.Rendering.EnvironmentData;
 using RenderRenderer = V12.Rendering.IRenderer;
@@ -15,9 +17,10 @@ namespace V12.Core.Rendering;
 /// backend-free renderer contract. It owns the CPU-to-handle resource cache and
 /// emits ordinary <see cref="DrawItem"/>s, views, lights and environment.
 ///
-/// v1 scope: main viewport only, triangle meshes, built-in materials, lights and
-/// environment. Textures, sprites, SVG, text, nested viewports and UI draw-item
-/// generation are intentionally left for the next step.
+/// v1 scope: triangle meshes with textures, built-in materials, lights,
+/// environment, explicit views, and screen-space UI as ordinary draw items. The
+/// producer owns the UI view and its optional presentation target, so hosts do
+/// not implement UI layout or UI targets.
 ///
 /// Must be called on the render thread that owns renderer resource creation.
 /// </summary>
@@ -36,9 +39,19 @@ public sealed class RenderFrameProducer : IDisposable
         public long Version;
     }
 
+    private readonly RenderRenderer _renderer;
     private readonly RenderFramePool _pool;
     private readonly RendererResourceCache _resources;
     private readonly PaperUiDrawBuilder _uiBuilder;
+    private readonly Dictionary<long, RenderTargetHandle> _viewTargets = new();
+    private readonly Dictionary<long, (int Width, int Height)> _viewTargetSizes = new();
+    private readonly Dictionary<long, int> _viewTargetRetire = new();
+    private RenderTargetHandle? _uiTarget;
+    private (int Width, int Height) _uiTargetSize;
+    private int _uiTargetRetire;
+    private readonly IUiSource? _uiSource;
+    private IReadOnlyDictionary<long, PaperFrame>? _worldCanvasFrames;
+    private readonly WorldUiInput? _worldUiInput;
     private readonly Dictionary<long, MeshState> _meshStates = new();
     private readonly HashSet<string> _warned = new(StringComparer.Ordinal);
     private readonly Func<string, TextureData?>? _textureLoader;
@@ -52,18 +65,45 @@ public sealed class RenderFrameProducer : IDisposable
         int viewportWidth = 1920,
         int viewportHeight = 1080,
         RenderFramePool? pool = null,
-        Func<string, TextureData?>? textureLoader = null)
+        Func<string, TextureData?>? textureLoader = null,
+        InputService? input = null,
+        IUiSource? uiSource = null)
     {
         ArgumentNullException.ThrowIfNull(renderer);
+        _renderer = renderer;
+        _uiSource = uiSource;
         _viewportWidth = Math.Max(1, viewportWidth);
         _viewportHeight = Math.Max(1, viewportHeight);
         _pool = pool ?? new RenderFramePool(4);
         _resources = new RendererResourceCache(renderer);
         _uiBuilder = new PaperUiDrawBuilder(_resources);
         _textureLoader = textureLoader;
+
+        // When the host supplies input, the producer also owns world-canvas
+        // pointer picking, hover feeding and keyboard focus - all engine-side.
+        // The UI source is the only Paper-aware object, and it lives in
+        // V12.Paper, not in this assembly.
+        if (input != null)
+            _worldUiInput = new WorldUiInput(input, () => _uiSource);
     }
 
     public RendererResourceCache Resources => _resources;
+
+    /// <summary>The UI package implementation (world layout + canvas input). Null
+    /// when the host did not opt into world-space UI.</summary>
+    public IUiSource? UiSource => _uiSource;
+
+    /// <summary>World-canvas input router (hover, click focus, keyboard). Null
+    /// when the producer was created without an <see cref="InputService"/>.</summary>
+    public WorldUiInput? WorldUi => _worldUiInput;
+
+    /// <summary>
+    /// Host presentation choice for the screen-space UI view. The default draws
+    /// UI straight into the presentation surface; hosts that composite the UI as
+    /// an overlay set <see cref="UiTargetPolicy.OwnTarget"/> and present the
+    /// target named by <see cref="RenderFrame.PresentTarget"/>.
+    /// </summary>
+    public UiTargetPolicy ScreenUiTargetPolicy { get; set; } = UiTargetPolicy.PresentSurface;
 
     /// <summary>
     /// Builds a frame from a captured snapshot. Returns false when the lease pool
@@ -98,17 +138,28 @@ public sealed class RenderFrameProducer : IDisposable
         }
 
         var env = environment ?? RenderEnvironmentData.Default;
-        BuildViews(snapshot, env, builder);
+        EnsureViewTargets(snapshot, uiFrame);
+        EnsureUiTarget(uiFrame);
+        if (uiFrame is { } worldUiContext)
+            PrepareWorldCanvases(worldUiContext, snapshot);
+        BuildViews(snapshot, env, builder, uiFrame);
         BuildItems(snapshot, builder);
         BuildParticles(snapshot, builder);
         BuildLights(snapshot, builder);
+        AppendWorldCanvases(snapshot, builder);
+
+        _uiBuilder.ViewTextureProvider = viewId =>
+            _viewTargets.TryGetValue(viewId, out var target)
+                ? _renderer.GetRenderTargetTexture(target)
+                : null;
 
         if (uiFrame is { } ui)
-            _uiBuilder.Append(ui, builder);
+            _uiBuilder.Append(ui, _uiTarget, builder);
 
         builder.Environment = env;
         builder.Time = time;
         builder.DeltaTime = deltaTime;
+        builder.PresentTarget = _uiTarget;
 
         lease = builder.Seal();
         return true;
@@ -136,41 +187,333 @@ public sealed class RenderFrameProducer : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
+        // Drop materials first: a UI material may still bind a view target
+        // texture, and DestroyRenderTarget rejects live references.
         _resources.Dispose();
+        _worldUiInput?.Dispose();
+        _worldCanvasFrames = null;
+        if (_uiTarget is { } uiTarget)
+        {
+            _renderer.DestroyRenderTarget(uiTarget);
+            _uiTarget = null;
+        }
+        foreach (var target in _viewTargets.Values)
+            _renderer.DestroyRenderTarget(target);
+        _viewTargets.Clear();
+        _viewTargetSizes.Clear();
+        _viewTargetRetire.Clear();
         _meshStates.Clear();
+    }
+
+    private void EnsureViewTargets(FrameSnapshot snapshot, UiFrameContext? uiFrame)
+    {
+        var active = new HashSet<long>();
+
+        foreach (var view in snapshot.Views)
+        {
+            if (!view.IsActive) continue;
+            if (!TryResolveViewRect(view, uiFrame, out var rect)) continue;
+
+            int width = Math.Max(1, (int)MathF.Round(rect.Width));
+            int height = Math.Max(1, (int)MathF.Round(rect.Height));
+            active.Add(view.ViewId);
+
+            if (_viewTargets.TryGetValue(view.ViewId, out var existing))
+            {
+                if (_viewTargetSizes.TryGetValue(view.ViewId, out var size) &&
+                    size.Width == width && size.Height == height)
+                {
+                    continue;
+                }
+
+                _renderer.ResizeRenderTarget(existing, width, height);
+            }
+            else
+            {
+                _viewTargets[view.ViewId] = _renderer.CreateRenderTarget(new RenderTargetDesc(
+                    width,
+                    height,
+                    Transparent: false,
+                    OwnWorld3D: false));
+            }
+
+            _viewTargetSizes[view.ViewId] = (width, height);
+        }
+
+        foreach (var id in active)
+            _viewTargetRetire.Remove(id);
+
+        foreach (var id in _viewTargets.Keys.ToArray())
+        {
+            if (active.Contains(id)) continue;
+
+            // The UI material that sampled this target survives one cache
+            // frame. Retire the target only after the cache has dropped its
+            // material, otherwise DestroyRenderTarget rejects the reference.
+            int frames = _viewTargetRetire.TryGetValue(id, out var count) ? count + 1 : 1;
+            if (frames < 3)
+            {
+                _viewTargetRetire[id] = frames;
+                continue;
+            }
+
+            _renderer.DestroyRenderTarget(_viewTargets[id]);
+            _viewTargets.Remove(id);
+            _viewTargetSizes.Remove(id);
+            _viewTargetRetire.Remove(id);
+        }
+    }
+
+    /// <summary>
+    /// Owns the screen-space UI target. Present-surface hosts never allocate one;
+    /// overlay hosts get a target sized to the UI surface and named by
+    /// <see cref="RenderFrame.PresentTarget"/>.
+    /// </summary>
+    private void EnsureUiTarget(UiFrameContext? uiFrame)
+    {
+        if (uiFrame is not { } ui || ScreenUiTargetPolicy != UiTargetPolicy.OwnTarget)
+        {
+            RetireUiTarget();
+            return;
+        }
+
+        int width = Math.Max(1, ui.Width > 0 ? ui.Width : ui.Screen.Width);
+        int height = Math.Max(1, ui.Height > 0 ? ui.Height : ui.Screen.Height);
+        _uiTargetRetire = 0;
+
+        if (_uiTarget is { } existing)
+        {
+            if (_uiTargetSize.Width == width && _uiTargetSize.Height == height)
+                return;
+
+            _renderer.ResizeRenderTarget(existing, width, height);
+            _uiTargetSize = (width, height);
+            return;
+        }
+
+        _uiTarget = _renderer.CreateRenderTarget(new RenderTargetDesc(
+            width,
+            height,
+            Transparent: true,
+            OwnWorld3D: true));
+        _uiTargetSize = (width, height);
+    }
+
+    /// <summary>
+    /// Lays out every world-space canvas and routes input before stepping. The
+    /// UI package does the layout; the engine only sequences and emits.
+    /// </summary>
+    private void PrepareWorldCanvases(UiFrameContext ui, FrameSnapshot snapshot)
+    {
+        if (_uiSource == null)
+            return;
+
+        // Surfaces must exist before input is fed, and input must be in place
+        // before the UI package steps them.
+        _uiSource.PrepareWorldCanvases(ui.Captured);
+
+        int width = ui.Width > 0 ? ui.Width : ui.Screen.Width;
+        int height = ui.Height > 0 ? ui.Height : ui.Screen.Height;
+        _worldUiInput?.BeginFrame(snapshot, width, height);
+
+        _uiSource.StepWorldCanvases();
+        _worldCanvasFrames = _uiSource.WorldCanvases;
+    }
+
+    /// <summary>
+    /// Emits world canvases as scene meshes. The canvas placement comes from
+    /// <see cref="FrameSnapshot.Canvases"/>; a surface without placement is
+    /// skipped rather than guessed.
+    /// </summary>
+    private void AppendWorldCanvases(FrameSnapshot snapshot, RenderFrameBuilder builder)
+    {
+        var frames = _worldCanvasFrames;
+        if (frames is null || frames.Count == 0)
+            return;
+
+        if (snapshot.Canvases.Count == 0)
+        {
+            WarnOnce(
+                "world-ui-without-placement",
+                "[RenderFrameProducer] World UI surfaces exist but the frame has no canvas placement for '{Id}'.",
+                string.Join(",", frames.Keys));
+            return;
+        }
+
+        // Deterministic paint order across canvases: priority, then element id.
+        // The high 16 sort bits order canvases, the low 16 keep the canvas's
+        // own draw order.
+        var ordered = snapshot.Canvases
+            .OrderBy(canvas => canvas.Priority)
+            .ThenBy(canvas => canvas.ElementId)
+            .ToArray();
+
+        for (int i = 0; i < ordered.Length; i++)
+        {
+            var canvas = ordered[i];
+            if (!frames.TryGetValue(canvas.ElementId, out var frame))
+                continue;
+
+            uint sortBase = (uint)Math.Min(i, 0xFFFF) << 16;
+            _uiBuilder.AppendWorld(canvas.ElementId, frame, canvas, sortBase, builder);
+        }
+    }
+
+    /// <summary>
+    /// Drops the UI target with the same grace as view targets: the resource
+    /// cache can still hold a material from the previous frame.
+    /// </summary>
+    private void RetireUiTarget()
+    {
+        if (_uiTarget is not { } target)
+            return;
+
+        if (++_uiTargetRetire < 3)
+            return;
+
+        _renderer.DestroyRenderTarget(target);
+        _uiTarget = null;
+        _uiTargetSize = default;
+        _uiTargetRetire = 0;
+    }
+
+    private static bool TryResolveViewRect(
+        in RenderViewSnapshot view,
+        UiFrameContext? uiFrame,
+        out ViewportRect rect)
+    {
+        if (view.Width > 0 && view.Height > 0)
+        {
+            rect = new ViewportRect(0f, 0f, view.Width, view.Height);
+            return true;
+        }
+
+        if (uiFrame is { } ui)
+        {
+            foreach (var surface in ui.Screen.Viewports)
+            {
+                if (surface.Id != view.ViewportId && surface.ViewId != view.ViewId)
+                    continue;
+
+                if (surface.Rect.Z > 0f && surface.Rect.W > 0f)
+                {
+                    rect = new ViewportRect(
+                        surface.Rect.X,
+                        surface.Rect.Y,
+                        surface.Rect.Z,
+                        surface.Rect.W);
+                    return true;
+                }
+            }
+        }
+
+        rect = default;
+        return false;
     }
 
     private void BuildViews(
         FrameSnapshot snapshot,
         in RenderEnvironmentData environment,
-        RenderFrameBuilder builder)
+        RenderFrameBuilder builder,
+        UiFrameContext? uiFrame)
     {
+        if (snapshot.Views.Count > 0)
+        {
+            foreach (var view in snapshot.Views)
+            {
+                if (!view.IsActive) continue;
+                if (!TryResolveViewRect(view, uiFrame, out var rect)) continue;
+                if (!_viewTargets.TryGetValue(view.ViewId, out var target)) continue;
+
+                var camera = FindCamera(snapshot, view);
+                if (camera is null) continue;
+
+                builder.Views.Add(BuildView(
+                    view,
+                    camera.Value,
+                    rect,
+                    target,
+                    environment));
+            }
+            return;
+        }
+
+        // Fallback: no explicit view components. Keep the simple single-view
+        // path for games that only set CameraComponent.IsCurrent.
         foreach (var renderable in snapshot.Renderables)
         {
-            if (renderable.NodeType != SnapshotNodeType.Camera ||
-                !renderable.IsCurrentCamera ||
-                renderable.ViewportId != 0)
-            {
+            if (renderable.NodeType != SnapshotNodeType.Camera || !renderable.IsCurrentCamera)
                 continue;
-            }
 
-            builder.Views.Add(BuildView(renderable, environment));
+            var fallback = new RenderViewSnapshot
+            {
+                ViewId = 1,
+                ViewportId = 0,
+                WorldId = renderable.WorldId,
+                CameraElementId = renderable.ElementId,
+                LayerMask = RenderLayers.Default,
+                Clear = ClearMode.Sky,
+                Priority = 0,
+                IsActive = true,
+            };
+
+            builder.Views.Add(BuildView(
+                fallback,
+                renderable,
+                new ViewportRect(0f, 0f, _viewportWidth, _viewportHeight),
+                null,
+                environment));
+            break;
         }
     }
 
-    private RenderView BuildView(
+    private static RenderableSnapshot? FindCamera(FrameSnapshot snapshot, in RenderViewSnapshot view)
+    {
+        if (view.CameraElementId != 0)
+        {
+            foreach (var renderable in snapshot.Renderables)
+            {
+                if (renderable.NodeType == SnapshotNodeType.Camera &&
+                    renderable.ElementId == view.CameraElementId)
+                {
+                    return renderable;
+                }
+            }
+            return null;
+        }
+
+        RenderableSnapshot? fallback = null;
+        foreach (var renderable in snapshot.Renderables)
+        {
+            if (renderable.NodeType != SnapshotNodeType.Camera) continue;
+            if (renderable.WorldId != view.WorldId) continue;
+
+            if (renderable.IsCurrentCamera)
+                return renderable;
+
+            fallback ??= renderable;
+        }
+
+        return fallback;
+    }
+
+    private static RenderView BuildView(
+        in RenderViewSnapshot view,
         in RenderableSnapshot camera,
+        in ViewportRect rect,
+        RenderTargetHandle? target,
         in RenderEnvironmentData environment)
     {
-        float aspect = (float)_viewportWidth / _viewportHeight;
+        float aspect = Math.Max(1f, rect.Width) / Math.Max(1f, rect.Height);
         float near = Math.Max(0.001f, camera.NearClip);
         float far = Math.Max(near, camera.FarClip);
         bool perspective = camera.Projection == CameraProjection.Perspective;
         float fov = Math.Clamp(camera.Fov, 1f, 179f);
 
-        Matrix4x4 view;
-        if (!Matrix4x4.Invert(camera.Transform, out view))
-            view = Matrix4x4.Identity;
+        Matrix4x4 viewMatrix;
+        if (!Matrix4x4.Invert(camera.Transform, out viewMatrix))
+            viewMatrix = Matrix4x4.Identity;
 
         Matrix4x4 projection = perspective
             ? Matrix4x4.CreatePerspectiveFieldOfView(
@@ -184,12 +527,29 @@ public sealed class RenderFrameProducer : IDisposable
                 near,
                 far);
 
+        var clearColor = new Vector4(
+            view.ClearColor.R / 255f,
+            view.ClearColor.G / 255f,
+            view.ClearColor.B / 255f,
+            view.ClearColor.A / 255f);
+
+        ClearSettings clear = view.Clear switch
+        {
+            ClearMode.None => new ClearSettings(ClearMode.None),
+            ClearMode.DepthOnly => new ClearSettings(ClearMode.DepthOnly),
+            ClearMode.Sky when environment.Sky.SkyboxEnabled => new ClearSettings(ClearMode.Sky),
+            ClearMode.Sky => new ClearSettings(ClearMode.Color, new Vector4(environment.Sky.Color, 1f)),
+            _ => new ClearSettings(ClearMode.Color, clearColor),
+        };
+
         return new RenderView
         {
-            Id = 0,
+            Id = view.ViewId,
+            ViewportId = view.ViewportId,
+            WorldId = view.WorldId,
             CameraElementId = camera.ElementId,
             IsCurrentCamera = true,
-            View = view,
+            View = viewMatrix,
             Projection = projection,
             ProjectionMetadata = new ProjectionMetadata(
                 perspective ? ProjectionKind.Perspective : ProjectionKind.Orthographic,
@@ -197,13 +557,12 @@ public sealed class RenderFrameProducer : IDisposable
                 far,
                 fov,
                 camera.OrthoSize),
-            Viewport = new ViewportRect(0f, 0f, _viewportWidth, _viewportHeight),
-            Clear = new ClearSettings(
-                environment.Sky.SkyboxEnabled ? ClearMode.Sky : ClearMode.Color,
-                new Vector4(environment.Sky.Color, 1f)),
-            Target = null,
-            LayerMask = RenderLayers.Default,
+            Viewport = rect,
+            Clear = clear,
+            Target = target,
+            LayerMask = view.LayerMask == 0 ? RenderLayers.Default : view.LayerMask,
             Eye = StereoEye.None,
+            Priority = view.Priority,
         };
     }
 
@@ -215,7 +574,6 @@ public sealed class RenderFrameProducer : IDisposable
         foreach (var renderable in snapshot.Renderables)
         {
             if (!IsMeshNode(renderable.NodeType) ||
-                renderable.ViewportId != 0 ||
                 renderable.MeshPoints is null ||
                 renderable.MeshPoints.Length < 9)
             {
@@ -261,13 +619,14 @@ public sealed class RenderFrameProducer : IDisposable
             builder.Items.Add(new DrawItem
             {
                 ElementId = renderable.ElementId,
-                ViewportId = 0,
+                WorldId = renderable.WorldId,
+                ViewId = renderable.ViewId,
                 Mesh = mesh,
                 Material = material,
                 World = renderable.Transform,
                 Clip = ClipRect.None,
                 SortKey = 0,
-                LayerMask = RenderLayers.Default,
+                LayerMask = renderable.LayerMask == 0 ? RenderLayers.Default : renderable.LayerMask,
                 Active = true,
                 OverridesIndex = overridesIndex,
                 SkinIndex = skinIndex,
@@ -759,13 +1118,14 @@ public sealed class RenderFrameProducer : IDisposable
     {
         foreach (var renderable in snapshot.Renderables)
         {
-            if (renderable.NodeType != SnapshotNodeType.Particle || renderable.ViewportId != 0)
+            if (renderable.NodeType != SnapshotNodeType.Particle)
                 continue;
 
             var color = renderable.ParticleColor;
             builder.Particles.Add(new ParticleItem
             {
                 ElementId = renderable.ElementId,
+                WorldId = renderable.WorldId,
                 Active = true,
                 World = renderable.Transform,
                 Amount = Math.Max(1, renderable.ParticleAmount),
@@ -787,7 +1147,7 @@ public sealed class RenderFrameProducer : IDisposable
                 Gravity = renderable.ParticleGravity,
                 Emitting = renderable.ParticleEmitting,
                 OneShot = renderable.ParticleOneShot,
-                LayerMask = RenderLayers.Default,
+                LayerMask = renderable.LayerMask == 0 ? RenderLayers.Default : renderable.LayerMask,
             });
         }
     }
@@ -796,8 +1156,7 @@ public sealed class RenderFrameProducer : IDisposable
     {
         foreach (var renderable in snapshot.Renderables)
         {
-            if (renderable.ViewportId != 0 ||
-                renderable.NodeType is not (
+            if (renderable.NodeType is not (
                     SnapshotNodeType.LightPoint or
                     SnapshotNodeType.LightDirectional or
                     SnapshotNodeType.LightSpot))
@@ -818,6 +1177,7 @@ public sealed class RenderFrameProducer : IDisposable
             builder.Lights.Add(new LightItem
             {
                 ElementId = renderable.ElementId,
+                WorldId = renderable.WorldId,
                 Active = true,
                 Kind = kind,
                 World = renderable.Transform,

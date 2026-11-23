@@ -1,5 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Numerics;
+using V12.Core.Interfaces.Renderer;
+using V12.Rendering;
 
 namespace V12.Core.Rendering
 {
@@ -45,6 +48,58 @@ namespace V12.Core.Rendering
 
             origin = near;
             direction = Vector3.Normalize(delta);
+            return true;
+        }
+
+        /// <summary>
+        /// Builds a viewport from a captured camera and a screen rect using the
+        /// same view/projection convention the frame producer renders with, so
+        /// unprojected rays agree with what the renderer drew.
+        /// </summary>
+        public static bool TryBuildCameraViewport(
+            in RenderableSnapshot camera,
+            float x,
+            float y,
+            float width,
+            float height,
+            out ViewportInfo viewport)
+        {
+            viewport = default;
+            if (camera.NodeType != SnapshotNodeType.Camera) return false;
+            if (width <= 0f || height <= 0f) return false;
+            if (!Matrix4x4.Invert(camera.Transform, out var view)) return false;
+
+            float aspect = Math.Max(1f, width) / Math.Max(1f, height);
+            float near = Math.Max(0.001f, camera.NearClip);
+            float far = Math.Max(near, camera.FarClip);
+            bool perspective = camera.Projection == CameraProjection.Perspective;
+            float fov = Math.Clamp(camera.Fov, 1f, 179f);
+
+            var projection = perspective
+                ? Matrix4x4.CreatePerspectiveFieldOfView(
+                    fov * (MathF.PI / 180f),
+                    aspect,
+                    near,
+                    far)
+                : Matrix4x4.CreateOrthographic(
+                    Math.Max(0.001f, camera.OrthoSize) * aspect,
+                    Math.Max(0.001f, camera.OrthoSize),
+                    near,
+                    far);
+
+            viewport = new ViewportInfo(
+                0,
+                x,
+                y,
+                width,
+                height,
+                true,
+                view,
+                projection,
+                camera.WorldId,
+                camera.LayerMask == 0 ? RenderLayers.Default : camera.LayerMask,
+                camera.ElementId,
+                0);
             return true;
         }
 

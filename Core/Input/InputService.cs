@@ -35,10 +35,20 @@ namespace V12.Core.Input
             if (evt == null) return;
             IInputHandler[] copy;
             lock (_lock) { copy = _handlers.ToArray(); }
+
+            // Raw key edges are gameplay input. A UI handler may mark a key as
+            // handled to keep it for a focused control, but games still need the
+            // edge; otherwise any focused Paper element silently disables every
+            // keybinding. Pointer, wheel and text events keep the normal
+            // consume-and-stop behavior so clicks do not fall through the UI.
+            bool broadcastRawKey =
+                evt.Type is InputEventType.ButtonDown or InputEventType.ButtonUp
+                && evt.Key.HasValue;
+
             foreach (var h in copy)
             {
                 try { h.OnInputEvent(evt); } catch { }
-                if (evt.Handled)
+                if (evt.Handled && !broadcastRawKey)
                     break;
             }
         }

@@ -4,6 +4,7 @@ using MongoDB.Bson.Serialization.Attributes;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.References;
+using V12.Core.UI;
 
 namespace V12.Components.UI
 {
@@ -63,14 +64,29 @@ namespace V12.Components.UI
         /// <summary>Strip height in pixels; 0 uses the theme default.</summary>
         public float TabHeight { get; set; }
 
+        /// <summary>Named action used when no <see cref="OnSelected"/> delegate is set.</summary>
+        public string Action { get; set; } = string.Empty;
+
         [BsonIgnore]
         public Action<int>? OnSelected { get; set; }
 
         public void InvokeSelected(int index)
         {
             SelectedIndex = index;
-            try { OnSelected?.Invoke(index); } catch { }
             MarkDirty();
+            try
+            {
+                if (OnSelected != null)
+                {
+                    OnSelected(index);
+                    return;
+                }
+
+                UiActions.Invoke(Action, new UiActionArgs(Owner, Index: index));
+            }
+            catch { }
+
+            GameRoot.Instance?.MarkRenderDirty();
         }
 
         public override IWorldElement BuildUI() => new Element();
@@ -122,14 +138,29 @@ namespace V12.Components.UI
 
         public int SelectedIndex { get; set; }
 
+        /// <summary>Named action used when no <see cref="OnSelected"/> delegate is set.</summary>
+        public string Action { get; set; } = string.Empty;
+
         [BsonIgnore]
         public Action<int>? OnSelected { get; set; }
 
         public void InvokeSelected(int index)
         {
             SelectedIndex = index;
-            try { OnSelected?.Invoke(index); } catch { }
             MarkDirty();
+            try
+            {
+                if (OnSelected != null)
+                {
+                    OnSelected(index);
+                    return;
+                }
+
+                UiActions.Invoke(Action, new UiActionArgs(Owner, Index: index));
+            }
+            catch { }
+
+            GameRoot.Instance?.MarkRenderDirty();
         }
 
         public override IWorldElement BuildUI() => new Element();
@@ -148,14 +179,29 @@ namespace V12.Components.UI
         public bool Searchable { get; set; }
         public float Width { get; set; }
 
+        /// <summary>Named action used when no <see cref="OnSelected"/> delegate is set.</summary>
+        public string Action { get; set; } = string.Empty;
+
         [BsonIgnore]
         public Action<int>? OnSelected { get; set; }
 
         public void InvokeSelected(int index)
         {
             SelectedIndex = index;
-            try { OnSelected?.Invoke(index); } catch { }
             MarkDirty();
+            try
+            {
+                if (OnSelected != null)
+                {
+                    OnSelected(index);
+                    return;
+                }
+
+                UiActions.Invoke(Action, new UiActionArgs(Owner, Index: index));
+            }
+            catch { }
+
+            GameRoot.Instance?.MarkRenderDirty();
         }
 
         public override IWorldElement BuildUI() => new Element();

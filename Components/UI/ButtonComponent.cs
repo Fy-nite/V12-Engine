@@ -3,6 +3,7 @@ using MongoDB.Bson.Serialization.Attributes;
 using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Networking;
+using V12.Core.UI;
 
 namespace V12.Components.UI
 {
@@ -18,6 +19,14 @@ namespace V12.Components.UI
 
         /// <summary>Visible text on the button face.</summary>
         public string Label { get; set; } = "Button";
+
+        /// <summary>
+        /// Named action invoked when the button is clicked and no
+        /// <see cref="OnClick"/> delegate is attached. Register the handler with
+        /// <c>UiActions.Register("name", ...)</c>. This is what lets WorldML wire
+        /// a button with no C# closure.
+        /// </summary>
+        public string Action { get; set; } = string.Empty;
 
         /// <summary>Called by the frontend when the button is clicked / activated.
         /// A code reference, never serialized — clicks are forwarded as RPCs.</summary>
@@ -35,7 +44,17 @@ namespace V12.Components.UI
         /// <summary>Invoke the click handler safely.</summary>
         public void InvokeClick()
         {
-            try { OnClick?.Invoke(); } catch { }
+            try
+            {
+                if (OnClick != null)
+                    OnClick();
+                else
+                    UiActions.Invoke(Action, new UiActionArgs(Owner));
+            }
+            catch { }
+
+            // A click almost always changes something visible.
+            GameRoot.Instance?.MarkRenderDirty();
         }
 
         /// <summary>
