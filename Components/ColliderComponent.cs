@@ -42,7 +42,8 @@ namespace V12.Components
             get => _depth;
             set { if (Math.Abs(_depth - value) > 0.0001f) { _depth = MathF.Max(0f, value); MarkDirty(); } }
         }
-        /// <summary>Trigger colliders raise overlap events but do not produce a physics response.</summary>
+        /// <summary>Trigger colliders do not produce a physics response. The Bepu
+        /// backend raises overlap events through <see cref="V12.Core.Interfaces.Physics.IPhysicsTriggerEvents"/>.</summary>
         public bool IsTrigger
         {
             get => _isTrigger;

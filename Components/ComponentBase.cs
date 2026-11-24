@@ -53,7 +53,18 @@ namespace V12.Components
 
         public virtual string? Description { get; set; }
         public bool IsDirty => OnDirty != null;
-        public bool Active {  get; set; } = true;
+
+        private bool _active = true;
+
+        /// <summary>
+        /// Inactive components are skipped by rendering and capture. Dirty-tracked
+        /// so toggling one re-captures the frame.
+        /// </summary>
+        public bool Active
+        {
+            get => _active;
+            set => SetSync(ref _active, value);
+        }
 
         /// <summary>When false this component is runtime/editor-only: the WorldML
         /// serializer omits it on save/export, so it never round-trips through a

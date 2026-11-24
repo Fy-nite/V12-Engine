@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Threading;
 using V12.Core.Binding;
 using V12.Core.Core.Interfaces;
@@ -15,6 +16,22 @@ namespace V12.Core
         /// <summary>Stable world identity carried on the wire. The local element ids
         /// remain scoped to this world during the single-region phase.</summary>
         public Guid Id { get; set; } = Guid.NewGuid();
+
+        /// <summary>
+        /// Double-precision origin of the simulation bubble. Element transforms,
+        /// physics bodies and the renderer all use coordinates local to this
+        /// point; the true global position is <see cref="Origin"/> plus a local
+        /// transform. Kept at zero until something rebases it, so existing worlds
+        /// and tests are unchanged.
+        /// </summary>
+        public WorldOffset Origin { get; private set; } = WorldOffset.Zero;
+
+        /// <summary>How many times this world's bubble has been re-centred.</summary>
+        public int OriginRebaseCount { get; private set; }
+
+        /// <summary>Raised after a re-centre, with the local delta that was
+        /// subtracted from every root transform.</summary>
+        public event Action<World, Vector3>? OriginRebased;
 
         /// <summary>Binding context for this world. Lazily created by <see cref="Bind.Current"/>.</summary>
         public BindingContext? Bindings { get; set; }
@@ -95,7 +112,7 @@ namespace V12.Core
             try
             {
                 Root.Add(element);
-                _elementsById[element.Id] = element;
+                IndexSubtree(element);
             }
             finally { Lock.ExitWriteLock(); }
             ElementAdded?.Invoke(element);
@@ -117,6 +134,90 @@ namespace V12.Core
                     && ReferenceEquals(indexed, element);
             }
             finally { Lock.ExitReadLock(); }
+        }
+
+        /// <summary>
+        /// Convert an element's local world transform into a double-precision
+        /// global position by adding the bubble origin. Safe to call from any
+        /// thread; takes a read lock for the transform walk.
+        /// </summary>
+        public WorldOffset GlobalPositionOf(IWorldElement element)
+        {
+            Lock.EnterReadLock();
+            try
+            {
+                var m = element.WorldTransform;
+                return Origin + new Vector3(m.M41, m.M42, m.M43);
+            }
+            finally { Lock.ExitReadLock(); }
+        }
+
+        /// <summary>Add the bubble origin to a local world-space position.</summary>
+        public WorldOffset GlobalPositionOf(Vector3 localWorldPosition) => Origin + localWorldPosition;
+
+        /// <summary>Convert a global position into this world's local bubble.</summary>
+        public Vector3 LocalPositionOf(WorldOffset globalPosition) => (globalPosition - Origin).ToVector3();
+
+        /// <summary>
+        /// Re-centre the float bubble by <paramref name="localShift"/>. Every
+        /// root transform and every <see cref="IFloatingOriginAware"/> component
+        /// is moved by the same delta, so all relative geometry is preserved and
+        /// only the mapping between local space and global space changes.
+        /// </summary>
+        /// <returns>False when the shift was zero or not finite.</returns>
+        public bool RebaseOrigin(Vector3 localShift)
+        {
+            if (!float.IsFinite(localShift.X)
+                || !float.IsFinite(localShift.Y)
+                || !float.IsFinite(localShift.Z)
+                || localShift.LengthSquared() < 1e-8f)
+                return false;
+
+            // World.Update holds a read lock while component updates run. The
+            // re-centre only moves transforms and component state; it never
+            // changes the tree, so it can run under that read lock. External
+            // callers take the write lock normally.
+            bool tookWriteLock = !Lock.IsReadLockHeld;
+            if (tookWriteLock)
+                Lock.EnterWriteLock();
+            try
+            {
+                foreach (var root in Root.ToArray())
+                {
+                    if (root == null) continue;
+                    var lt = root.LocalTransform;
+                    lt.Position -= localShift;
+                    root.LocalTransform = lt;
+                }
+
+                SpawnPosition -= localShift;
+                Origin += localShift;
+                OriginRebaseCount++;
+
+                foreach (var root in Root.ToArray())
+                    NotifyOriginShift(root, localShift);
+            }
+            finally
+            {
+                if (tookWriteLock)
+                    Lock.ExitWriteLock();
+            }
+
+            GameRoot.Instance?.MarkRenderDirty();
+            OriginRebased?.Invoke(this, localShift);
+            return true;
+        }
+
+        private static void NotifyOriginShift(IWorldElement element, Vector3 delta)
+        {
+            foreach (var component in element.Components.ToArray())
+            {
+                if (component is IFloatingOriginAware aware)
+                    aware.OnOriginShift(delta);
+            }
+
+            foreach (var child in element.Children.ToArray())
+                NotifyOriginShift(child, delta);
         }
 
         /// <summary>Look up an element by id inside this world only. Unlike
@@ -142,7 +243,7 @@ namespace V12.Core
             {
                 removed = Root.Remove(element);
                 if (removed)
-                    _elementsById.Remove(element.Id);
+                    UnindexSubtree(element);
             }
             finally { Lock.ExitWriteLock(); }
             if (removed)
@@ -166,21 +267,31 @@ namespace V12.Core
                 foreach (var el in source.Root)
                 {
                     Root.Add(el);
-                    IndexElementRecursive(el);
+                    IndexSubtree(el);
                 }
             }
             finally { Lock.ExitWriteLock(); }
             GameRoot.Instance?.MarkRenderDirty();
         }
 
-        private void IndexElementRecursive(IWorldElement element)
+        /// <summary>Index an element and every descendant by id. Call under the write lock.</summary>
+        internal void IndexSubtree(IWorldElement element)
         {
             _elementsById[element.Id] = element;
-            if (element.Children != null)
-            {
-                foreach (var child in element.Children)
-                    IndexElementRecursive(child);
-            }
+            if (element.Children == null) return;
+
+            foreach (var child in element.Children)
+                IndexSubtree(child);
+        }
+
+        /// <summary>Drop an element and every descendant from the id index. Call under the write lock.</summary>
+        internal void UnindexSubtree(IWorldElement element)
+        {
+            _elementsById.Remove(element.Id);
+            if (element.Children == null) return;
+
+            foreach (var child in element.Children)
+                UnindexSubtree(child);
         }
 
         public void GenerateWorld()

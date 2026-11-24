@@ -71,7 +71,19 @@ namespace V12.Core
         public IWorldElement? Parent { get; set; }
         public List<IComponent> Components { get; set; } = new List<IComponent>();
         public List<IWorldElement> Children { get; } = new List<IWorldElement>();
-        public bool Active { get; set; } = true;
+
+        private bool _active = true;
+
+        public bool Active
+        {
+            get => _active;
+            set
+            {
+                if (_active == value) return;
+                _active = value;
+                MarkDirty();
+            }
+        }
 
         private TRS _localTransform = new TRS
         {
@@ -173,29 +185,66 @@ namespace V12.Core
 
         public void AddChild(IWorldElement child)
         {
-            if (child == null) return;
-            bool added = false;
+            if (child == null || ReferenceEquals(child, this)) return;
+
+            // Refuse cycles: a parent must not sit inside the child's subtree.
+            for (IWorldElement? ancestor = this; ancestor != null; ancestor = ancestor.Parent)
+            {
+                if (ReferenceEquals(ancestor, child))
+                {
+                    GameRoot.Log.Warning(
+                        "Refusing to parent '{Child}' under its own descendant '{Parent}'",
+                        child.Name, Name);
+                    return;
+                }
+            }
+
             var world = FindWorldForElement();
+            var previousParent = child.Parent;
+            var previousWorld = previousParent != null
+                ? GameRoot.Instance?.FindOwningWorld(previousParent)
+                : GameRoot.Instance?.FindOwningWorld(child);
+
+            if (previousWorld != null && world != null && !ReferenceEquals(previousWorld, world))
+            {
+                GameRoot.Log.Warning(
+                    "Refusing to move '{Child}' from world '{From}' to '{To}': cross-world reparenting is not supported",
+                    child.Name, previousWorld.WorldName, world.WorldName);
+                return;
+            }
+
+            bool added = false;
+
             world?.Lock.EnterWriteLock();
             try
             {
+                // A reparent must leave the old container, or the element ends up
+                // in two parents' children lists.
+                if (previousParent != null && !ReferenceEquals(previousParent, this))
+                    previousParent.RemoveChild(child);
+                else if (previousParent == null && world != null && world.Root.Contains(child))
+                    world.RemoveElement(child);
+
                 child.Parent = this;
                 if (!Children.Contains(child))
                 {
                     Children.Add(child);
                     added = true;
                 }
-                if (world != null)
-                    world._elementsById[child.Id] = child;
+
+                world?.IndexSubtree(child);
             }
             finally { world?.Lock.ExitWriteLock(); }
+
             if (added) ChildAdded?.Invoke(child);
             MarkDirty();
         }
 
         private World? FindWorldForElement()
         {
-            return GameRoot.Instance?.GetWorldForElement(this);
+            // Owning world only: a detached element being assembled has no world
+            // yet, and must not lock or index into the focused one.
+            return GameRoot.Instance?.FindOwningWorld(this);
         }
 
         public void RemoveChild(IWorldElement child)
@@ -210,9 +259,8 @@ namespace V12.Core
                 {
                     removed = true;
                     child.Parent = null;
+                    world?.UnindexSubtree(child);
                 }
-                if (world != null)
-                    world._elementsById.Remove(child.Id);
             }
             finally { world?.Lock.ExitWriteLock(); }
             if (removed) ChildRemoved?.Invoke(child);
@@ -222,7 +270,7 @@ namespace V12.Core
         public IComponent AddComponent(IComponent component)
         {
             component.OnAttach(this);
-            var world = GameRoot.Instance?.SelectedWorld;
+            var world = FindWorldForElement();
             world?.Lock.EnterWriteLock();
             try
             {
@@ -241,7 +289,7 @@ namespace V12.Core
         }
         public void RemoveComponent(IComponent component)
         {
-            var world = GameRoot.Instance?.SelectedWorld;
+            var world = FindWorldForElement();
             world?.Lock.EnterWriteLock();
             try
             {

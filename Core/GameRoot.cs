@@ -13,6 +13,8 @@ using V12.Core.NetworkCable;
 using V12.Core.Networking;
 using V12.Core.Registry;
 using V12.Core.Input;
+using V12.Core.Introspection;
+using V12.Core.Modules;
 using V12.Core.Rendering;
 using V12.Core.Timing;
 using V12.Core.UI;
@@ -99,6 +101,22 @@ namespace V12.Core
 
         /// <summary>Loader responsible for discovering and managing game paks.</summary>
         public GamepackLoader Gamepaks { get; } = new GamepackLoader();
+
+        /// <summary>
+        /// Live scene read/command surface for out-of-process tooling (the
+        /// introspection probe, editor tooling, tests). Snapshots are built on
+        /// the tick thread; mutations are queued and applied at the tick
+        /// boundary, so no outside thread ever touches a live component.
+        /// </summary>
+        public SceneIntrospection Introspection { get; }
+
+        /// <summary>
+        /// Opt-in module loader for tooling that is not referenced by the engine
+        /// or the renderer. Nothing is loaded until a host calls
+        /// <see cref="ModuleHost.Load"/> or <see cref="ModuleHost.LoadDirectory"/>,
+        /// so a game launched without the flag carries no module code.
+        /// </summary>
+        public ModuleHost Modules { get; }
 
         /// <summary>
         /// The NetworkCables message bus used by this game instance.
@@ -324,6 +342,29 @@ namespace V12.Core
             return SelectedWorld;
         }
 
+        /// <summary>
+        /// The world that actually owns <paramref name="element"/>, or null when it
+        /// is not attached to any world. Unlike <see cref="GetWorldForElement"/>
+        /// this never falls back to the focused world, so callers can tell "not
+        /// attached yet" from "belongs somewhere else".
+        /// </summary>
+        public World? FindOwningWorld(IWorldElement element)
+        {
+            if (element == null) return null;
+
+            var top = element;
+            while (top.Parent != null)
+                top = top.Parent;
+
+            if (PersistentWorld.ContainsElement(top)) return PersistentWorld;
+
+            foreach (var world in Worlds)
+                if (world.ContainsElement(top))
+                    return world;
+
+            return null;
+        }
+
         private static IWorldElement? FindInWorld(World world, Func<IWorldElement, bool> predicate)
         {
             foreach (var el in world.Root)
@@ -405,6 +446,8 @@ namespace V12.Core
         public GameRoot() {
             WorldManager = new WorldManager(this);
             Registry.Register("WorldManager", WorldManager);
+            Introspection = new SceneIntrospection(this);
+            Modules = new ModuleHost(this);
 
             //Worlds.Add(UserSpace);
             //Worlds.Add(HomeWorld);
@@ -2038,6 +2081,7 @@ namespace V12.Core
         public void Shutdown()
         {
             using var _zone = V12Profiler.BeginZone("GameRoot.Shutdown", V12Profiler.Colors.Engine);
+            Modules.DisposeAll();
             _networkingCts?.Cancel();
             Registry.Get<NetworkHost>("NetworkHost")?.Dispose();
             Registry.Get<NetworkClient>("NetworkClient")?.Dispose();
@@ -2052,6 +2096,12 @@ namespace V12.Core
         {
             using var _zone = V12Profiler.BeginZone("GameRoot.Update(real)", V12Profiler.Colors.World);
             Simulation.Advance(deltaTime, FixedUpdate);
+
+            // A paused clock runs no fixed steps, so queued scene edits would
+            // otherwise never apply. Drain on the render tick instead; receipts
+            // still record the (frozen) tick, so a replay can tell the two apart.
+            if (Simulation.IsPaused)
+                Introspection.DrainCommands(Simulation.Tick, paused: true);
         }
 
         /// <summary>
@@ -2066,6 +2116,11 @@ namespace V12.Core
             // start ticking without a separate start call. ActiveWorlds keeps its
             // old meaning: the simulated set.
             WorldManager.ReconcileAll();
+
+            // Scene edits land between two steps, before any world ticks, so the
+            // tracker, netcode and capture all observe one coherent change.
+            Introspection.DrainCommands(Simulation.Tick);
+
             foreach (var world in WorldManager.ActiveWorlds)
             {
                 if (!world.TickingEnabled) continue;

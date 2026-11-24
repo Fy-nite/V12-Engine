@@ -47,6 +47,14 @@ namespace V12.WorldML
             "Runtime", "IsInitialized", "Key"
         };
 
+        /// <summary>
+        /// True when a property is plumbing or a render/material payload rather
+        /// than authoritative state. Shared with the introspection snapshot so
+        /// live reads and saves agree on what a component's state actually is.
+        /// </summary>
+        public static bool IsExcludedProperty(string propertyName)
+            => ExcludedProps.Contains(propertyName);
+
         /// <summary>Serialize the given root elements as one WorldML document.</summary>
         public static string Serialize(IEnumerable<IWorldElement> roots, string worldName = "World")
         {
