@@ -95,6 +95,10 @@ namespace V12.Core.Input
         {
             public readonly List<InputSource> Positive = new();
             public readonly List<InputSource> Negative = new();
+
+            /// <summary>Delta axes carry raw pixel/unit travel and must not be
+            /// clamped to the stick range.</summary>
+            public bool Unclamped;
         }
 
         private sealed class ButtonBinding
@@ -132,6 +136,21 @@ namespace V12.Core.Input
         {
             lock (_lock)
                 _axisBindings[actionName] = NameAxis(positiveInput, negativeInput);
+        }
+
+        /// <summary>
+        /// Binds an unbounded delta axis. Use it for host-published mouse or
+        /// touch travel, which can exceed one pixel or one unit in a frame; a
+        /// normal axis stays clamped to [-1, 1] for stick-like input.
+        /// </summary>
+        public void BindDeltaAxis(string actionName, string positiveInput, string negativeInput)
+        {
+            lock (_lock)
+            {
+                var binding = NameAxis(positiveInput, negativeInput);
+                binding.Unclamped = true;
+                _axisBindings[actionName] = binding;
+            }
         }
 
         /// <summary>Replaces an axis action with a single physical key.</summary>
@@ -460,7 +479,10 @@ namespace V12.Core.Input
                     // read negative (a stick pushed up), and key pairs cancel.
                     float pos = SumSourceValues(binding.Positive);
                     float neg = SumSourceValues(binding.Negative);
-                    _axisValues[action] = Math.Clamp(pos - neg, -1f, 1f);
+                    float value = pos - neg;
+                    _axisValues[action] = binding.Unclamped
+                        ? value
+                        : Math.Clamp(value, -1f, 1f);
                 }
 
                 foreach (var (action, binding) in _buttonBindings)

@@ -823,12 +823,13 @@ namespace V12.Core
         private void CaptureUICanvases(IWorldElement element, UIFrame frame)
         {
             using var _zone = V12Profiler.BeginZone("GameRoot.CaptureUICanvases", V12Profiler.Colors.Runtime);
-            if (element?.Components == null) return;
+            if (element?.Components == null || !element.Active) return;
 
             var canvas = element.GetComponent<V12.Components.UI.CanvasComponent>();
             if (canvas != null)
             {
-                CaptureCanvas(element, canvas, frame);
+                if (canvas.Active)
+                    CaptureCanvas(element, canvas, frame);
                 return;
             }
 
@@ -850,6 +851,7 @@ namespace V12.Core
                 Height = canvas.Height,
                 AnchorX = canvas.AnchorX,
                 AnchorY = canvas.AnchorY,
+                WorldShader = canvas.WorldShader ?? string.Empty,
             });
 
             foreach (var child in canvasElement.Children.ToArray())
@@ -859,7 +861,7 @@ namespace V12.Core
         private void CaptureUIWidgets(IWorldElement element, long parentId, UIFrame frame)
         {
             using var _zone = V12Profiler.BeginZone("GameRoot.CaptureUIWidgets", V12Profiler.Colors.Runtime);
-            if (element?.Components == null) return;
+            if (element?.Components == null || !element.Active) return;
 
             // A nested canvas starts its own root subtree.
             var nestedCanvas = element.GetComponent<V12.Components.UI.CanvasComponent>();
@@ -1799,9 +1801,10 @@ namespace V12.Core
         {
             void Collect(IWorldElement element)
             {
-                if (element?.Components == null) return;
+                if (element?.Components == null || !element.Active) return;
 
-                if (element.GetComponent<V12.Components.UI.CanvasComponent>() is { ScreenSpace: false } canvas)
+                if (element.GetComponent<V12.Components.UI.CanvasComponent>() is { ScreenSpace: false } canvas
+                    && canvas.Active)
                 {
                     var (pixelWidth, pixelHeight) =
                         WorldCanvasSnapshot.ResolvePixelSize(canvas.Width, canvas.Height);
@@ -1813,7 +1816,8 @@ namespace V12.Core
                         pixelHeight,
                         element.WorldTransform,
                         canvas.Priority,
-                        canvas.Interactive));
+                        canvas.Interactive,
+                        canvas.WorldShader));
                 }
 
                 foreach (var child in element.Children.ToArray())

@@ -185,12 +185,17 @@ internal sealed class PaperUiDrawBuilder
                 TextShaderUri = frame.TextShaderUri,
             };
 
-        string shapeUri = string.IsNullOrWhiteSpace(frame.ShapeShaderUri)
-            ? "shader://v12.paper/paper"
-            : frame.ShapeShaderUri;
-        string textUri = string.IsNullOrWhiteSpace(frame.TextShaderUri)
-            ? "shader://v12.paper/text"
-            : frame.TextShaderUri;
+        // World canvases use their own spatial shader pair. The mesh vertices are
+        // still canvas pixels, but the world model matrix is between them and the
+        // shader, so this variant recovers pixels through the inverse model
+        // matrix before sampling brushes, scissors and the font atlas.
+        //
+        // A canvas may opt into the flat HUD shader: it keeps the font SDF but
+        // drops the pixel-space brush/scissor masks, which is what a small wrist
+        // or HUD panel wants when it is viewed at steep angles.
+        bool flat = string.Equals(canvas.WorldShader, "flat", StringComparison.OrdinalIgnoreCase);
+        string shapeUri = flat ? "shader://v12.paper/world-flat" : "shader://v12.paper/world";
+        string textUri = flat ? "shader://v12.paper/world-flat" : "shader://v12.paper/world-text";
 
         for (int i = 0; i < frame.Meshes.Count; i++)
         {

@@ -225,6 +225,9 @@ namespace V12.Core.Rendering
         /// <summary>False for display-only canvases (they never take pointer focus).</summary>
         public bool Interactive;
 
+        /// <summary>Optional shader profile, e.g. <c>flat</c>.</summary>
+        public string WorldShader;
+
         /// <summary>Width used when the canvas element has no scale of its own.</summary>
         public const float DefaultWidthMetres = 2f;
 
@@ -256,13 +259,18 @@ namespace V12.Core.Rendering
             int pixelHeight,
             Matrix4x4 world,
             int priority = 0,
-            bool interactive = true)
+            bool interactive = true,
+            string worldShader = "")
         {
             int width = Math.Max(1, pixelWidth);
             int height = Math.Max(1, pixelHeight);
 
-            float scaleX = new Vector3(world.M11, world.M21, world.M31).Length();
-            float scaleY = new Vector3(world.M12, world.M22, world.M32).Length();
+            // V12 composes element transforms for row vectors (scale * rotation *
+            // translation), so the transformed X/Y axes are the ROWS. Normalising
+            // columns here sheared any canvas that was both scaled and rotated.
+            float scaleX = new Vector3(world.M11, world.M12, world.M13).Length();
+            float scaleY = new Vector3(world.M21, world.M22, world.M23).Length();
+            float scaleZ = new Vector3(world.M31, world.M32, world.M33).Length();
             bool hasScale =
                 (scaleX > 0.01f && MathF.Abs(scaleX - 1f) > 1e-3f) ||
                 (scaleY > 0.01f && MathF.Abs(scaleY - 1f) > 1e-3f);
@@ -270,15 +278,22 @@ namespace V12.Core.Rendering
             if (scaleX > 0.01f)
             {
                 world.M11 /= scaleX;
-                world.M21 /= scaleX;
-                world.M31 /= scaleX;
+                world.M12 /= scaleX;
+                world.M13 /= scaleX;
             }
 
             if (scaleY > 0.01f)
             {
-                world.M12 /= scaleY;
+                world.M21 /= scaleY;
                 world.M22 /= scaleY;
-                world.M32 /= scaleY;
+                world.M23 /= scaleY;
+            }
+
+            if (scaleZ > 0.01f)
+            {
+                world.M31 /= scaleZ;
+                world.M32 /= scaleZ;
+                world.M33 /= scaleZ;
             }
 
             float widthMetres = MathF.Max(0.01f, hasScale ? scaleX : DefaultWidthMetres);
@@ -297,6 +312,7 @@ namespace V12.Core.Rendering
                 HeightMetres = heightMetres,
                 Priority = priority,
                 Interactive = interactive,
+                WorldShader = worldShader ?? string.Empty,
             };
         }
     }

@@ -59,6 +59,9 @@ namespace V12.Core.Rendering
         public float AnchorX = 0.5f;
         public float AnchorY = 0.5f;
 
+        /// <summary>Optional world-canvas shader profile, e.g. <c>flat</c>.</summary>
+        public string WorldShader = "";
+
         // ── Box / layout ────────────────────────────────────────────────────
         public float Width;
         public float Height;

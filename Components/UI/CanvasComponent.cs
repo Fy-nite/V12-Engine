@@ -38,6 +38,14 @@ public class CanvasComponent : ComponentBase
     /// </summary>
     public bool Interactive { get; set; } = true;
 
+    /// <summary>
+    /// Optional world-canvas shader profile. Empty uses the standard Paper
+    /// world shader. <c>flat</c> uses a simpler solid/text shader that ignores
+    /// pixel-space brush and scissor masks, which is useful for wrist and HUD
+    /// panels that need to stay readable at steep angles.
+    /// </summary>
+    public string WorldShader { get; set; } = string.Empty;
+
     public CanvasComponent()
     {
         _x = 0;
