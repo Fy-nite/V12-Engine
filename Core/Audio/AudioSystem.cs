@@ -71,6 +71,28 @@ public sealed class AudioSystem : IGameService
                     info.DeviceName ?? "default device",
                     info.SampleRate,
                     info.Channels);
+
+                if (AudioDeviceInfo.IsSilentDeviceName(info.DeviceName))
+                {
+                    string devices;
+                    try
+                    {
+                        devices = string.Join(", ", engine.GetOutputDevices()
+                            .Where(d => d.IsOutput)
+                            .Select(d => d.IsSilent ? $"{d.Name} [silent]" : d.Name));
+                    }
+                    catch
+                    {
+                        devices = "unavailable";
+                    }
+
+                    GameRoot.Log?.Warning(
+                        "[AudioSystem] Output device '{Device}' discards every sample, so the game will be silent. " +
+                        "Choose a real device with AudioEngineOptions.OutputDeviceName (NovaV2: --audio-device <name>). " +
+                        "Available: {Devices}",
+                        info.DeviceName,
+                        devices);
+                }
             }
         }
         catch (Exception ex)

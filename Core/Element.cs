@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading;
@@ -140,12 +141,89 @@ namespace V12.Core
             get
             {
                 // Single definition of local placement lives in
-                // ElementPlacement (LocalTransform × ScaleComponent);
+                // ElementPlacement (LocalTransform � ScaleComponent);
                 // ancestors compose here.
                 var local = ElementPlacement.ElementLocalMatrix(this);
                 if (Parent != null)
                     return local * Parent.WorldTransform;
                 return local;
+            }
+        }
+
+        // -- Render-pose interpolation ---------------------------------------
+        // Gameplay reads WorldTransform (the exact fixed-step pose). Rendering
+        // reads RenderWorldTransform, which interpolates the local pose
+        // (position/rotation/scale) between the ends of the last two fixed steps
+        // using the clock's alpha. This is what removes 60 Hz judder on a
+        // 144/240 Hz display without adding a simulation step or touching physics.
+
+        private TRS _renderPoseFrom;
+        private TRS _renderPoseTo;
+        private bool _hasRenderPose;
+
+        /// <summary>Snapshot the pose at the start of a fixed step.</summary>
+        internal void BeginRenderPose()
+        {
+            TRS local = ElementPlacement.ElementLocalTRS(this);
+
+            if (!_hasRenderPose)
+            {
+                _renderPoseFrom = local;
+                _renderPoseTo = local;
+                _hasRenderPose = true;
+                return;
+            }
+
+            _renderPoseFrom = _renderPoseTo;
+        }
+
+        /// <summary>Snapshot the pose at the end of a fixed step.</summary>
+        internal void EndRenderPose()
+        {
+            if (!_hasRenderPose)
+            {
+                _renderPoseFrom = ElementPlacement.ElementLocalTRS(this);
+                _hasRenderPose = true;
+            }
+
+            _renderPoseTo = ElementPlacement.ElementLocalTRS(this);
+        }
+
+        /// <summary>
+        /// Element-local matrix for rendering: interpolated when the host opted
+        /// into render interpolation, otherwise exactly the current local.
+        /// </summary>
+        public Matrix4x4 RenderLocalTransform
+        {
+            get
+            {
+                GameRoot? root = GameRoot.Instance;
+                if (!_hasRenderPose || root?.RenderInterpolation != true)
+                    return ElementPlacement.ElementLocalMatrix(this);
+
+                float alpha = root.InterpolationAlpha;
+                Vector3 position = Vector3.Lerp(_renderPoseFrom.Position, _renderPoseTo.Position, alpha);
+                Quaternion rotation = Quaternion.Slerp(_renderPoseFrom.Rotation, _renderPoseTo.Rotation, alpha);
+                Vector3 scale = Vector3.Lerp(_renderPoseFrom.Scale, _renderPoseTo.Scale, alpha);
+
+                return Matrix4x4.CreateScale(scale)
+                     * Matrix4x4.CreateFromQuaternion(rotation)
+                     * Matrix4x4.CreateTranslation(position);
+            }
+        }
+
+        /// <summary>Interpolated world matrix for rendering only.</summary>
+        public Matrix4x4 RenderWorldTransform
+        {
+            get
+            {
+                Matrix4x4 local = RenderLocalTransform;
+                if (Parent is Element parent)
+                    return local * parent.RenderWorldTransform;
+
+                // A non-Element parent cannot interpolate; compose with its
+                // current world so a custom element still renders sensibly.
+                return Parent != null ? local * Parent.WorldTransform : local;
             }
         }
 
@@ -298,9 +376,22 @@ namespace V12.Core
             finally { world?.Lock.ExitWriteLock(); }
             var tracker = GameRoot.Instance?.Registry.Get<DirtyTracker>("DirtyTracker");
             tracker?.UntrackComponent(component);
+
+            // Snapshot values before detach: the component may clear them.
+            var values = SyncValueScanner.EnumerateMembers(component).ToArray();
+
             // Broadcast the removal to peers (host only) so remote copies drop it too.
             tracker?.NotifyComponentRemoved(this, component);
             component.OnDetach(this);
+            try { component.OnDestroy(); } catch { }
+
+            // Release process-wide registry entries so a removed component cannot
+            // leak its values (including mesh buffers).
+            foreach (var value in values)
+            {
+                try { value.Unregister(); } catch { }
+            }
+
             MarkDirty(); // re-capture a frame so the renderer drops the removed component's node
         }
         public IComponent GetComponent(string name)

@@ -247,6 +247,12 @@ namespace V12.Core.NetworkCable
         {
             using var _zone = V12Profiler.BeginZone("NetworkClient.Disconnect", V12Profiler.Colors.Runtime);
             Console.WriteLine($"[NetworkClient] Disconnecting from {_host}:{_port}...");
+
+            // Tell the host we are leaving instead of vanishing. Without this the
+            // server only notices after its disconnect timeout, so the objects
+            // this client was simulating stay frozen for 15 seconds.
+            try { _peer?.Disconnect(); } catch { }
+
             try { _cts?.Cancel(); } catch { }
             try { _cables.OnMessageSending -= SendMessage; } catch { }
             try { _net?.Stop(); } catch { }

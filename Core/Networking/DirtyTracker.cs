@@ -109,6 +109,16 @@ namespace V12.Core.Networking
         /// </summary>
         public SyncChannel? Sync { get; set; }
 
+        /// <summary>
+        /// Non-authority instances only: returns true for an element this peer is
+        /// allowed to broadcast a pose for. A session sets this to "elements this
+        /// peer simulates", which is how a grabbed or owned object's motion
+        /// reaches the host and the other peers. When null, a client sends no
+        /// element updates at all, which was the only behaviour before per-element
+        /// authority existed.
+        /// </summary>
+        public Func<IWorldElement, bool>? CanSendElement { get; set; }
+
         private float _timeSinceLastSend = 0f;
 
         public DirtyTracker(NetworkCables? cables = null, string? senderUri = null)
@@ -489,13 +499,21 @@ namespace V12.Core.Networking
                 return;
             }
 
-            // Clients are never authoritative: they only apply the host's deltas and
-            // component batches, never broadcast their own. Drain locally so dirty
-            // state can't accumulate (receiving host updates marks things dirty via
-            // the property setters). Hosts broadcast; clients stay silent.
+            // Clients are not authoritative: they apply the host's deltas and
+            // component batches. They may still own individual elements though,
+            // and those poses are the whole point of a simulating user, so a
+            // client sends element updates for exactly the elements it
+            // simulates. Without a predicate it stays silent (the old behaviour).
             if (!IsAuthority)
             {
-                DrainDirtyWithoutSending();
+                if (CanSendElement is null)
+                {
+                    DrainDirtyWithoutSending();
+                    return;
+                }
+
+                SendOwnedElementUpdates();
+                FlushSyncValues();
                 return;
             }
 
@@ -560,6 +578,38 @@ namespace V12.Core.Networking
             // Also flush any SyncValue-based dirty state. A session-owned channel
             // keeps its keys scoped to one world; the static facade remains the
             // compatibility path for code with no session.
+            FlushSyncValues();
+        }
+
+        /// <summary>
+        /// Non-authority path: send pose updates for the elements this peer
+        /// simulates and drop everything else. Component state stays
+        /// host-authoritative, so queued component changes are drained here.
+        /// </summary>
+        private void SendOwnedElementUpdates()
+        {
+            _dirtyComponents.Clear();
+
+            if (_dirtyElements.IsEmpty) return;
+
+            var batch = new List<IWorldElement>();
+            while (MaxBatchSize <= 0 || batch.Count < MaxBatchSize)
+            {
+                if (_dirtyElements.IsEmpty) break;
+
+                var key = _dirtyElements.Keys.FirstOrDefault();
+                if (key == null) break;
+
+                if (!_dirtyElements.TryRemove(key, out _)) continue;
+                if (CanSendElement!(key)) batch.Add(key);
+            }
+
+            if (batch.Count > 0)
+                SendElementBatch(batch);
+        }
+
+        private void FlushSyncValues()
+        {
             try
             {
                 if (Sync != null)

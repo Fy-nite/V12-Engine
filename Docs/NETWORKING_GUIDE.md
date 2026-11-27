@@ -158,9 +158,10 @@ NetworkCables.Default.OnMessageReceived += (message) =>
 
 ## Protocol Details
 
-### Message Format (TCP)
-1. **Length Prefix** (4 bytes): Int32 length of payload in bytes
-2. **Payload** (variable): BSON-serialized MessageDTO
+The session transport is LiteNetLib over UDP (`NetworkHost` / `NetworkClient`).
+The legacy transport prefixes a 4-byte length and sends `MessageDTO` on a stream.
+Either way the payload is BSON produced by `AncientCompressor`, which may add a
+Brotli layer (see [Compression and delivery](#compression-and-delivery)).
 
 ### Message Types
 - `Text`: Text-based messages
@@ -171,6 +172,42 @@ NetworkCables.Default.OnMessageReceived += (message) =>
 - `WorldUpdate`: Delta/partial world updates
 - `PlayerJoin/Leave/Ban/Kick/Action`: Player-related events
 - `Error`: Error messages
+
+## Compression and delivery
+
+The two interact, and the interaction matters more than the compression ratio.
+
+`AncientCompressor` serializes the payload as BSON and Brotli-compresses anything
+512 B or larger behind a `V12C` header. Smaller, denser or already-compressed
+payloads stay raw, so a value update costs no header. Raw BSON still decodes, so
+the reader does not care which form arrived.
+
+`LiteNetWire.DeliveryFor` then chooses a lane:
+
+| Lane | Used for | Behaviour |
+|---|---|---|
+| `ReliableOrdered` (`ReliableChannel`) | lifecycle, commands, snapshots, `SyncBatch`, authority changes | acknowledged, ordered, fragmented across MTU |
+| `Unreliable` (`UnreliableChannel`) | `WorldUpdate`, `WorldElementUpdate`, `PlayerSync`, heartbeat | sent once, never fragmented |
+
+LiteNetLib cannot fragment an unreliable packet. Anything over
+`NetConstants.MaxUnreliableDataSize` (roughly the MTU) is therefore escalated to
+`ReliableOrdered` by the size-aware overload of `DeliveryFor`, otherwise it would
+throw `TooBigPacketException`.
+
+**The size used for that decision is the size after compression.** So a large
+element or component update whose content compresses well stays under the cap and
+on the unreliable lane, instead of being promoted to the reliable lane where it
+would be acknowledged, fragmented, and head-of-line block every state update
+behind it. Compression here buys latency, not just bandwidth, and when a payload
+does go reliable it needs fewer fragments.
+
+Two consequences worth knowing:
+
+- pass the **serialized** length to `DeliveryFor`; handing it the uncompressed
+  size fires the escalation for payloads that no longer need it;
+- raising `AncientCompressor.MinBytesToCompress` can push a borderline payload
+  back over the cap and change its lane, so treat the threshold as a transport
+  setting, not only a CPU one.
 
 ## Thread Architecture
 1. **Update Thread**: Runs game logic at ~1000Hz (1ms sleep)

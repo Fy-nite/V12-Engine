@@ -49,6 +49,8 @@ namespace V12.Core.NetworkCable
                 case MessageType.Binary:
                 case MessageType.Command:
                 case MessageType.Event:
+                case MessageType.EntityAuthority:
+                case MessageType.EntityAuthorityRequest:
                     return (DeliveryMethod.ReliableOrdered, ReliableChannel);
 
                 case MessageType.WorldUpdate:
@@ -71,6 +73,14 @@ namespace V12.Core.NetworkCable
         /// the receiver. Continuous state is normally small and stays Unreliable;
         /// the escalation is a safety net so a single large element or component
         /// (e.g. a script source) can never wedge the state stream.
+        /// <para>
+        /// <paramref name="payloadSize"/> must be the <em>serialized</em> size, i.e.
+        /// after <see cref="AncientCompressor"/>: the codec Brotli-compresses
+        /// payloads of 512 B or more, so compressing a large update can keep it
+        /// under the cap and on the unreliable channel instead of promoting it to
+        /// reliable. Passing the uncompressed size would fire the escalation for
+        /// payloads that no longer need it.
+        /// </para>
         /// </summary>
         public static (DeliveryMethod Method, byte Channel) DeliveryFor(MessageDTO message, int payloadSize)
         {

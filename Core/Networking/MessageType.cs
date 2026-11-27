@@ -27,6 +27,8 @@ namespace V12.Core.Networking
         Heartbeat,
         Error,
         VNodeFileRequest,
-        PlayerWelcome
+        PlayerWelcome,
+        EntityAuthority, // Which player simulates which element; host-authoritative
+        EntityAuthorityRequest // Client asks the host to hand it an element
     }
 }

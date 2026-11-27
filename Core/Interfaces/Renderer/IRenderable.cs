@@ -113,6 +113,14 @@ namespace V12.Core.Interfaces.Renderer
         public double[]? MeshNormals => null;
 
         /// <summary>
+        /// Optional flat vertex colours [r0, g0, b0, a0, r1, g1, b1, a1, ...]
+        /// parallel to <see cref="MeshPoints"/>, in linear 0..1. Null means the
+        /// producer fills opaque white, so a mesh only pays for this stream when
+        /// it actually paints per-vertex (voxel strata, baked terrain shading).
+        /// </summary>
+        public double[]? MeshColors => null;
+
+        /// <summary>
         /// Optional per-vertex tangents packed xyzw [x0, y0, z0, w0, ...]
         /// parallel to <see cref="MeshPoints"/>; w is the binormal sign, the
         /// usual per-vertex tangent layout. Null means the mesh has no tangents

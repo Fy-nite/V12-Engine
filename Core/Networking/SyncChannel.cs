@@ -14,8 +14,6 @@ namespace V12.Core.Networking
     /// </summary>
     public sealed class SyncChannel : IDisposable
     {
-        private static readonly ConcurrentDictionary<Type, MemberInfo[]> SyncMembers = new();
-
         private readonly object _gate = new();
         private readonly Dictionary<string, Registration> _registered = new(StringComparer.Ordinal);
         private readonly bool _clearRegistryOnDispose;
@@ -45,6 +43,35 @@ namespace V12.Core.Networking
         public Action<byte[]>? SendBytes { get; set; }
 
         public bool HasSender => SendBytes != null;
+
+        private ushort _writerId = NewWriterId();
+
+        /// <summary>
+        /// 16-bit identity stamped into every value this channel sends. It only
+        /// needs to be unique inside one session; it is the last-write-wins
+        /// tie-break, not a permission check. The host overrides it with its
+        /// server-assigned player id so host writes have a stable, known stamp.
+        /// </summary>
+        public ushort WriterId
+        {
+            get => _writerId;
+            set
+            {
+                _writerId = value;
+                lock (_gate)
+                {
+                    foreach (var registration in _registered.Values)
+                        registration.Inner.WriterId = value;
+                }
+            }
+        }
+
+        private static ushort NewWriterId()
+        {
+            // Non-zero so an unconfigured peer never looks like "no writer".
+            ushort id = (ushort)Random.Shared.Next(1, ushort.MaxValue + 1);
+            return id == 0 ? (ushort)1 : id;
+        }
 
         /// <summary>How often to rescan the world for newly attached SyncValues.</summary>
         public TimeSpan RefreshInterval { get; set; } = TimeSpan.FromMilliseconds(250);
@@ -112,6 +139,12 @@ namespace V12.Core.Networking
             // does not silently lose the initial snapshot.
             if (SendBytes == null) return;
 
+            // Stamp our identity before serializing. Values registered outside a
+            // world (the process-wide legacy registry) never pass through
+            // RegisterKey, so this is their only chance to get a writer id.
+            foreach (var value in dirty)
+                value.WriterId = _writerId;
+
             var batch = SyncBatchBuilder.BuildBatch(dirty);
             foreach (var value in dirty)
                 value.ClearDirty();
@@ -126,12 +159,38 @@ namespace V12.Core.Networking
             FlushDirty();
         }
 
-        /// <summary>Apply an incoming batch produced by another channel.</summary>
-        public int ApplyIncoming(ReadOnlyMemory<byte> batch, Uri? sender = null)
+        /// <summary>
+        /// Mark every registered value dirty so the next flush is a full keyframe.
+        /// Called when a client joins: the component snapshot carries most state,
+        /// but values that are not in the snapshot (<c>[Sync][BsonIgnore]</c>, or
+        /// an explicit <see cref="SyncValue{T}"/> the snapshot never sees) still
+        /// need one send.
+        /// </summary>
+        public void MarkAllDirty()
+        {
+            ThrowIfDisposed();
+            lock (_gate)
+            {
+                foreach (var registration in _registered.Values)
+                    registration.Wrapped.MarkDirty();
+            }
+        }
+
+        /// <summary>
+        /// Apply an incoming batch produced by another channel.
+        /// <paramref name="writerPlayerId"/> is the player the host assigned to the
+        /// sending peer (0 for host-originated or untrusted context); when
+        /// <see cref="AcceptIncomingKey"/> is set it filters client-authored writes
+        /// so a peer cannot change state it does not simulate.
+        /// </summary>
+        public int ApplyIncoming(ReadOnlyMemory<byte> batch, Uri? sender = null, long writerPlayerId = 0)
         {
             int applied = 0;
             foreach (var (key, payload) in SyncBatchBuilder.EnumerateBatch(batch))
             {
+                if (AcceptIncomingKey is not null && !AcceptIncomingKey(key, writerPlayerId))
+                    continue;
+
                 if (!Registry.TryGet(key, out var value)) continue;
 
                 try
@@ -145,6 +204,13 @@ namespace V12.Core.Networking
             }
             return applied;
         }
+
+        /// <summary>
+        /// Optional per-key acceptance check. The host sets this to reject a
+        /// client's value writes for elements that client does not simulate; a
+        /// client leaves it null and accepts everything the host sends.
+        /// </summary>
+        public Func<string, long, bool>? AcceptIncomingKey { get; set; }
 
         /// <summary>Register one value under a scope prefix. Useful for non-world channels.</summary>
         public string Register(ISyncValue value, string scope)
@@ -166,7 +232,7 @@ namespace V12.Core.Networking
                 if (component == null) continue;
                 string scope = ScopeFor(element, component);
 
-                foreach (var value in EnumerateSyncValues(component))
+                foreach (var value in SyncValueScanner.Enumerate(component))
                 {
                     string key = scope + "/" + value.Key;
                     seen.Add(key);
@@ -189,6 +255,7 @@ namespace V12.Core.Networking
                 if (_registered.ContainsKey(key))
                     Registry.Unregister(key);
 
+                value.WriterId = _writerId;
                 var wrapped = World == null ? value : new ScopedSyncValue(value, key);
                 _registered[key] = new Registration(value, wrapped);
                 Registry.Register(wrapped);
@@ -213,47 +280,6 @@ namespace V12.Core.Networking
             if (!_refreshPending && DateTime.UtcNow - _lastRefreshUtc < RefreshInterval)
                 return;
             Refresh();
-        }
-
-        private static IEnumerable<ISyncValue> EnumerateSyncValues(object target)
-        {
-            Type type = target.GetType();
-            var members = SyncMembers.GetOrAdd(type, static t =>
-                t.GetMembers(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                    .Where(m => m.MemberType is MemberTypes.Property or MemberTypes.Field)
-                    .Where(m => m switch
-                    {
-                        PropertyInfo p => p.GetIndexParameters().Length == 0,
-                        FieldInfo f => !f.IsStatic,
-                        _ => false,
-                    })
-                    .Where(m => m switch
-                    {
-                        PropertyInfo p => typeof(ISyncValue).IsAssignableFrom(p.PropertyType),
-                        FieldInfo f => typeof(ISyncValue).IsAssignableFrom(f.FieldType),
-                        _ => false,
-                    })
-                    .ToArray());
-
-            foreach (var member in members)
-            {
-                object? value;
-                try
-                {
-                    value = member switch
-                    {
-                        PropertyInfo p => p.GetValue(target),
-                        FieldInfo f => f.GetValue(target),
-                        _ => null,
-                    };
-                }
-                catch
-                {
-                    continue;
-                }
-
-                if (value is ISyncValue sync) yield return sync;
-            }
         }
 
         private void ThrowIfDisposed()
@@ -301,10 +327,18 @@ namespace V12.Core.Networking
             public bool IsDirty => _inner.IsDirty;
             public ulong Version => _inner.Version;
 
+            public ushort WriterId
+            {
+                get => _inner.WriterId;
+                set => _inner.WriterId = value;
+            }
+
             public byte[] ToByteArray() => _inner.ToByteArray();
             public bool ApplyRemotePayload(ReadOnlySpan<byte> payload, Uri? sender = null)
                 => _inner.ApplyRemotePayload(payload, sender);
             public void ClearDirty() => _inner.ClearDirty();
+            public void MarkDirty() => _inner.MarkDirty();
+            public void Unregister() => _inner.Unregister();
         }
     }
 }

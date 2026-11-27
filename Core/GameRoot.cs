@@ -165,6 +165,14 @@ namespace V12.Core
         /// <summary>Fraction of a fixed step left for render interpolation.</summary>
         public float InterpolationAlpha => Simulation.Alpha;
 
+        /// <summary>
+        /// Interpolate captured element transforms between fixed steps using
+        /// <see cref="InterpolationAlpha"/>. Off by default so a host opts into
+        /// the presentation cost and the one-step visual latency. Gameplay and
+        /// picking always use <see cref="IWorldElement.WorldTransform"/>.
+        /// </summary>
+        public bool RenderInterpolation { get; set; }
+
         /// <summary>Number of fixed simulation steps executed so far.</summary>
         public long SimulationTick => Simulation.Tick;
 
@@ -427,6 +435,10 @@ namespace V12.Core
         /// </summary>
         private bool _renderDirty = true;
 
+        /// <summary>Worlds updated by the current fixed step. Reused to keep the
+        /// pose-capture pass and the update pass on one world list.</summary>
+        private readonly List<World> _steppedWorlds = new();
+
         /// <summary>
         /// Mark the render snapshot as stale. Called by <see cref="Element.MarkDirty"/>
         /// and <see cref="ComponentBase.MarkDirty"/> on any render-affecting change.
@@ -619,8 +631,11 @@ namespace V12.Core
             using (V12Profiler.BeginZone("GameRoot.Update", V12Profiler.Colors.World))
                 Update(deltaTime);
                 
-            // Only build and send render/UI data when something changed
-            if ((renderer != null || uiRenderer != null) && _renderDirty)
+            // Only build and send render/UI data when something changed, or every
+            // frame when interpolation is on: the alpha moves even on frames the
+            // fixed clock does not step.
+            bool interpolating = RenderInterpolation && !Simulation.IsPaused;
+            if ((renderer != null || uiRenderer != null) && (_renderDirty || interpolating))
             {
                 _renderDirty = false;
 
@@ -710,7 +725,7 @@ namespace V12.Core
                                 ViewportId = viewportId,
                                 Active = true,
                                 HasWorld = true,
-                                World = el.WorldTransform,
+                                World = ElementPlacement.RenderWorldMatrix(el),
                                 Albedo = albedo,
                                 Metallic = metallic,
                                 Roughness = roughness,
@@ -851,6 +866,9 @@ namespace V12.Core
                 Height = canvas.Height,
                 AnchorX = canvas.AnchorX,
                 AnchorY = canvas.AnchorY,
+                Overlay = canvas.ScreenSpace && canvas.Overlay,
+                Layer = canvas.Priority,
+                Interactive = canvas.Interactive,
                 WorldShader = canvas.WorldShader ?? string.Empty,
             });
 
@@ -1537,8 +1555,8 @@ namespace V12.Core
                         LayerMask = filter?.LayerMask ?? RenderLayers.Default,
                         ViewId = filter?.ViewId ?? 0,
                         NodeType = SnapshotNodeType.Particle,
-                        Transform = element.WorldTransform,
-                        LocalTransform = ElementPlacement.ElementLocalMatrix(element),
+                        Transform = ElementPlacement.RenderWorldMatrix(element),
+                        LocalTransform = ElementPlacement.RenderLocalMatrix(element),
                         HasLocalTransform = true,
                         ParticleAmount = emitter.Amount,
                         ParticleLifetime = emitter.Lifetime,
@@ -1580,12 +1598,12 @@ namespace V12.Core
                         rs.ParentId = element.Parent.Id;
 
                     // World transform (for non-hierarchy renderers)
-                    rs.Transform = element.WorldTransform;
+                    rs.Transform = ElementPlacement.RenderWorldMatrix(element);
                     rs.IsWorldLocked = renderable is ITransformRenderable itr && itr.IsWorldLocked;
 
                     // Local transform (for hierarchy-based renderers): single
                     // definition in ElementPlacement (folds ScaleComponent).
-                    rs.LocalTransform = ElementPlacement.ElementLocalMatrix(element);
+                    rs.LocalTransform = ElementPlacement.RenderLocalMatrix(element);
                     rs.HasLocalTransform = true;
                     rs.HasCollider = element.GetComponent<V12.Components.ColliderComponent>() != null;
 
@@ -1612,8 +1630,8 @@ namespace V12.Core
                             parentRs.LayerMask = RenderLayers.Default;
                             parentRs.ViewId = 0;
                             parentRs.NodeType = SnapshotNodeType.RawElement;
-                            parentRs.Transform = ancestor.WorldTransform;
-                            parentRs.LocalTransform = ElementPlacement.ElementLocalMatrix(ancestor);
+                            parentRs.Transform = ElementPlacement.RenderWorldMatrix(ancestor);
+                            parentRs.LocalTransform = ElementPlacement.RenderLocalMatrix(ancestor);
                             parentRs.HasLocalTransform = true;
                             snapshot.Renderables.Add(parentRs);
                         }
@@ -1667,6 +1685,7 @@ namespace V12.Core
                             // (interface defaults), so these stay null and the
                             // producer derives normals from winding.
                             rs.MeshNormals = ((IMeshRenderable)mc).MeshNormals;
+                            rs.MeshColors = ((IMeshRenderable)mc).MeshColors;
                             rs.MeshTangents = ((IMeshRenderable)mc).MeshTangents;
                             rs.MeshIndices = mc.Indices;
                         }
@@ -1680,6 +1699,7 @@ namespace V12.Core
                             rs.MeshPoints = mesh.MeshPoints;
                             rs.MeshUvs = mesh.MeshUvs;
                             rs.MeshNormals = mesh.MeshNormals;
+                            rs.MeshColors = mesh.MeshColors;
                             rs.MeshTangents = mesh.MeshTangents;
                             rs.MeshIndices = mesh.Indices;
                         }
@@ -1814,7 +1834,7 @@ namespace V12.Core
                         world.Id,
                         pixelWidth,
                         pixelHeight,
-                        element.WorldTransform,
+                        ElementPlacement.RenderWorldMatrix(element),
                         canvas.Priority,
                         canvas.Interactive,
                         canvas.WorldShader));
@@ -2121,14 +2141,48 @@ namespace V12.Core
             // old meaning: the simulated set.
             WorldManager.ReconcileAll();
 
+            // Snapshot the world set once so pose capture and the update pass
+            // see the same list even if something toggles visibility mid-step.
+            _steppedWorlds.Clear();
+            foreach (var world in WorldManager.ActiveWorlds)
+            {
+                if (world.TickingEnabled)
+                    _steppedWorlds.Add(world);
+            }
+
+            if (RenderInterpolation)
+            {
+                foreach (var world in _steppedWorlds)
+                    world.BeginRenderPoseSnapshot();
+            }
+
             // Scene edits land between two steps, before any world ticks, so the
             // tracker, netcode and capture all observe one coherent change.
             Introspection.DrainCommands(Simulation.Tick);
 
-            foreach (var world in WorldManager.ActiveWorlds)
+            foreach (var world in _steppedWorlds)
             {
-                if (!world.TickingEnabled) continue;
-                world.Update(fixedDeltaTime);
+                var session = WorldManager.FindSession(world);
+                world.Update(
+                    fixedDeltaTime,
+                    session?.Authorities,
+                    session?.LocalPlayerId ?? 0L,
+                    isHost: session is null || session.Authority != WorldAuthority.Remote);
+            }
+
+            // Replicated worlds are not in the simulated set, so their components
+            // never tick on their own. Tick them for the elements this peer
+            // simulates (its grabbed/owned objects) plus any replica-only
+            // presentation components. This is a separate pass on purpose: it must
+            // not pull a remote world into ActiveWorlds, which would also start
+            // host-owned physics, audio and capture for it.
+            foreach (var session in WorldManager.Sessions)
+            {
+                if (!session.SimulateRemoteWorld) continue;
+                if (session.Applied.Simulated || !session.Applied.Hydrated) continue;
+                var world = session.World;
+                if (world.TickingEnabled)
+                    world.Update(fixedDeltaTime, session.Authorities, session.LocalPlayerId, isHost: false);
             }
 
             // Session-owned channels are independent of the legacy process-wide
@@ -2139,6 +2193,16 @@ namespace V12.Core
             Registry.Update(fixedDeltaTime);
 
             try { OnFixedUpdate?.Invoke(fixedDeltaTime); } catch { }
+
+            // End-of-step pose is taken after physics and gameplay services have
+            // written their transforms, so interpolation sees the final pose.
+            if (RenderInterpolation)
+            {
+                foreach (var world in _steppedWorlds)
+                    world.EndRenderPoseSnapshot();
+            }
+
+            _steppedWorlds.Clear();
         }
 
         // Input handler that toggles the core Dashboard/Inspector on Escape or Dash.

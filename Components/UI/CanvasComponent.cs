@@ -26,15 +26,27 @@ public class CanvasComponent : ComponentBase
     public int Height { get; set; } = 0;
 
     /// <summary>
-    /// Sorting weight across surfaces. Higher draws later. Screen-space uses
-    /// this only for overlapping world canvases; a world canvas with a higher
-    /// priority orders above lower ones at the same distance.
+    /// Screen-space only: draw this canvas as an absolute overlay instead of a
+    /// flow row in the UI root. Its content is positioned by
+    /// <see cref="AnchorX"/>/<see cref="AnchorY"/> over the viewport, and it does
+    /// not push or reflow other canvases. Ignored for world-space canvases.
+    /// </summary>
+    public bool Overlay { get; set; }
+
+    /// <summary>
+    /// Sorting weight across surfaces. Higher draws later. For an overlay
+    /// screen canvas it is added to Paper's overlay layer, so a crosshair at
+    /// priority 20 draws above an overlay HUD at priority 10. World canvases
+    /// use it to order overlapping surfaces at the same distance.
     /// </summary>
     public int Priority { get; set; } = 0;
 
     /// <summary>
-    /// False makes a world canvas display-only: it still renders, but pointer
-    /// input and focus skip it.
+    /// False makes a canvas display-only: it still renders, but the canvas box
+    /// is skipped as a pointer/focus target. Child widgets are still emitted.
+    /// Useful for crosshairs and decorative screen overlays, whose full-viewport
+    /// boxes would otherwise swallow clicks meant for gameplay. Applies to
+    /// screen-space and world-space canvases.
     /// </summary>
     public bool Interactive { get; set; } = true;
 

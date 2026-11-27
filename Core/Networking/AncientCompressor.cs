@@ -1,4 +1,8 @@
 using System;
+using System.Buffers;
+using System.Buffers.Binary;
+using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using MongoDB.Bson;
 using MongoDB.Bson.IO;
@@ -7,8 +11,50 @@ using V12.Core.Core.Interfaces;
 
 namespace V12.Core.Networking
 {
+    /// <summary>
+    /// Wire serialization for message payloads: BSON, plus an optional Brotli
+    /// layer for payloads big enough to pay for it.
+    /// <para>
+    /// The compressed form is self-describing, so it stays backward compatible
+    /// with raw BSON: a payload that starts with the <c>V12C</c> magic carries a
+    /// codec byte and the original length; anything else is treated as plain
+    /// BSON. Small payloads are never wrapped, so a 60 Hz value batch pays no
+    /// header.
+    /// </para>
+    /// <para>
+    /// Brotli is asymmetric on purpose: quality 3 compresses fast enough for the
+    /// fixed step, and the case that matters (a component batch or a world
+    /// snapshot with a big JSON/base64 payload) shrinks a lot. Already-compressed
+    /// payloads are stored raw, because compression would only add bytes.
+    /// </para>
+    /// <para>
+    /// This also feeds the transport's delivery choice. The size that decides
+    /// whether a payload has to escalate to reliable is the size <em>after</em>
+    /// this codec, so a large element update that compresses under the MTU stays
+    /// on the unreliable channel instead of being promoted to reliable (and
+    /// head-of-line blocking everything behind it). Compression improves latency
+    /// here, not only bandwidth, and a reliable payload needs fewer fragments.
+    /// </para>
+    /// </summary>
     public static class AncientCompressor
     {
+        /// <summary>"V12C". A real BSON document starts with its int32 length, so
+        /// this four-byte sequence cannot collide with a legacy payload.</summary>
+        private static readonly byte[] Magic = { 0x56, 0x31, 0x32, 0x43 };
+
+        private const byte CodecBrotli = 1;
+        private const int HeaderSize = 9; // magic(4) + codec(1) + originalLength(4)
+        private const int MaxDecompressedBytes = 512 * 1024 * 1024;
+
+        /// <summary>Payloads smaller than this are sent as raw BSON.</summary>
+        public static int MinBytesToCompress { get; set; } = 512;
+
+        /// <summary>Brotli quality. 1-4 trades ratio for latency.</summary>
+        public static int BrotliQuality { get; set; } = 3;
+
+        /// <summary>Brotli window bits.</summary>
+        public static int BrotliWindow { get; set; } = 22;
+
         public static byte[] Compress(object obj)
         {
             // World uses a flat snapshot DTO because its Root is List<IWorldElement>
@@ -21,10 +67,10 @@ namespace V12.Core.Networking
                     var esDto = CompressElement(el);
                     if (esDto != null) snap.Elements.Add(esDto);
                 }
-                return snap.ToBson();
+                return MaybeCompress(snap.ToBson());
             }
 
-            return obj.ToBson();
+            return MaybeCompress(obj.ToBson());
         }
 
         public static ElementSyncDTO CompressElement(IWorldElement el)
@@ -61,6 +107,8 @@ namespace V12.Core.Networking
 
         public static T Decompress<T>(byte[] data)
         {
+            data = MaybeDecompress(data);
+
             if (typeof(T) == typeof(V12.Core.World))
             {
                 var snap = BsonSerializer.Deserialize<WorldSyncDTO>(data);
@@ -76,6 +124,70 @@ namespace V12.Core.Networking
             }
 
             return BsonSerializer.Deserialize<T>(data);
+        }
+
+        /// <summary>Brotli-compress when it is worth it, otherwise return the input.</summary>
+        private static byte[] MaybeCompress(byte[] raw)
+        {
+            if (raw is null || raw.Length < MinBytesToCompress) return raw!;
+
+            int maxCompressed = BrotliEncoder.GetMaxCompressedLength(raw.Length);
+            byte[] scratch = ArrayPool<byte>.Shared.Rent(HeaderSize + maxCompressed);
+            try
+            {
+                if (!BrotliEncoder.TryCompress(
+                        raw,
+                        scratch.AsSpan(HeaderSize, maxCompressed),
+                        out int written,
+                        Math.Clamp(BrotliQuality, 0, 11),
+                        Math.Clamp(BrotliWindow, 10, 24)))
+                {
+                    return raw;
+                }
+
+                // Not worth a header (already dense, or too small to matter).
+                if (HeaderSize + written >= raw.Length) return raw;
+
+                Magic.CopyTo(scratch, 0);
+                scratch[4] = CodecBrotli;
+                BinaryPrimitives.WriteInt32LittleEndian(scratch.AsSpan(5, 4), raw.Length);
+
+                var result = new byte[HeaderSize + written];
+                Buffer.BlockCopy(scratch, 0, result, 0, result.Length);
+                return result;
+            }
+            catch
+            {
+                return raw;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(scratch);
+            }
+        }
+
+        /// <summary>Undo <see cref="MaybeCompress"/>. Raw BSON passes through.</summary>
+        private static byte[] MaybeDecompress(byte[] data)
+        {
+            if (data is null || data.Length < HeaderSize + 1) return data!;
+
+            for (int i = 0; i < Magic.Length; i++)
+                if (data[i] != Magic[i]) return data; // legacy raw BSON
+
+            if (data[4] != CodecBrotli) return data;
+
+            int originalLength = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(5, 4));
+            if (originalLength <= 0 || originalLength > MaxDecompressedBytes)
+                throw new InvalidDataException($"Invalid compressed payload length {originalLength}");
+
+            var result = new byte[originalLength];
+            if (!BrotliDecoder.TryDecompress(data.AsSpan(HeaderSize), result, out int written)
+                || written != originalLength)
+            {
+                throw new InvalidDataException("Malformed Brotli payload");
+            }
+
+            return result;
         }
 
         public static IWorldElement DecompressElement(ElementSyncDTO es)

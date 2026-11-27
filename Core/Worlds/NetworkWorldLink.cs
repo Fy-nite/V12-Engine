@@ -27,6 +27,20 @@ namespace V12.Core
         public bool IsHost => _isHost;
         public long HostPlayerId => _host?.HostPlayerId ?? 0;
 
+        /// <summary>
+        /// When true (the default), the host forwards a client's
+        /// <see cref="MessageType.SyncBatch"/> to every other peer, so any peer
+        /// can write a <see cref="SyncValue{T}"/> and have the whole session see
+        /// it. Conflicts resolve last-write-wins on the packed version stamp.
+        /// <para>
+        /// This is the transport half of per-entity authority
+        /// (<c>docs/PEER_HOSTING_AND_AUTHORITY.md</c> §5): it does not yet ask
+        /// whether the sender is allowed to write that value. Until the
+        /// <c>CanWrite</c> gate lands, treat this as trusted-session behaviour.
+        /// </para>
+        /// </summary>
+        public bool RelayRemoteValueWrites { get; set; } = true;
+
         /// <summary>Raised on the network poll thread; queue work onto the game thread.</summary>
         public event Action<long>? ClientJoined;
 
@@ -55,7 +69,17 @@ namespace V12.Core
             _syncBridge = new SyncNetworkBridge(
                 session.Sync,
                 session.Cables,
-                $"networkcables://world/{session.Descriptor.WorldId:N}/sync");
+                $"networkcables://world/{session.Descriptor.WorldId:N}/sync",
+                isHost
+                    ? message => _host?.GetServerAssignedPlayerId(message) ?? 0L
+                    : null);
+
+            if (isHost)
+            {
+                // Client-authored values are only accepted for elements that
+                // client simulates. Without this, any peer could write any value.
+                session.Sync.AcceptIncomingKey = AcceptValueKeyFrom;
+            }
 
             session.Cables.OnMessageReceived += OnMessageReceived;
             session.Link = this;
@@ -82,6 +106,13 @@ namespace V12.Core
             _session.Authority = WorldAuthority.Hosted;
 
             _host = new NetworkHost(port, _session.Cables);
+
+            // The host's writer identity is its server-assigned player id, so
+            // host writes have a stable stamp that clients can order against.
+            // Never let it collapse to 0, which is the "unassigned" sentinel.
+            ushort hostWriter = (ushort)(_host.HostPlayerId & 0xFFFF);
+            _session.Sync.WriterId = hostWriter == 0 ? (ushort)1 : hostWriter;
+
             _host.OnClientConnected += OnClientConnected;
             _host.OnClientDisconnected += OnClientDisconnected;
             _host.OnStartFailed += ex =>
@@ -112,6 +143,20 @@ namespace V12.Core
 
             SendSnapshot();
             ClientJoined?.Invoke(playerId);
+
+            // The snapshot carries component state, so a late joiner already has
+            // most values. Send one full keyframe anyway: values that are not in
+            // the snapshot (explicit SyncValue<T>, or [Sync][BsonIgnore] fields)
+            // would otherwise never reach a client that joined after they changed.
+            // The client registers keys while applying the snapshot, so this batch
+            // arrives after the registry knows them.
+            try { _session.Sync.MarkAllDirty(); }
+            catch (Exception ex) { GameRoot.Log.Warning(ex, "Keyframe flush failed for '{World}'", _session.World.WorldName); }
+
+            // Tell the new client who simulates what. Without this it would treat
+            // every delegated element as host-owned until the next change.
+            foreach (var assignment in _session.Authorities.Snapshot())
+                _host?.SendToClient(playerId, CreateAuthorityMessage(assignment));
         }
 
         private void OnClientDisconnected(long playerId)
@@ -120,7 +165,26 @@ namespace V12.Core
             GameRoot.Log.Information(
                 "World '{World}' lost client {PlayerId} ({Count} connected)",
                 _session.World.WorldName, playerId, _session.PlayersConnected);
+
+            // Reclaim everything this player was simulating before the game sees
+            // the leave event, so a disconnect cannot leave an element frozen on
+            // the remaining peers.
+            ReleaseAuthorityForClient(playerId);
+
             ClientLeft?.Invoke(playerId);
+        }
+
+        private void ReleaseAuthorityForClient(long playerId)
+        {
+            var released = _session.Authorities.ReleaseAllFor(playerId);
+            if (released.Count == 0) return;
+
+            foreach (var assignment in released)
+                BroadcastAuthority(assignment);
+
+            GameRoot.Log.Information(
+                "World '{World}' handed {Count} element(s) from player {PlayerId} back to the host",
+                _session.World.WorldName, released.Count, playerId);
         }
 
         private void SendSnapshot()
@@ -154,6 +218,77 @@ namespace V12.Core
             return _host?.SendToClient(playerId, message) == true;
         }
 
+        /// <summary>
+        /// Host only: make <paramref name="playerId"/> the simulating user for
+        /// <paramref name="element"/>, or pass 0 to hand it back to the host.
+        /// The assignment is applied locally and broadcast, so the new owner
+        /// starts simulating and every other peer stops.
+        /// </summary>
+        /// <returns>false when this peer is not the host, or the element has no
+        /// stable <c>Uid</c> and therefore cannot be delegated.</returns>
+        public bool AssignSimulatingUser(IWorldElement element, long playerId)
+        {
+            if (!_isHost || _disposed || element is null) return false;
+            if (playerId != 0 && element.Uid == Guid.Empty) return false;
+
+            long epoch = _session.Authorities.Assign(_session.World, element, playerId);
+            BroadcastAuthority(new EntityAssignment(
+                _session.World.Id, element.Uid, playerId, epoch));
+            return true;
+        }
+
+        /// <summary>
+        /// Client: ask the host to make this peer the element's simulating user.
+        /// The host grants only when the element is unowned or already yours, so
+        /// the first grab wins; the grant arrives as an
+        /// <see cref="MessageType.EntityAuthority"/> message and is what actually
+        /// starts local simulation.
+        /// </summary>
+        public bool RequestSimulatingUser(IWorldElement element)
+            => SendAuthorityRequest(element, release: false);
+
+        /// <summary>Client: tell the host it is done with the element.</summary>
+        public bool ReleaseSimulatingUser(IWorldElement element)
+            => SendAuthorityRequest(element, release: true);
+
+        private bool SendAuthorityRequest(IWorldElement element, bool release)
+        {
+            if (_isHost || _disposed || element is null || element.Uid == Guid.Empty)
+                return false;
+
+            return SendToServer(new MessageDTO
+            {
+                Sender = new Uri("networkcables://client"),
+                MessageType = MessageType.EntityAuthorityRequest,
+                Message = AncientCompressor.Compress(new EntityAuthorityRequestDTO
+                {
+                    EntityUid = element.Uid,
+                    Release = release,
+                }),
+            });
+        }
+
+        private void BroadcastAuthority(EntityAssignment assignment)
+        {
+            _session.Cables.SendData(CreateAuthorityMessage(assignment));
+        }
+
+        private static MessageDTO CreateAuthorityMessage(EntityAssignment assignment)
+        {
+            return new MessageDTO
+            {
+                Sender = new Uri("networkcables://worldhost"),
+                MessageType = MessageType.EntityAuthority,
+                Message = AncientCompressor.Compress(new EntityAuthorityDTO
+                {
+                    WorldId = assignment.WorldId,
+                    EntityUid = assignment.EntityUid,
+                    SimulatingPlayerId = assignment.SimulatingPlayerId,
+                    Epoch = assignment.Epoch,
+                }),
+            };
+        }
+
         private void OnMessageReceived(MessageDTO message)
         {
             if (_disposed || message?.Message == null) return;
@@ -167,7 +302,34 @@ namespace V12.Core
                     long playerId = _host?.GetServerAssignedPlayerId(message) ?? 0;
                     if (playerId != 0)
                         CommandReceived?.Invoke(playerId, message);
+                    return;
                 }
+
+                // Client-authored value writes. The bridge applies only the keys
+                // this peer is allowed to write; forward exactly those to the
+                // rest of the session. NetworkHost.BroadcastMessage skips the
+                // origin peer via SenderToken, so the writer is not echoed.
+                if (RelayRemoteValueWrites && message.MessageType == MessageType.SyncBatch)
+                {
+                    RelayValueBatchFromClient(message);
+                    return;
+                }
+
+                // Client-authored element poses: the simulating user's transform.
+                if (message.MessageType == MessageType.WorldElementUpdate)
+                {
+                    RelayElementUpdatesFromClient(message);
+                    return;
+                }
+
+                // A client asking for (or giving back) a simulating user.
+                if (message.MessageType == MessageType.EntityAuthorityRequest)
+                {
+                    long playerId = _host?.GetServerAssignedPlayerId(message) ?? 0;
+                    if (playerId != 0)
+                        HandleAuthorityRequest(playerId, message);
+                }
+
                 return;
             }
 
@@ -189,6 +351,9 @@ namespace V12.Core
                         break;
                     case MessageType.WorldUpdate:
                         ApplyComponentBatch(message);
+                        break;
+                    case MessageType.EntityAuthority:
+                        ApplyEntityAuthority(message);
                         break;
                     case MessageType.PlayerWelcome:
                         ServerMessage?.Invoke(message);
@@ -254,9 +419,131 @@ namespace V12.Core
                 _session.World.WorldName, _session.World.Root.Count, _session.Revision);
         }
 
+        /// <summary>
+        /// Host: grant or drop a client's claim on an element. First claim wins;
+        /// the host can still take an element back with
+        /// <see cref="AssignSimulatingUser"/>. A denied claim is simply not
+        /// answered, so the client keeps treating the element as a replica.
+        /// </summary>
+        private void HandleAuthorityRequest(long playerId, MessageDTO message)
+        {
+            var dto = AncientCompressor.Decompress<EntityAuthorityRequestDTO>(message.Message);
+            if (dto is null || dto.EntityUid == Guid.Empty) return;
+
+            var element = V12.Core.References.ReferenceResolver.FindElementByUid(
+                _session.World, dto.EntityUid);
+            if (element is null) return;
+
+            long current = _session.Authorities.GetSimulatingPlayer(_session.World, element);
+
+            if (dto.Release)
+            {
+                if (current == playerId)
+                    AssignSimulatingUser(element, 0);
+                return;
+            }
+
+            if (current != 0 && current != playerId) return; // already someone else's
+            AssignSimulatingUser(element, playerId);
+        }
+
+        /// <summary>
+        /// Host: a client-authored value write is accepted only for an element
+        /// that client currently simulates. Host-originated batches carry player
+        /// id 0 and always pass.
+        /// </summary>
+        private bool AcceptValueKeyFrom(string key, long writerPlayerId)
+        {
+            if (writerPlayerId == 0L) return true;
+            if (!SyncKey.TryParseElement(key, out var worldId, out var elementUid)) return false;
+            if (worldId != _session.World.Id) return false;
+
+            var element = V12.Core.References.ReferenceResolver.FindElementByUid(
+                _session.World, elementUid);
+            return element is not null
+                && _session.Authorities.CanWrite(_session.World, element, writerPlayerId, isHost: false);
+        }
+
+        /// <summary>
+        /// Host: forward the subset of a client's value batch that survived the
+        /// authority check. The bridge already applied the same subset locally, so
+        /// the host and the other peers converge on one set.
+        /// </summary>
+        private void RelayValueBatchFromClient(MessageDTO message)
+        {
+            long playerId = _host?.GetServerAssignedPlayerId(message) ?? 0L;
+
+            var allowed = new List<(string Key, ReadOnlyMemory<byte> Payload)>();
+            foreach (var entry in SyncBatchBuilder.EnumerateBatch(message.Message))
+            {
+                if (AcceptValueKeyFrom(entry.key, playerId))
+                    allowed.Add(entry);
+            }
+
+            if (allowed.Count == 0) return;
+
+            _session.Cables.SendData(new MessageDTO
+            {
+                Sender = message.Sender,
+                MessageType = MessageType.SyncBatch,
+                Message = SyncBatchBuilder.BuildBatch(allowed),
+                SenderToken = message.SenderToken,
+            });
+        }
+
+        /// <summary>Host: accept a client's element pose updates for the elements that
+        /// client simulates, apply them, and forward them to the other peers.
+        /// Only the pose is trusted; name, description, parent and uid stay
+        /// host-authoritative, so a client cannot rename or reparent through this
+        /// path.
+        /// </summary>
+        private void RelayElementUpdatesFromClient(MessageDTO message)
+        {
+            long playerId = _host?.GetServerAssignedPlayerId(message) ?? 0;
+            if (playerId == 0) return;
+
+            var incoming = AncientCompressor.Decompress<ElementUpdateBatchDTO>(message.Message);
+            if (incoming is null) return;
+
+            var allowed = new ElementUpdateBatchDTO { Timestamp = incoming.Timestamp };
+            foreach (var update in incoming.Elements)
+            {
+                var element = _session.World.FindElementById(update.Id);
+                if (element is null) continue;
+                if (!_session.Authorities.CanWrite(_session.World, element, playerId, isHost: false))
+                    continue;
+
+                allowed.Elements.Add(new ElementUpdateDTO
+                {
+                    Id = update.Id,
+                    WorldId = update.WorldId,
+                    Uid = update.Uid,
+                    Position = update.Position,
+                    Rotation = update.Rotation,
+                    Scale = update.Scale,
+                    Timestamp = update.Timestamp,
+                });
+            }
+
+            if (allowed.Elements.Count == 0) return;
+
+            var outgoing = new MessageDTO
+            {
+                Sender = message.Sender,
+                MessageType = MessageType.WorldElementUpdate,
+                Message = AncientCompressor.Compress(allowed),
+                // Keep the origin so BroadcastMessage does not echo it back.
+                SenderToken = message.SenderToken,
+            };
+
+            ApplyElementUpdates(outgoing);
+            _session.Cables.SendData(outgoing);
+        }
+
         private void ApplyElementUpdates(MessageDTO message)
         {
             var batch = AncientCompressor.Decompress<ElementUpdateBatchDTO>(message.Message);
+            if (batch == null) return;
             if (batch == null) return;
 
             _session.Dirty.WithCaptureSuppressed(() =>
@@ -315,6 +602,15 @@ namespace V12.Core
                         _session.World.RemoveElement(element);
                 }
             });
+        }
+
+        private void ApplyEntityAuthority(MessageDTO message)
+        {
+            var dto = AncientCompressor.Decompress<EntityAuthorityDTO>(message.Message);
+            if (dto == null) return;
+
+            _session.Authorities.Apply(new EntityAssignment(
+                dto.WorldId, dto.EntityUid, dto.SimulatingPlayerId, dto.Epoch));
         }
 
         private void ApplyComponentRemovals(MessageDTO message)

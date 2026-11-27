@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using V12.Core;
 using V12.Core.Core.Interfaces;
+using V12.Core.Networking;
 using MongoDB.Bson.Serialization.Attributes;
 
 namespace V12.Components
@@ -11,7 +12,7 @@ namespace V12.Components
     /// Common base implementation for components.
     /// Provides id generation, dirty event wiring and default lifecycle methods.
     /// </summary>
-    public abstract class ComponentBase : IComponent
+    public abstract class ComponentBase : IComponent, ISyncValueProvider
     {
         public event Action<IComponent>? OnDirty;
 
@@ -57,6 +58,64 @@ namespace V12.Components
         private bool _active = true;
 
         /// <summary>
+        /// Which peers run <see cref="Update"/>. Defaults to
+        /// <see cref="ComponentSimulationScope.Simulator"/>: the component runs
+        /// wherever its element is simulated, which is the host for host-owned
+        /// objects and the owning client for a grabbed or owned one. Not
+        /// replicated: each peer's code decides for itself.
+        /// </summary>
+        [BsonIgnore]
+        public virtual ComponentSimulationScope SimulationScope
+        {
+            get => _simulationScope;
+            set => _simulationScope = value;
+        }
+
+        private ComponentSimulationScope _simulationScope = ComponentSimulationScope.Simulator;
+
+        // ── Field sync ([Sync] members) ──────────────────────────────────────
+
+        [BsonIgnore]
+        private SyncFieldBinder? _syncFields;
+        private bool _syncFieldsResolved;
+
+        /// <summary>
+        /// True while a remote value is being written into this component. The
+        /// binder sets it so a property setter calling <see cref="MarkDirty"/>
+        /// does not echo the update straight back onto the wire.
+        /// </summary>
+        [BsonIgnore]
+        internal bool IsApplyingRemote { get; set; }
+
+        /// <summary>
+        /// One value per <c>[Sync]</c> field on this component. Discovered by the
+        /// session channel through <see cref="ISyncValueProvider"/>; explicit
+        /// <see cref="SyncValue{T}"/> members are enumerated separately.
+        /// </summary>
+        public IEnumerable<ISyncValue> GetSyncValues()
+        {
+            EnsureSyncFields();
+            return _syncFields?.Values ?? Array.Empty<ISyncValue>();
+        }
+
+        /// <summary>Publish any <c>[Sync]</c> field that changed this tick.</summary>
+        public void PollSyncValues()
+        {
+            EnsureSyncFields();
+            _syncFields?.Poll();
+        }
+
+        private void EnsureSyncFields()
+        {
+            if (_syncFieldsResolved) return;
+            _syncFieldsResolved = true;
+
+            // No [Sync] members: never allocate the binder.
+            if (SyncFieldSchema.For(GetType()).Length > 0)
+                _syncFields = new SyncFieldBinder(this);
+        }
+
+        /// <summary>
         /// Inactive components are skipped by rendering and capture. Dirty-tracked
         /// so toggling one re-captures the frame.
         /// </summary>
@@ -93,7 +152,13 @@ namespace V12.Components
         /// </summary>
         protected void MarkDirty()
         {
-            try { OnDirty?.Invoke(this); } catch { }
+            // A remote value write through a property setter must not bounce the
+            // component snapshot back to the peer that just sent it. The render
+            // refresh still runs: only the network dirty signal is suppressed.
+            if (!IsApplyingRemote)
+            {
+                try { OnDirty?.Invoke(this); } catch { }
+            }
             Core.GameRoot.Instance?.MarkRenderDirty();
         }
 

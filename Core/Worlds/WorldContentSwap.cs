@@ -22,34 +22,10 @@ namespace V12.Core
             if (incoming == null) throw new ArgumentNullException(nameof(incoming));
 
             if (detachOld)
-            {
-                foreach (var root in target.Root.ToArray())
-                    DetachRecursive(root);
-            }
+                target.DetachAll();
 
             target.ReplaceFrom(incoming);
             GameRoot.Instance?.MarkRenderDirty();
-        }
-
-        private static void DetachRecursive(IWorldElement element)
-        {
-            foreach (var component in element.Components.ToArray())
-            {
-                try { component.OnDetach(element); }
-                catch (Exception ex)
-                {
-                    GameRoot.Log?.Warning(ex, "Hot reload: component detach failed on '{Element}'", element.Name);
-                }
-
-                try { component.OnDestroy(); }
-                catch (Exception ex)
-                {
-                    GameRoot.Log?.Warning(ex, "Hot reload: component destroy failed on '{Element}'", element.Name);
-                }
-            }
-
-            foreach (var child in element.Children.ToArray())
-                DetachRecursive(child);
         }
     }
 }

@@ -59,6 +59,18 @@ namespace V12.Core.Rendering
         public float AnchorX = 0.5f;
         public float AnchorY = 0.5f;
 
+        /// <summary>Screen-space canvas draws as an absolute overlay, out of the
+        /// root flow. Content is placed by AnchorX/AnchorY over the viewport.</summary>
+        public bool Overlay;
+
+        /// <summary>Canvas priority. Overlay canvases use it as extra layer weight.</summary>
+        public int Layer;
+
+        /// <summary>False makes the canvas a display-only surface: it still draws,
+        /// but the backend must not use the canvas box as a pointer/focus target.
+        /// Child widgets are still emitted normally.</summary>
+        public bool Interactive = true;
+
         /// <summary>Optional world-canvas shader profile, e.g. <c>flat</c>.</summary>
         public string WorldShader = "";
 

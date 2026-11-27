@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using V12.Core.Core.Interfaces;
 using V12.Core.NetworkCable;
 using V12.Core.Networking;
 
@@ -193,6 +194,48 @@ namespace V12.Core
             }
         }
 
+        private bool _SimulateRemoteWorld = true;
+
+        /// <summary>
+        /// Whether this session ticks the components on a replicated world that
+        /// opted into <c>ComponentSimulationScope.Everywhere</c>. On by default:
+        /// components opt in individually, so this only affects script and mod
+        /// components that asked to run on the client. Turn it off for a pure
+        /// viewer or a bandwidth-throttled client.
+        /// </summary>
+        public bool SimulateRemoteWorld
+        {
+            get => _SimulateRemoteWorld;
+            set => _SimulateRemoteWorld = value;
+        }
+
+        private EntityAuthorityStore? _authorities;
+
+        /// <summary>
+        /// Who simulates each element in this session. The host simulates
+        /// everything it has not delegated to a player; a client simulates the
+        /// elements delegated to it and treats the rest as replicas.
+        /// </summary>
+        public EntityAuthorityStore Authorities => _authorities ??= new EntityAuthorityStore();
+
+        /// <summary>
+        /// The player id the host assigned to this peer, or 0 when unknown (a
+        /// local or hosted session, or a client that has not been welcomed yet).
+        /// A client compares this against <see cref="Authorities"/> to decide
+        /// which elements it simulates.
+        /// </summary>
+        public long LocalPlayerId { get; set; }
+
+        /// <summary>
+        /// Whether this peer is the simulating user for <paramref name="element"/>:
+        /// the host for everything it has not delegated, a client only for the
+        /// elements delegated to it. Physics, component ticking and pose
+        /// replication all follow this one answer.
+        /// </summary>
+        public bool IsSimulatedLocally(IWorldElement element)
+            => Authorities.IsSimulatedLocally(
+                World, element, LocalPlayerId, Authority != WorldAuthority.Remote);
+
         /// <summary>Host-side count of other players in this world.</summary>
         public int PlayersConnected
         {
@@ -251,6 +294,9 @@ namespace V12.Core
                 IsAuthority = authority != WorldAuthority.Remote,
                 Sync = Sync,
                 HasConnectedPeer = () => _link?.IsConnected == true,
+                // A client may only report the pose of elements it simulates;
+                // the host relays those to everyone else.
+                CanSendElement = IsSimulatedLocally,
             };
             Dirty.TrackWorld(world);
 

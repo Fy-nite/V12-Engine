@@ -14,6 +14,7 @@ namespace V12.Core.Networking
         private readonly SyncChannel _channel;
         private readonly Uri _senderUri;
         private readonly Action<byte[]> _send;
+        private readonly Func<MessageDTO, long>? _resolveWriterPlayerId;
         private bool _disposed;
 
         public SyncNetworkBridge(NetworkCables? cables = null, string? senderUri = null)
@@ -22,10 +23,25 @@ namespace V12.Core.Networking
         }
 
         public SyncNetworkBridge(SyncChannel channel, NetworkCables? cables = null, string? senderUri = null)
+            : this(channel, cables, senderUri, resolveWriterPlayerId: null)
+        {
+        }
+
+        /// <param name="resolveWriterPlayerId">
+        /// Host only: maps an incoming message to the player id the transport
+        /// assigned to its sender, so <see cref="SyncChannel.AcceptIncomingKey"/>
+        /// can reject writes from peers that do not simulate the element.
+        /// </param>
+        public SyncNetworkBridge(
+            SyncChannel channel,
+            NetworkCables? cables,
+            string? senderUri,
+            Func<MessageDTO, long>? resolveWriterPlayerId)
         {
             _channel = channel ?? throw new ArgumentNullException(nameof(channel));
             _cables = cables ?? NetworkCables.Default;
             _senderUri = new Uri(senderUri ?? "networkcables://syncbridge");
+            _resolveWriterPlayerId = resolveWriterPlayerId;
 
             _send = bytes =>
             {
@@ -53,7 +69,9 @@ namespace V12.Core.Networking
 
             try
             {
-                _channel.ApplyIncoming(new ReadOnlyMemory<byte>(message.Message), message.Sender);
+                long writerPlayerId = _resolveWriterPlayerId?.Invoke(message) ?? 0L;
+                _channel.ApplyIncoming(
+                    new ReadOnlyMemory<byte>(message.Message), message.Sender, writerPlayerId);
             }
             catch (Exception)
             {

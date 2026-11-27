@@ -72,6 +72,7 @@ namespace V12.Core.Rendering
         public double[] MeshPoints;
         public double[]? MeshUvs;
         public double[]? MeshNormals;
+        public double[]? MeshColors;
         public double[]? MeshTangents;
         public uint[] MeshIndices;
 

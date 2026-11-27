@@ -31,6 +31,7 @@ public sealed class RenderFrameProducer : IDisposable
         public double[]? Points;
         public double[]? Uvs;
         public double[]? Normals;
+        public double[]? Colors;
         public double[]? Tangents;
         public uint[]? Indices;
         public float[]? BoneWeights;
@@ -584,7 +585,10 @@ public sealed class RenderFrameProducer : IDisposable
 
             var mesh = GetMesh(renderable);
             var snapshotMaterial = ReadMaterial(renderable);
-            var material = GetMaterial(snapshotMaterial, out var shaderReflection);
+            var material = GetMaterial(
+                snapshotMaterial,
+                renderable.MeshColors is { Length: > 0 },
+                out var shaderReflection);
 
             // A custom shader owns its uniforms, so the built-in override table
             // (indexed by BuiltInMaterialParameters) does not apply. Map the
@@ -683,6 +687,7 @@ public sealed class RenderFrameProducer : IDisposable
             !ReferenceEquals(state.Points, renderable.MeshPoints) ||
             !ReferenceEquals(state.Uvs, renderable.MeshUvs) ||
             !ReferenceEquals(state.Normals, renderable.MeshNormals) ||
+            !ReferenceEquals(state.Colors, renderable.MeshColors) ||
             !ReferenceEquals(state.Tangents, renderable.MeshTangents) ||
             !ReferenceEquals(state.Indices, renderable.MeshIndices) ||
             !ReferenceEquals(state.BoneWeights, renderable.MeshBoneWeights) ||
@@ -693,6 +698,7 @@ public sealed class RenderFrameProducer : IDisposable
                 Points = renderable.MeshPoints,
                 Uvs = renderable.MeshUvs,
                 Normals = renderable.MeshNormals,
+                Colors = renderable.MeshColors,
                 Tangents = renderable.MeshTangents,
                 Indices = renderable.MeshIndices,
                 BoneWeights = renderable.MeshBoneWeights,
@@ -702,6 +708,7 @@ public sealed class RenderFrameProducer : IDisposable
                     renderable.MeshIndices,
                     renderable.MeshUvs,
                     renderable.MeshNormals,
+                    renderable.MeshColors,
                     renderable.MeshTangents,
                     renderable.MeshBoneWeights,
                     renderable.MeshBoneIndices),
@@ -716,7 +723,10 @@ public sealed class RenderFrameProducer : IDisposable
             state.Version);
     }
 
-    private MaterialHandle GetMaterial(in SnapshotMaterial material, out ShaderReflection? customReflection)
+    private MaterialHandle GetMaterial(
+        in SnapshotMaterial material,
+        bool vertexColors,
+        out ShaderReflection? customReflection)
     {
         customReflection = null;
 
@@ -726,7 +736,7 @@ public sealed class RenderFrameProducer : IDisposable
                     material.ShaderUri!, out var program, out long shaderVersion))
             {
                 customReflection = program.Reflection ?? ShaderReflection.Empty;
-                return CreateCustomMaterial(material, program, shaderVersion);
+                return CreateCustomMaterial(material, vertexColors, program, shaderVersion);
             }
 
             WarnOnce(
@@ -754,7 +764,7 @@ public sealed class RenderFrameProducer : IDisposable
             $"{(material.Unlit ? 1 : 0)}:{(material.NoDepth ? 1 : 0)}:" +
             $"{(material.DoubleSided ? 1 : 0)}:{(material.Triplanar ? 1 : 0)}:" +
             $"{(material.TriplanarWorld ? 1 : 0)}:{material.TriplanarSharpness:F3}:" +
-            $"{(transparent ? 1 : 0)}:{material.AlbedoPath}|{material.NormalPath}|" +
+            $"{(transparent ? 1 : 0)}:{(vertexColors ? 1 : 0)}:{material.AlbedoPath}|{material.NormalPath}|" +
             $"{material.MetallicPath}|{material.RoughnessPath}|{material.EmissionPath}|" +
             $"{material.OcclusionPath}");
 
@@ -774,7 +784,8 @@ public sealed class RenderFrameProducer : IDisposable
             CastShadows: true,
             ReceiveShadows: true,
             Parameters: parameters,
-            Textures: bindings.ToArray());
+            Textures: bindings.ToArray(),
+            VertexColors: vertexColors);
 
         return _resources.GetOrCreateMaterial(key, shader, desc);
     }
@@ -787,6 +798,7 @@ public sealed class RenderFrameProducer : IDisposable
     /// </summary>
     private MaterialHandle CreateCustomMaterial(
         in SnapshotMaterial material,
+        bool vertexColors,
         in ShaderProgram program,
         long shaderVersion)
     {
@@ -812,13 +824,14 @@ public sealed class RenderFrameProducer : IDisposable
             CastShadows: !transparent,
             ReceiveShadows: true,
             Parameters: ReadOnlyMemory<MaterialValue>.Empty,
-            Textures: bindings.ToArray());
+            Textures: bindings.ToArray(),
+            VertexColors: vertexColors);
 
         string key = string.Create(
             CultureInfo.InvariantCulture,
             $"custom-material:{uri}:{shaderVersion}:{(material.Unlit ? 1 : 0)}:" +
             $"{(material.NoDepth ? 1 : 0)}:{(material.DoubleSided ? 1 : 0)}:" +
-            $"{(transparent ? 1 : 0)}:{material.AlbedoPath}|{material.NormalPath}|" +
+            $"{(transparent ? 1 : 0)}:{(vertexColors ? 1 : 0)}:{material.AlbedoPath}|{material.NormalPath}|" +
             $"{material.MetallicPath}|{material.RoughnessPath}|{material.EmissionPath}|" +
             $"{material.OcclusionPath}");
 
@@ -1271,6 +1284,7 @@ public sealed class RenderFrameProducer : IDisposable
         uint[]? indices,
         double[]? sourceUvs,
         double[]? sourceNormals,
+        double[]? sourceColors,
         double[]? sourceTangents,
         float[]? boneWeights,
         int[]? boneIndices)
@@ -1357,8 +1371,25 @@ public sealed class RenderFrameProducer : IDisposable
         }
 
         var uvs = BuildUvs(positions, normals, sourceUvs);
+
+        // Per-vertex colour is opt-in: a mesh that does not paint vertices keeps
+        // the cheap opaque-white stream every backend already expects.
         var colors = new Vector4[vertexCount];
-        Array.Fill(colors, Vector4.One);
+        if (sourceColors is not null && sourceColors.Length == vertexCount * 4)
+        {
+            for (int i = 0; i < vertexCount; i++)
+            {
+                colors[i] = new Vector4(
+                    (float)sourceColors[i * 4],
+                    (float)sourceColors[i * 4 + 1],
+                    (float)sourceColors[i * 4 + 2],
+                    (float)sourceColors[i * 4 + 3]);
+            }
+        }
+        else
+        {
+            Array.Fill(colors, Vector4.One);
+        }
 
         // A skinned mesh always needs a full tangent basis for Godot's mesh
         // format; when the source has none, derive a stable tangent per vertex.

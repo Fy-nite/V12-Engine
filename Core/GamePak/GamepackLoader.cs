@@ -380,6 +380,21 @@ namespace V12.Core.GamePak
         }
 
         /// <summary>
+        /// Stop and remove one gamepak instance. Needed for gamepaks whose type
+        /// does not live in the pak's own assembly (Contract and ObjektRT script
+        /// entrypoints), which <see cref="RemoveFromAssembly"/> cannot find.
+        /// </summary>
+        public bool Remove(IV12Gamepack pak)
+        {
+            if (pak is null) return false;
+            if (!_gamepaks.Remove(pak)) return false;
+
+            StopOne(pak);
+            Log.Information("Removed gamepak '{Name}'", pak.Name);
+            return true;
+        }
+
+        /// <summary>
         /// Stop and remove every gamepak that came from
         /// <paramref name="assembly"/> (e.g. the old generation of a hot-reloaded
         /// C# script set). Returns the number removed.

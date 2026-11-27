@@ -10,12 +10,53 @@ not want a full component snapshot for every change. The current in-tree
 consumer is `MeshComponent`, which publishes mesh vertex and index buffers this
 way.
 
-> **Status:** `SyncValue<T>` is a working side channel, not a complete
-> field-replication feature. The send path is wired into `GameRoot`, but the
-> receive path is the consumer's responsibility: a `SyncValue` applies the new
-> value to itself and raises `OnRemoteApplied`; it does not know how to write
-> that value back into your component. See
-> [Current limitations](#current-limitations) before using it for new state.
+> **Status:** `SyncValue<T>` is a working side channel, and `[Sync]` field
+> binding now removes the per-component plumbing: mark a field, and the binder
+> creates the value, polls it for changes and writes remote updates back. The
+> receive path is still the consumer's responsibility for *explicit*
+> `SyncValue<T>` members. See [Current limitations](#current-limitations) before
+> using it for new state.
+
+## Field sync: `[Sync]` members
+
+This is the no-plumbing path. Mark the user-facing state on a component type:
+
+```csharp
+public sealed class DoorComponent : ComponentBase
+{
+    [Sync] public float OpenAmount;        // key: OpenAmount
+    [Sync("state/locked")] public bool Locked;   // key: state/locked
+    public float AnimationCache;           // unmarked: local
+}
+```
+
+What the binder does, once per component type and instance:
+
+- builds a cached schema of `[Sync]` fields and properties (no reflection on the
+  tick path);
+- creates one `SyncValue<T>` per member with the member name as its key, so the
+  wire format and last-write-wins rules are identical to an explicit value;
+- polls the members once per fixed tick **on the peer that simulates the element**
+  and publishes only what changed — a plain `component.Speed = 5f` is enough, no
+  setter plumbing;
+- writes a remote value straight back into the member. A property setter that
+  calls `MarkDirty` does not echo the update back onto the wire (the render
+  refresh still runs).
+
+Both paths coexist on the same component. Explicit `SyncValue<T>` members are
+skipped by the binder and discovered by the member scan instead, so use
+`[Sync]` for ordinary values and `SyncValue<T>` when you want to control when a
+large or explicit value is sent.
+
+Initial values reach a joining client through the component snapshot, so the
+binder starts clean. `[Sync]` together with `[BsonIgnore]` means "value channel
+only" (the snapshot omits it); that case is covered by the full keyframe the host
+sends when a client connects (`SyncChannel.MarkAllDirty`).
+
+Do not mark caches, handles, or per-peer settings — anything that is not shared
+state will be pushed around. A `[Sync]` field costs one value, one registry entry
+and one compiled accessor call per tick.
+
 
 ## When to use it
 
@@ -309,16 +350,24 @@ The two mechanisms should not both own the same value.
   component id changes later. Create the value after ids are assigned.
 - **Both peers must use the same `T`.** The wire payload has no type tag. A
   mismatch either fails deserialization or produces the wrong value.
-- **One authority per value.** `SyncValue` does not reject writes by role.
-  Guard the publish path yourself.
+- **One authority per value is still policy, not enforcement.** `SyncValue` no
+  longer drops valid writers, it orders them last-write-wins. `NetworkWorldLink`
+  relays a client's batch to the other peers (`RelayRemoteValueWrites`, on by
+  default), so in a session any peer can write any value. Who *may* write is the
+  job of the authority gate planned in
+  `docs/PEER_HOSTING_AND_AUTHORITY.md` §5 and Phase B; until that exists, treat
+  multi-peer value writes as trusted-session behaviour.
 - **Write the backing field on remote apply.** Do not re-enter the property
   setter unless it is guarded against echo.
 - **Arrays are compared by reference.** `EqualityComparer<T>.Default` treats two
   different array instances as different even when their contents match, and
   treats a mutated-in-place array as unchanged. Publish a new array, or call
   `MarkDirty()` explicitly.
-- **No unregister.** The registry has no removal API. Values created for
-  destroyed components stay registered for the rest of the process.
+- **Teardown unregisters values.** `World.DetachAll` and `Element.RemoveComponent`
+  release a component's values from the process-wide registry by instance
+  (`SyncRegistry.Unregister(value)`, which refuses to remove a replacement that
+  took the same key). A value created and never attached to a component still
+  lingers until its key is reused.
 - **No built-in full-state resend.** A late joiner needs the keys to exist
   before batches can apply. The current `GameRoot` flow sends a mesh sync batch
   before `WorldSync`, and the receiver drops unknown keys.
@@ -335,10 +384,11 @@ File: `V12-Engine/Core/Networking/SyncValue.cs`
 | `Path` | Alias for `Key`. |
 | `ValueType` | `typeof(T)`. |
 | `Value` | Current value, read under the internal lock. |
-| `Version` | Local `ulong` version counter. Increments on each accepted local change. |
+| `Version` | Packed `(clock << 16) \| writerId` stamp of the last accepted write, local or remote. Use `ClockOf` / `WriterOf` instead of treating it as a counter. |
+| `WriterId` | 16-bit writer identity, assigned by the owning `SyncChannel`. It is the last-write-wins tie-break, not a permission check. |
 | `IsDirty` | Whether the value has changed since the last `ClearDirty`. |
-| `Set(T newValue)` | Updates the value when it differs, increments the version, marks dirty, and raises `OnValueChanged` and `OnDirty`. |
-| `TryApplyRemote(T newValue, ulong version, Uri sender = null)` | Applies a remote value only when `version` is strictly greater than the local version. Clears dirty and raises `OnValueChanged` when the value changed and `OnRemoteApplied` in all accepted cases. |
+| `Set(T newValue)` | Updates the value when it differs, takes a new clock stamp, marks dirty, and raises `OnValueChanged` and `OnDirty`. |
+| `TryApplyRemote(T newValue, ulong version, Uri sender = null)` | Applies a remote value only when its version is strictly greater than the last accepted stamp. Adopts a newer remote clock, clears dirty, raises `OnValueChanged` when the value changed and `OnRemoteApplied` in all accepted cases. |
 | `MarkDirty()` | Marks dirty without changing the value. Raises `OnDirty` only on the transition from clean to dirty. |
 | `ClearDirty()` | Clears the dirty flag. |
 | `ToByteArray()` | Serializes `version` plus the value. |
@@ -381,6 +431,12 @@ repeat itemCount times:
   bytes   payload
 ```
 
+The batch is the `Message` of a `MessageDTO`. That message goes through
+`AncientCompressor`, which Brotli-compresses payloads of 512 B or more behind a
+`V12C` header (codec + original length) and returns anything smaller, denser, or
+already compressed as raw BSON. So the format above is what the receiver sees
+after decompression.
+
 ### Value payload
 
 `SyncValue<T>.ToByteArray` writes:
@@ -389,6 +445,20 @@ repeat itemCount times:
 uint64  version
 value
 ```
+
+The version is a last-write-wins stamp, not a counter:
+
+```text
+bits 63..16   hybrid clock: UTC milliseconds, forced forward per value
+bits 15..0    writer id from SyncChannel.WriterId
+```
+
+Comparing two versions as a `uint64` therefore orders by `(clock, writer)`. A
+remote version is applied only when it is strictly greater than the last accepted
+stamp, which is remembered exactly rather than recomputed, so a duplicate packet
+cannot re-apply. Clock skew only affects writes made inside the skew window; an
+exact millisecond tie is broken by the writer id, deterministically on every
+peer. `SyncValue<T>.PackVersion`, `ClockOf` and `WriterOf` expose the layout.
 
 The value encoding depends on `T`:
 
@@ -457,16 +527,19 @@ These are the gaps identified during the SyncValue networking review. They are
 the reason the channel is documented as a side channel rather than a general
 component feature.
 
-1. **The receive path is not wired for the only consumer.** `MeshComponent`
-   creates and publishes `MeshPointsValue` and `IndicesValue`, but never
-   subscribes to `OnRemoteApplied`. The client stores the value in the registry
-   and keeps rendering locally generated mesh data. A new consumer must add the
-   write-back hook itself.
+1. **Explicit `SyncValue<T>` members still need the write-back hook.** The
+   `[Sync]` field binder handles this automatically, but a hand-declared
+   `SyncValue<T>` property is only applied to the value object unless the
+   component subscribes to `OnRemoteApplied`. Use `[Sync]` on a field when you do
+   not need that control.
 2. **Global static state.** `SyncRegistry` and `SyncManager.SendBytes` are
    process-wide. Two roots in one process share keys and overwrite the send
    hook.
-3. **No unregistration.** Values stay in `SyncRegistry` after their component is
-   detached or destroyed. Old keys can collide with newly created components.
+3. **Unregistration is teardown-only.** Values are released from `SyncRegistry`
+   when their component is detached or destroyed
+   (`World.DetachAll` / `Element.RemoveComponent`, instance-checked so a
+   replacement on the same key survives). A value created and never attached
+   still lingers until its key is reused.
 4. **Keys can be baked too early.** `MeshComponent.OnAttach` builds its prefix
    from `Owner.Id`. In the archive world-sync path, the server ids are assigned
    after the archive world was parsed and after `OnAttach` ran, so the client
@@ -490,9 +563,13 @@ component feature.
 10. **No lanes or settle keyframes.** Every value goes through the same
     `SyncBatch` message. There is no unreliable lane for continuous motion and
     no reliable settle packet for a dropped final update.
-11. **Version-based stale-drop assumes one authority.** `TryApplyRemote` rejects
-    versions that are not strictly greater. If authority for a value moves to a
-    peer with a lower counter, valid updates are dropped.
+11. **Conflict resolution is last-write-wins only.** The packed `(clock, writer)`
+    stamp makes concurrent writes converge and no longer drops a peer that has a
+    lower counter, but it does not arbitrate ownership: a write wins because it
+    is newer, not because the sender was allowed to make it. Epoch fencing and
+    the per-entity `CanWrite` gate are still required for authority handoff.
+    Clock skew between peers shows up as "the peer whose clock is ahead wins"
+    inside the skew window.
 12. **No compression.** The value payload is raw primitives or JSON. Large
     arrays are expensive, and the key string is repeated in every batch entry.
 13. **Remote apply runs on the transport thread.** `SyncNetworkBridge` calls
@@ -503,19 +580,16 @@ component feature.
 ## Where this is going
 
 The design review for this channel concluded that the long-term shape is not a
-`SyncValue<T>` wrapper per field. It is a component field sync service:
+`SyncValue<T>` wrapper per field. It is a component field sync service. The first
+slice landed: `[Sync]` fields are bound automatically, with a cached per-type
+schema and one generic write-back. What is still missing:
 
-- `[Sync]` on backing fields, with `SetSync` handling equality, epsilon, and
-  dirty marking.
-- A cached schema per component type with stable field ids and a schema hash
-  exchange at connect.
-- An instance-based `SyncService` registered in `Registry`, with bind/unbind on
-  component attach/detach and world replacement.
-- Separate reliable and unreliable lanes, per-component sequence numbers, and a
-  settle keyframe.
-- Codecs selected from the declared CLR type, with no global BSON registration.
-- A reliable sequenced operation log for structural changes. OT was rejected
-  for runtime field state because the host is already authoritative.
+- a numeric field id plus schema hash exchange, instead of the member name as the
+  wire key;
+- separate reliable and unreliable lanes, per-component sequence numbers, and a
+  settle keyframe (the join keyframe exists, per-value lanes do not);
+- codecs selected from the declared CLR type, with no global BSON registration
+  and no JSON fallback for arrays.
 
 That work is not implemented yet. Until it is, use `SyncValue<T>` only when the
 separate value-level channel is genuinely what you want. For ordinary component

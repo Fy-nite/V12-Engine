@@ -7,6 +7,13 @@ using V12.Core.UI;
 
 namespace V12.Components
 {
+    /// <summary>
+    /// The interpreter is local logic, so it runs for whoever simulates the
+    /// element: the host for a host-owned object, the owning client for a
+    /// grabbed one. Clients load the script from the replicated
+    /// <see cref="ScriptText"/> in <see cref="OnAttach"/>, so the per-frame hook
+    /// follows the same rule as any other gameplay component.
+    /// </summary>
     [ComponentEntry("GAMEPLAY", "Script", SingleInstance = true, SortOrder = 2, Icon = "scroll")]
     public class ScriptComponent : ComponentBase
     {

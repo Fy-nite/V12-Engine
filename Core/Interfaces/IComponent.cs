@@ -101,6 +101,14 @@ namespace V12.Core.Core.Interfaces
         void CopyFrom(IComponent other) { }
 
         /// <summary>
+        /// Which peers tick this component. Defaults to
+        /// <see cref="ComponentSimulationScope.Simulator"/>: the component runs
+        /// wherever its element is simulated, so a replicated world stays
+        /// host-simulated unless the element is delegated to a player.
+        /// </summary>
+        ComponentSimulationScope SimulationScope => ComponentSimulationScope.Simulator;
+
+        /// <summary>
         /// Releases all resources used by the current instance and performs cleanup operations.
         /// </summary>
         /// <remarks>This method should be called when the instance is no longer needed to ensure proper

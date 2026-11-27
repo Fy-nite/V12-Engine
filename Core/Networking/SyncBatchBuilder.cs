@@ -28,6 +28,30 @@ namespace V12.Core.Networking
             return ms.ToArray();
         }
 
+        /// <summary>
+        /// Rebuild a batch from already-serialized entries, e.g. after filtering a
+        /// client batch by authority before relaying it.
+        /// </summary>
+        public static byte[] BuildBatch(IEnumerable<(string Key, ReadOnlyMemory<byte> Payload)> items)
+        {
+            using var ms = new MemoryStream();
+            using var w = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true);
+
+            var list = new List<(string Key, ReadOnlyMemory<byte> Payload)>(items);
+            w.Write(list.Count);
+            foreach (var (key, payload) in list)
+            {
+                var keyBytes = Encoding.UTF8.GetBytes(key);
+                w.Write(keyBytes.Length);
+                w.Write(keyBytes);
+                w.Write(payload.Length);
+                w.Write(payload.Span);
+            }
+
+            w.Flush();
+            return ms.ToArray();
+        }
+
         public static IEnumerable<(string key, ReadOnlyMemory<byte> payload)> EnumerateBatch(ReadOnlyMemory<byte> batch)
         {
             // Convert to array early because iterator methods cannot capture spans.

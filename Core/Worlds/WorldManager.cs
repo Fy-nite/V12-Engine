@@ -262,6 +262,11 @@ namespace V12.Core
             session.Dirty.UntrackWorld(session.World);
             session.Sync.Dispose();
 
+            // Detach before the tree loses its last reference: components own
+            // event subscriptions, script runtimes and backend resources (Bepu
+            // bodies) that must be released with the world.
+            session.World.DetachAll();
+
             if (options.ClearWorld)
                 session.World.ReplaceFrom(new World(session.World.WorldName));
 
@@ -303,6 +308,10 @@ namespace V12.Core
                 if (session.Link is IDisposable link)
                     link.Dispose();
                 session.Sync.Dispose();
+
+                // Same teardown as Close: a world removed from GameRoot.Worlds
+                // directly still has live components and backend bodies.
+                session.World.DetachAll();
             }
         }
     }

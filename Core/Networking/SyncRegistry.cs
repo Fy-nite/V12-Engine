@@ -31,6 +31,19 @@ namespace V12.Core.Networking
             return _map.TryRemove(key, out _);
         }
 
+        /// <summary>
+        /// Remove <paramref name="value"/> only when it is still the instance
+        /// registered under its key. Registering a second value with the same key
+        /// deliberately wins, so removing by key alone could delete a live
+        /// replacement; teardown must not do that.
+        /// </summary>
+        public bool Unregister(ISyncValue value)
+        {
+            if (value == null) return false;
+            return ((ICollection<KeyValuePair<string, ISyncValue>>)_map)
+                .Remove(new KeyValuePair<string, ISyncValue>(value.Key, value));
+        }
+
         public void Clear() => _map.Clear();
 
         public bool TryGet(string key, out ISyncValue value)
